@@ -439,20 +439,21 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     function isVisibleRect2(rect) {
       return rect.width > 0.01 && rect.height > 0.01;
     }
-    function clipRectsToSpans2(rects, spanRects) {
-      if (!spanRects || !spanRects.length) return (rects || []).slice();
+    function textTokenRanges2(text, start, end) {
+      var source = String(text == null ? "" : text);
+      var from = Math.max(0, start === void 0 ? 0 : start);
+      var to = Math.min(source.length, end === void 0 ? source.length : end);
+      var isSpace = function(ch) {
+        return ch === "" || /\s/.test(ch);
+      };
       var out = [];
-      for (var i = 0; i < rects.length; i++) {
-        var r = rects[i];
-        for (var j = 0; j < spanRects.length; j++) {
-          var s = spanRects[j];
-          var overlap = Math.min(r.top + r.height, s.top + s.height) - Math.max(r.top, s.top);
-          if (overlap <= 0.5 * Math.min(r.height, s.height)) continue;
-          var left = Math.max(r.left, s.left);
-          var right = Math.min(r.left + r.width, s.left + s.width);
-          if (right - left <= 0.01) continue;
-          out.push({ left, top: r.top, width: right - left, height: r.height });
-        }
+      var i = from;
+      while (i < to) {
+        while (i < to && isSpace(source.charAt(i))) i++;
+        if (i >= to) break;
+        var tokenStart = i;
+        while (i < to && !isSpace(source.charAt(i))) i++;
+        out.push({ start: tokenStart, end: i });
       }
       return out;
     }
@@ -549,7 +550,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       rectFromCorners: rectFromCorners2,
       roundRect: roundRect2,
       isVisibleRect: isVisibleRect2,
-      clipRectsToSpans: clipRectsToSpans2,
+      textTokenRanges: textTokenRanges2,
       clientRectsToPdfRects: clientRectsToPdfRects2,
       pdfRectToViewportRect: pdfRectToViewportRect2,
       mergeLineRects: mergeLineRects2,
@@ -563,7 +564,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   var rectFromCorners = geometry.rectFromCorners;
   var roundRect = geometry.roundRect;
   var isVisibleRect = geometry.isVisibleRect;
-  var clipRectsToSpans = geometry.clipRectsToSpans;
+  var textTokenRanges = geometry.textTokenRanges;
   var clientRectsToPdfRects = geometry.clientRectsToPdfRects;
   var pdfRectToViewportRect = geometry.pdfRectToViewportRect;
   var mergeLineRects = geometry.mergeLineRects;
@@ -877,6 +878,28 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       }
       return null;
     }
+    function measureSelection(range, layer) {
+      var rects = [];
+      var words = [];
+      var walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT, null);
+      var node;
+      while (node = walker.nextNode()) {
+        if (!range.intersectsNode(node)) continue;
+        var text = node.nodeValue || "";
+        var from = node === range.startContainer ? range.startOffset : 0;
+        var to = node === range.endContainer ? range.endOffset : text.length;
+        var tokens = geom.textTokenRanges(text, from, to);
+        for (var t = 0; t < tokens.length; t++) {
+          var part = document.createRange();
+          part.setStart(node, tokens[t].start);
+          part.setEnd(node, tokens[t].end);
+          var list = part.getClientRects();
+          for (var i = 0; i < list.length; i++) rects.push(list[i]);
+          words.push(text.slice(tokens[t].start, tokens[t].end));
+        }
+      }
+      return { rects, text: words.join(" ") };
+    }
     function setPending(selection) {
       state.pendingSelection = selection;
       if (!selection) {
@@ -904,34 +927,22 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       var viewport = state.viewports[pageNum];
       if (!viewport) return setPending(null);
       var containerRect = wrap.getBoundingClientRect();
-      var all = Array.prototype.slice.call(range.getClientRects());
-      var onPage = all.filter(function(r) {
-        var midY = r.top + r.height / 2;
-        return midY >= containerRect.top && midY <= containerRect.bottom;
-      });
-      var spanRects = [];
-      var spans = layer.querySelectorAll("span");
-      for (var i = 0; i < spans.length; i++) {
-        spanRects.push(spans[i].getBoundingClientRect());
-      }
+      var spilled = textLayerOf(range.endContainer) !== layer;
+      var measured = measureSelection(range, layer);
       var rects = geom.mergeLineRects(
-        geom.clientRectsToPdfRects(
-          geom.clipRectsToSpans(onPage, spanRects),
-          containerRect,
-          function(x, y) {
-            return viewport.convertToPdfPoint(x, y);
-          }
-        )
+        geom.clientRectsToPdfRects(measured.rects, containerRect, function(x, y) {
+          return viewport.convertToPdfPoint(x, y);
+        })
       );
       if (!rects.length) return setPending(null);
-      var lastRect = onPage.length ? onPage[onPage.length - 1] : containerRect;
+      var lastRect = measured.rects.length ? measured.rects[measured.rects.length - 1] : containerRect;
       var anchorX = event && event.clientX ? event.clientX : lastRect.left + lastRect.width / 2;
       var anchorY = event && event.clientY ? event.clientY : lastRect.top + lastRect.height;
       var selection = {
         page: pageNum,
         rects,
-        quoteText: geom.normalizeQuoteText(sel.toString()),
-        spilled: onPage.length !== all.length,
+        quoteText: geom.normalizeQuoteText(measured.text),
+        spilled,
         anchorX,
         anchorY
       };

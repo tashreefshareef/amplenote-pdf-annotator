@@ -443,6 +443,46 @@ export function viewerMain() {
     return null;
   }
 
+  /**
+   * Measure a selection one WORD at a time, within a single page's text layer.
+   *
+   * Not `range.getClientRects()`, which reports one rect per line box: when several
+   * visual lines share a block - normal in a real PDF's text layer - every non-final
+   * line comes back padded out to the block's full width, and the highlight paints past
+   * the end of the sentence. A word cannot contain a line break, so its rect is always
+   * tight around real glyphs. See textTokenRanges in geometry.js for the measurements
+   * behind this.
+   *
+   * The quote is built from the same tokens rather than from `selection.toString()`, so
+   * the text and the geometry always describe the same words - which matters when a drag
+   * crosses a page break and only this page's rects are kept.
+   */
+  function measureSelection(range, layer) {
+    var rects = [];
+    var words = [];
+    var walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT, null);
+    var node;
+
+    while ((node = walker.nextNode())) {
+      if (!range.intersectsNode(node)) continue;
+      var text = node.nodeValue || "";
+      var from = node === range.startContainer ? range.startOffset : 0;
+      var to = node === range.endContainer ? range.endOffset : text.length;
+
+      var tokens = geom.textTokenRanges(text, from, to);
+      for (var t = 0; t < tokens.length; t++) {
+        var part = document.createRange();
+        part.setStart(node, tokens[t].start);
+        part.setEnd(node, tokens[t].end);
+        var list = part.getClientRects();
+        for (var i = 0; i < list.length; i++) rects.push(list[i]);
+        words.push(text.slice(tokens[t].start, tokens[t].end));
+      }
+    }
+
+    return { rects: rects, text: words.join(" ") };
+  }
+
   function setPending(selection) {
     state.pendingSelection = selection;
     if (!selection) {
@@ -488,44 +528,30 @@ export function viewerMain() {
     if (!viewport) return setPending(null);
 
     var containerRect = wrap.getBoundingClientRect();
-    var all = Array.prototype.slice.call(range.getClientRects());
-    var onPage = all.filter(function (r) {
-      var midY = r.top + r.height / 2;
-      return midY >= containerRect.top && midY <= containerRect.bottom;
-    });
-
-    // A selection rect can be wider than the text under it - a span padded with trailing
-    // whitespace from the PDF's content stream, or a line-break element caught by the
-    // range - which paints a band running past the end of the sentence. Clip to the
-    // spans that actually back it.
-    var spanRects = [];
-    var spans = layer.querySelectorAll("span");
-    for (var i = 0; i < spans.length; i++) {
-      spanRects.push(spans[i].getBoundingClientRect());
-    }
+    // Only this page's layer is walked, so rects from a page the drag spilled onto are
+    // never collected. Comparing the layers is a more direct test of that than guessing
+    // from rect positions.
+    var spilled = textLayerOf(range.endContainer) !== layer;
+    var measured = measureSelection(range, layer);
 
     var rects = geom.mergeLineRects(
-      geom.clientRectsToPdfRects(
-        geom.clipRectsToSpans(onPage, spanRects),
-        containerRect,
-        function (x, y) {
-          return viewport.convertToPdfPoint(x, y);
-        }
-      )
+      geom.clientRectsToPdfRects(measured.rects, containerRect, function (x, y) {
+        return viewport.convertToPdfPoint(x, y);
+      })
     );
     if (!rects.length) return setPending(null);
 
     // Anchor the popover where the gesture ended. Falling back to the last rect keeps
     // keyboard selection (shift-arrow, ctrl-A) working, which has no pointer position.
-    var lastRect = onPage.length ? onPage[onPage.length - 1] : containerRect;
+    var lastRect = measured.rects.length ? measured.rects[measured.rects.length - 1] : containerRect;
     var anchorX = event && event.clientX ? event.clientX : lastRect.left + lastRect.width / 2;
     var anchorY = event && event.clientY ? event.clientY : lastRect.top + lastRect.height;
 
     var selection = {
       page: pageNum,
       rects: rects,
-      quoteText: geom.normalizeQuoteText(sel.toString()),
-      spilled: onPage.length !== all.length,
+      quoteText: geom.normalizeQuoteText(measured.text),
+      spilled: spilled,
       anchorX: anchorX,
       anchorY: anchorY,
     };

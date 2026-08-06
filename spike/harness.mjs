@@ -56,6 +56,19 @@ paragraph.forEach((line, i) => {
 page1.drawText("Left column text", { x: 72, y: 460, size: 12, font });
 page1.drawText("Right column text", { x: 360, y: 460, size: 12, font });
 
+// Trailing whitespace in the content stream, which designed PDFs carry all the time.
+// PDF.js makes the text-layer span as wide as the run INCLUDING those spaces, so a
+// selection reaches past the last visible glyph and the highlight paints a band running
+// off the end of the sentence. Reported from a real insurance PDF; this line reproduces
+// it on demand.
+page1.drawText("This sentence is padded with trailing spaces.                    ", {
+  x: 72,
+  y: 420,
+  size: 12,
+  font,
+});
+page1.drawText("       Leading spaces pad this one.", { x: 72, y: 400, size: 12, font });
+
 const page2 = pdf.addPage([612, 792]);
 page2.drawText("Page two exists to test per-page coordinates", { x: 72, y: 700, size: 14, font: bold });
 page2.drawText("Identical coordinates on another page must not collide.", { x: 72, y: 660, size: 12, font });

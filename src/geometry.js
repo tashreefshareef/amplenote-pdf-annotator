@@ -75,45 +75,44 @@ export function createGeometry() {
   }
 
   /**
-   * Trim selection rects to the text they actually cover.
+   * Split a slice of text into runs of non-whitespace, as {start, end} offset pairs.
    *
-   * `range.getClientRects()` is not a promise that every rect is backed by glyphs. A
-   * rect can run past the last visible character because the text-layer span carries
-   * trailing whitespace from the PDF's content stream, or because the range picked up a
-   * line-break element. The symptom is a highlight whose colored band overshoots the end
-   * of the sentence, sometimes all the way to the edge of the page - reported from a
-   * real insurance PDF whose runs are padded, and not reproducible on a PDF written by
-   * pdf-lib, whose spans hug their glyphs exactly.
+   * This is what stops a highlight painting past the end of its sentence, and the reason
+   * is worth writing down because two earlier fixes aimed at the wrong thing.
    *
-   * Each rect is intersected HORIZONTALLY with every span it shares a line with, and the
-   * covered pieces are kept. Clipping vertically too would shrink the band to the glyph
-   * box and make highlights look cramped, so the rect's own height is preserved.
+   * `range.getClientRects()` reports one rect per LINE BOX, not per glyph. Whenever
+   * several visual lines share one block - which happens in the text layer of a real,
+   * designed PDF - the browser paints every non-final line's selection out to the full
+   * width of that block, and only the last line hugs its text. Measured directly in a
+   * browser: a 400px block wrapping into two lines returns rects of 398.2px and 132.7px.
+   * That is exactly the reported symptom, where the mid-paragraph lines ran to the edge
+   * of the page and the closing line looked right.
    *
-   * Splitting one rect into per-span pieces is not a problem: `mergeLineRects` runs
-   * afterwards and rejoins anything separated only by a word gap, while a real column
-   * gutter stays open.
+   * Clipping those rects to the SPANS does nothing, because the over-wide span is the
+   * block. Trimming trailing whitespace does nothing either - PDF.js has already
+   * stripped it. The only reliable boundary is the glyphs themselves, so the caller
+   * measures one rect per word: a word cannot contain a line break, so its rect is
+   * always tight around real characters.
    *
-   * Rects are the DOMRect subset {left, top, width, height}, matching what
-   * `getClientRects()` hands back and what `clientRectsToPdfRects` expects next.
+   * `mergeLineRects` then rejoins the words of a line into a single band, since an
+   * inter-word gap is far smaller than the line height, while a column gutter is not.
    */
-  function clipRectsToSpans(rects, spanRects) {
-    // No spans to check against is not a reason to throw the selection away.
-    if (!spanRects || !spanRects.length) return (rects || []).slice();
+  function textTokenRanges(text, start, end) {
+    var source = String(text == null ? "" : text);
+    var from = Math.max(0, start === undefined ? 0 : start);
+    var to = Math.min(source.length, end === undefined ? source.length : end);
+    var isSpace = function (ch) {
+      return ch === "" || /\s/.test(ch);
+    };
 
     var out = [];
-    for (var i = 0; i < rects.length; i++) {
-      var r = rects[i];
-      for (var j = 0; j < spanRects.length; j++) {
-        var s = spanRects[j];
-        var overlap = Math.min(r.top + r.height, s.top + s.height) - Math.max(r.top, s.top);
-        if (overlap <= 0.5 * Math.min(r.height, s.height)) continue;
-
-        var left = Math.max(r.left, s.left);
-        var right = Math.min(r.left + r.width, s.left + s.width);
-        if (right - left <= 0.01) continue;
-
-        out.push({ left: left, top: r.top, width: right - left, height: r.height });
-      }
+    var i = from;
+    while (i < to) {
+      while (i < to && isSpace(source.charAt(i))) i++;
+      if (i >= to) break;
+      var tokenStart = i;
+      while (i < to && !isSpace(source.charAt(i))) i++;
+      out.push({ start: tokenStart, end: i });
     }
     return out;
   }
@@ -279,7 +278,7 @@ export function createGeometry() {
     rectFromCorners: rectFromCorners,
     roundRect: roundRect,
     isVisibleRect: isVisibleRect,
-    clipRectsToSpans: clipRectsToSpans,
+    textTokenRanges: textTokenRanges,
     clientRectsToPdfRects: clientRectsToPdfRects,
     pdfRectToViewportRect: pdfRectToViewportRect,
     mergeLineRects: mergeLineRects,
@@ -296,7 +295,7 @@ export const clientRectToLocal = geometry.clientRectToLocal;
 export const rectFromCorners = geometry.rectFromCorners;
 export const roundRect = geometry.roundRect;
 export const isVisibleRect = geometry.isVisibleRect;
-export const clipRectsToSpans = geometry.clipRectsToSpans;
+export const textTokenRanges = geometry.textTokenRanges;
 export const clientRectsToPdfRects = geometry.clientRectsToPdfRects;
 export const pdfRectToViewportRect = geometry.pdfRectToViewportRect;
 export const mergeLineRects = geometry.mergeLineRects;

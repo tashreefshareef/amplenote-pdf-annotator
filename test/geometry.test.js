@@ -18,7 +18,7 @@ import {
   rectFromCorners,
   roundRect,
   isVisibleRect,
-  clipRectsToSpans,
+  textTokenRanges,
   clientRectsToPdfRects,
   pdfRectToViewportRect,
   mergeLineRects,
@@ -116,86 +116,85 @@ describe("isVisibleRect", () => {
   });
 });
 
-describe("clipRectsToSpans", () => {
-  // Rects here use the DOMRect subset getClientRects() returns.
-  const rect = (left, top, width, height = 15) => ({ left, top, width, height });
+describe("textTokenRanges", () => {
+  const slice = (text, ranges) => ranges.map((r) => text.slice(r.start, r.end));
 
-  // Scenario: THE bug this exists for, seen in the live app on a real insurance PDF.
-  // A selection rect ran past the last visible character - the text-layer span carries
-  // trailing whitespace from the PDF's content stream - and the highlight painted a band
-  // all the way to the edge of the page.
-  test("trims a rect that overshoots the end of the text", () => {
-    const clipped = clipRectsToSpans([rect(100, 50, 600)], [rect(100, 50, 320)]);
-    expect(clipped).toEqual([{ left: 100, top: 50, width: 320, height: 15 }]);
-  });
-
-  // Scenario: the normal case must survive untouched - a selection covering exactly the
-  // text it was dragged over.
-  test("leaves a rect that matches its span alone", () => {
-    const clipped = clipRectsToSpans([rect(100, 50, 320)], [rect(100, 50, 320)]);
-    expect(clipped).toEqual([{ left: 100, top: 50, width: 320, height: 15 }]);
-  });
-
-  // Scenario: a partial selection starting mid-word. The clip must not widen a rect back
-  // out to the full span.
-  test("never widens a rect beyond what was selected", () => {
-    const clipped = clipRectsToSpans([rect(150, 50, 100)], [rect(100, 50, 320)]);
-    expect(clipped).toEqual([{ left: 150, top: 50, width: 100, height: 15 }]);
-  });
-
-  // Scenario: a line built from several text runs. One rect becomes several pieces,
-  // which mergeLineRects rejoins - so the visible result is unchanged.
-  test("splits across several spans, leaving pieces mergeLineRects can rejoin", () => {
-    const clipped = clipRectsToSpans(
-      [rect(100, 50, 300)],
-      [rect(100, 50, 120), rect(224, 50, 100)]
-    );
-    expect(clipped).toEqual([
-      { left: 100, top: 50, width: 120, height: 15 },
-      { left: 224, top: 50, width: 100, height: 15 },
+  // Scenario: THE fix for highlights painting past the end of a sentence, reported from
+  // a real insurance PDF. Rects are measured one word at a time because
+  // range.getClientRects() reports one rect per LINE BOX, and whenever several visual
+  // lines share a block the browser pads every non-final line's box out to the block's
+  // full width. Measured in a browser: a 400px block wrapping into two lines returns
+  // 398.2px and 132.7px. A word cannot contain a line break, so its rect is always tight
+  // around real glyphs.
+  test("splits text into runs of non-whitespace", () => {
+    const text = "the quick brown fox";
+    expect(slice(text, textTokenRanges(text, 0, text.length))).toEqual([
+      "the",
+      "quick",
+      "brown",
+      "fox",
     ]);
   });
 
-  // Scenario: the selection rect's own height is kept. Clipping vertically as well would
-  // shrink the band to the glyph box and make every highlight look cramped.
-  test("clips horizontally only, preserving the rect's height", () => {
-    const clipped = clipRectsToSpans([rect(100, 48, 600, 19)], [rect(100, 50, 320, 15)]);
-    expect(clipped[0].top).toBe(48);
-    expect(clipped[0].height).toBe(19);
+  // Scenario: whitespace contributes no token, so no rect is ever measured for the empty
+  // space at either end of a selection or between words.
+  test("ignores leading, trailing and repeated whitespace", () => {
+    const text = "   padded   out  \n\t here  ";
+    expect(slice(text, textTokenRanges(text, 0, text.length))).toEqual([
+      "padded",
+      "out",
+      "here",
+    ]);
   });
 
-  // Scenario: spans on other lines must not clip this one. Vertical overlap has to be
-  // substantial before a span counts.
-  test("ignores spans on a different line", () => {
-    const clipped = clipRectsToSpans([rect(100, 50, 300)], [rect(100, 80, 300)]);
-    expect(clipped).toEqual([]);
+  // Scenario: the normal case - a drag that starts and ends mid-node. Only the selected
+  // slice may be measured, including a partially covered word.
+  test("honours the start and end bounds, clipping partial words", () => {
+    const text = "alpha beta gamma";
+    expect(slice(text, textTokenRanges(text, 6, 10))).toEqual(["beta"]);
+    expect(slice(text, textTokenRanges(text, 2, 10))).toEqual(["pha", "beta"]);
   });
 
-  // Scenario: a rect covering nothing - a stray artifact from a line break. Dropping it
-  // is the whole point.
-  test("drops a rect no span backs", () => {
-    expect(clipRectsToSpans([rect(700, 50, 200)], [rect(100, 50, 300)])).toEqual([]);
+  // Scenario: a selection covering only whitespace must contribute nothing rather than a
+  // zero-width rect.
+  test("returns nothing for an empty or whitespace-only range", () => {
+    expect(textTokenRanges("   ", 0, 3)).toEqual([]);
+    expect(textTokenRanges("abc", 2, 2)).toEqual([]);
+    expect(textTokenRanges("", 0, 0)).toEqual([]);
   });
 
-  // Scenario: defensive. If the span list is empty for any reason, the selection must
-  // still produce a highlight rather than silently vanishing.
-  test("passes rects through when there are no spans to clip against", () => {
-    const rects = [rect(100, 50, 600)];
-    expect(clipRectsToSpans(rects, [])).toEqual(rects);
-    expect(clipRectsToSpans(rects, null)).toEqual(rects);
+  // Scenario: defensive. Offsets past the end of the text, or missing entirely, must not
+  // produce ranges that would throw when handed to Range.setStart.
+  test("clamps out-of-range offsets and defaults to the whole string", () => {
+    const text = "one two";
+    expect(slice(text, textTokenRanges(text, -5, 999))).toEqual(["one", "two"]);
+    expect(slice(text, textTokenRanges(text))).toEqual(["one", "two"]);
+    for (const r of textTokenRanges(text, -5, 999)) {
+      expect(r.start).toBeGreaterThanOrEqual(0);
+      expect(r.end).toBeLessThanOrEqual(text.length);
+    }
   });
 
-  // Scenario: two columns sharing a baseline. A selection dragged across both gets
-  // clipped to each column, and the gutter stays empty through the merge that follows.
-  test("keeps a column gutter open end to end", () => {
-    const clipped = clipRectsToSpans(
-      [rect(100, 50, 500)],
-      [rect(100, 50, 120), rect(400, 50, 200)]
-    );
-    const merged = mergeLineRects(
-      clipped.map((r) => ({ x: r.left, y: r.top, width: r.width, height: r.height }))
-    );
-    expect(merged).toHaveLength(2);
+  // Scenario: punctuation belongs to the word it touches. Splitting on it would leave a
+  // visible notch in the band between a word and its comma.
+  test("keeps punctuation attached to its word", () => {
+    const text = "well-known, indeed.";
+    expect(slice(text, textTokenRanges(text, 0, text.length))).toEqual([
+      "well-known,",
+      "indeed.",
+    ]);
+  });
+
+  // Scenario: the end-to-end consequence. Per-word rects on one line merge back into a
+  // single band, so measuring words costs nothing visually - while a column gutter, far
+  // wider than a word gap, still stays open.
+  test("per-word rects merge back into one band per line", () => {
+    const words = [
+      { x: 72, y: 700, width: 30, height: 13 },
+      { x: 105, y: 700, width: 40, height: 13 },
+      { x: 148, y: 700, width: 25, height: 13 },
+    ];
+    expect(mergeLineRects(words)).toEqual([{ x: 72, y: 700, width: 101, height: 13 }]);
   });
 });
 
@@ -435,7 +434,7 @@ describe("createGeometry", () => {
       [
         "clientRectToLocal",
         "clientRectsToPdfRects",
-        "clipRectsToSpans",
+        "textTokenRanges",
         "hitTestHighlights",
         "isVisibleRect",
         "mergeLineRects",
