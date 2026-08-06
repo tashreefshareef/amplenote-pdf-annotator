@@ -261,13 +261,6 @@ export function viewerMain() {
             // Counted so a silently empty text layer is visible in the toolbar rather
             // than presenting as "selection mysteriously does nothing".
             state.textSpans += divs.length;
-            // renderTextLayer's textDivs output is index-matched to textContent.items -
-            // PDF.js's own documented contract. Attaching each item directly to the div
-            // PDF.js built for it is what lets measureSelection reach the item's own
-            // PDF-space transform/width/height later, without a second lookup pass.
-            for (var d = 0; d < divs.length; d++) {
-              divs[d].__pdfaItem = textContent.items[d];
-            }
             // Draw as each page lands rather than after the whole document, so
             // highlights on page 1 appear immediately in a long PDF.
             drawHighlights(index);
@@ -474,16 +467,12 @@ export function viewerMain() {
   /**
    * Measure a selection one WORD at a time, within a single page's text layer.
    *
-   * Each word's rect comes from `itemRelativeRect` (geometry.js), not the page's
-   * viewport transform - see that function's own comment for the full reasoning, but in
-   * short: PDF.js can apply a per-item `scaleX` CSS correction when the browser
-   * substitutes a font, exact for the item's TOTAL width but not necessarily uniform per
-   * character. A WORD is exactly the partial-item selection that exposes that, which is
-   * why the identical highlight measured correctly in one browser and overshot in
-   * another - confirmed live. Measuring one rect per word (rather than one per line, via
-   * `range.getClientRects()`) is separately what keeps a highlight tight to its own
-   * sentence rather than padded to a wrapped line's full block width - see
-   * textTokenRanges in geometry.js for that half of the reasoning.
+   * Not `range.getClientRects()`, which reports one rect per line box: when several
+   * visual lines share a block - normal in a real PDF's text layer - every non-final
+   * line comes back padded out to the block's full width, and the highlight paints past
+   * the end of the sentence. A word cannot contain a line break, so its rect is always
+   * tight around real glyphs. See textTokenRanges in geometry.js for the measurements
+   * behind this.
    *
    * The quote is built from the same tokens rather than from `selection.toString()`, so
    * the text and the geometry always describe the same words - which matters when a drag
@@ -492,7 +481,6 @@ export function viewerMain() {
   function measureSelection(range, layer) {
     var rects = [];
     var words = [];
-    var lastCssRect = null;
     var walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT, null);
     var node;
 
@@ -501,21 +489,6 @@ export function viewerMain() {
       var text = node.nodeValue || "";
       var from = node === range.startContainer ? range.startOffset : 0;
       var to = node === range.endContainer ? range.endOffset : text.length;
-
-      var div = node.parentElement;
-      var item = div && div.__pdfaItem;
-      // Every div PDF.js builds gets its item attached in renderPage. No item means no
-      // reliable way to place this word in PDF space - skip it rather than guess; a
-      // missing word beats a wrongly-sized one.
-      if (!item) continue;
-
-      var itemBox = {
-        x1: item.transform[4],
-        y1: item.transform[5],
-        x2: item.transform[4] + item.width,
-        y2: item.transform[5] + item.height,
-      };
-      var parentRect = div.getBoundingClientRect();
 
       var tokens = geom.textTokenRanges(text, from, to);
       for (var t = 0; t < tokens.length; t++) {
@@ -526,30 +499,13 @@ export function viewerMain() {
         // descenders - see unionClientRects). Collapsing to one rect per word here
         // stops that fragment from ever reaching line-clustering, where it would
         // otherwise be misread as a separate line and paint as a stray underline.
-        var subRect = geom.unionClientRects(part.getClientRects());
-        if (!subRect) continue;
-        // unionClientRects returns {left,top,width,height}; itemRelativeRect needs the
-        // full {left,top,right,bottom} shape too, same as a native DOMRect - keeping
-        // width/height alongside is what lets this double as the anchor fallback below.
-        var subRectFull = {
-          left: subRect.left,
-          top: subRect.top,
-          width: subRect.width,
-          height: subRect.height,
-          right: subRect.left + subRect.width,
-          bottom: subRect.top + subRect.height,
-        };
-
-        var pdfRect = geom.itemRelativeRect(itemBox, parentRect, subRectFull);
-        if (!pdfRect) continue;
-
-        rects.push(pdfRect);
+        var unioned = geom.unionClientRects(part.getClientRects());
+        if (unioned) rects.push(unioned);
         words.push(text.slice(tokens[t].start, tokens[t].end));
-        lastCssRect = subRectFull;
       }
     }
 
-    return { rects: rects, text: words.join(" "), lastCssRect: lastCssRect };
+    return { rects: rects, text: words.join(" ") };
   }
 
   function setPending(selection) {
@@ -593,24 +549,26 @@ export function viewerMain() {
     if (!wrap || !wrap.dataset || !wrap.dataset.page) return setPending(null);
 
     var pageNum = Number(wrap.dataset.page);
-    // Confirms the page has finished rendering - and so has every div's __pdfaItem -
-    // before trusting a selection inside it. measureSelection no longer needs the
-    // viewport itself: itemRelativeRect measures against each word's own text-content
-    // item, not the page-level transform. See geometry.js for why.
-    if (!state.viewports[pageNum]) return setPending(null);
+    var viewport = state.viewports[pageNum];
+    if (!viewport) return setPending(null);
 
+    var containerRect = wrap.getBoundingClientRect();
     // Only this page's layer is walked, so rects from a page the drag spilled onto are
     // never collected. Comparing the layers is a more direct test of that than guessing
     // from rect positions.
     var spilled = textLayerOf(range.endContainer) !== layer;
     var measured = measureSelection(range, layer);
-    var rects = geom.mergeLineRects(measured.rects);
+
+    var rects = geom.mergeLineRects(
+      geom.clientRectsToPdfRects(measured.rects, containerRect, function (x, y) {
+        return viewport.convertToPdfPoint(x, y);
+      })
+    );
     if (!rects.length) return setPending(null);
 
-    // Anchor the popover where the gesture ended. Falling back to the last measured
-    // word's own screen rect keeps keyboard selection (shift-arrow, ctrl-A) working,
-    // which has no pointer position.
-    var lastRect = measured.lastCssRect || wrap.getBoundingClientRect();
+    // Anchor the popover where the gesture ended. Falling back to the last rect keeps
+    // keyboard selection (shift-arrow, ctrl-A) working, which has no pointer position.
+    var lastRect = measured.rects.length ? measured.rects[measured.rects.length - 1] : containerRect;
     var anchorX = event && event.clientX ? event.clientX : lastRect.left + lastRect.width / 2;
     var anchorY = event && event.clientY ? event.clientY : lastRect.top + lastRect.height;
 

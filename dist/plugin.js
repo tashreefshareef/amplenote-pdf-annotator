@@ -487,18 +487,6 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       var b = convertToViewportPoint(rect.x + rect.width, rect.y + rect.height);
       return rectFromCorners2(a, b);
     }
-    function itemRelativeRect2(itemBox, parentRect, subRect) {
-      var parentWidth = parentRect.right - parentRect.left;
-      var parentHeight = parentRect.bottom - parentRect.top;
-      if (parentWidth <= 0 || parentHeight <= 0) return null;
-      var itemWidth = itemBox.x2 - itemBox.x1;
-      var itemHeight = itemBox.y2 - itemBox.y1;
-      var left = itemBox.x1 + (subRect.left - parentRect.left) / parentWidth * itemWidth;
-      var right = itemBox.x2 - (parentRect.right - subRect.right) / parentWidth * itemWidth;
-      var bottom = itemBox.y1 + (subRect.bottom - parentRect.bottom) / parentHeight * itemHeight;
-      var top = itemBox.y2 - (parentRect.top - subRect.top) / parentHeight * itemHeight;
-      return { x: left, y: bottom, width: right - left, height: top - bottom };
-    }
     function onSameLine(a, b) {
       var overlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
       return overlap > 0.5 * Math.min(a.height, b.height);
@@ -579,7 +567,6 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       unionClientRects: unionClientRects2,
       clientRectsToPdfRects: clientRectsToPdfRects2,
       pdfRectToViewportRect: pdfRectToViewportRect2,
-      itemRelativeRect: itemRelativeRect2,
       mergeLineRects: mergeLineRects2,
       rectContainsPoint: rectContainsPoint2,
       hitTestHighlights: hitTestHighlights2,
@@ -595,7 +582,6 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   var unionClientRects = geometry.unionClientRects;
   var clientRectsToPdfRects = geometry.clientRectsToPdfRects;
   var pdfRectToViewportRect = geometry.pdfRectToViewportRect;
-  var itemRelativeRect = geometry.itemRelativeRect;
   var mergeLineRects = geometry.mergeLineRects;
   var rectContainsPoint = geometry.rectContainsPoint;
   var hitTestHighlights = geometry.hitTestHighlights;
@@ -886,9 +872,6 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
           textDivs: divs
         }).promise.then(function() {
           state.textSpans += divs.length;
-          for (var d = 0; d < divs.length; d++) {
-            divs[d].__pdfaItem = textContent.items[d];
-          }
           drawHighlights(index);
         });
       });
@@ -1042,7 +1025,6 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     function measureSelection(range, layer) {
       var rects = [];
       var words = [];
-      var lastCssRect = null;
       var walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT, null);
       var node;
       while (node = walker.nextNode()) {
@@ -1050,39 +1032,17 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         var text = node.nodeValue || "";
         var from = node === range.startContainer ? range.startOffset : 0;
         var to = node === range.endContainer ? range.endOffset : text.length;
-        var div = node.parentElement;
-        var item = div && div.__pdfaItem;
-        if (!item) continue;
-        var itemBox = {
-          x1: item.transform[4],
-          y1: item.transform[5],
-          x2: item.transform[4] + item.width,
-          y2: item.transform[5] + item.height
-        };
-        var parentRect = div.getBoundingClientRect();
         var tokens = geom.textTokenRanges(text, from, to);
         for (var t = 0; t < tokens.length; t++) {
           var part = document.createRange();
           part.setStart(node, tokens[t].start);
           part.setEnd(node, tokens[t].end);
-          var subRect = geom.unionClientRects(part.getClientRects());
-          if (!subRect) continue;
-          var subRectFull = {
-            left: subRect.left,
-            top: subRect.top,
-            width: subRect.width,
-            height: subRect.height,
-            right: subRect.left + subRect.width,
-            bottom: subRect.top + subRect.height
-          };
-          var pdfRect = geom.itemRelativeRect(itemBox, parentRect, subRectFull);
-          if (!pdfRect) continue;
-          rects.push(pdfRect);
+          var unioned = geom.unionClientRects(part.getClientRects());
+          if (unioned) rects.push(unioned);
           words.push(text.slice(tokens[t].start, tokens[t].end));
-          lastCssRect = subRectFull;
         }
       }
-      return { rects, text: words.join(" "), lastCssRect };
+      return { rects, text: words.join(" ") };
     }
     function setPending(selection) {
       state.pendingSelection = selection;
@@ -1108,12 +1068,18 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       var wrap = layer.parentElement;
       if (!wrap || !wrap.dataset || !wrap.dataset.page) return setPending(null);
       var pageNum = Number(wrap.dataset.page);
-      if (!state.viewports[pageNum]) return setPending(null);
+      var viewport = state.viewports[pageNum];
+      if (!viewport) return setPending(null);
+      var containerRect = wrap.getBoundingClientRect();
       var spilled = textLayerOf(range.endContainer) !== layer;
       var measured = measureSelection(range, layer);
-      var rects = geom.mergeLineRects(measured.rects);
+      var rects = geom.mergeLineRects(
+        geom.clientRectsToPdfRects(measured.rects, containerRect, function(x, y) {
+          return viewport.convertToPdfPoint(x, y);
+        })
+      );
       if (!rects.length) return setPending(null);
-      var lastRect = measured.lastCssRect || wrap.getBoundingClientRect();
+      var lastRect = measured.rects.length ? measured.rects[measured.rects.length - 1] : containerRect;
       var anchorX = event && event.clientX ? event.clientX : lastRect.left + lastRect.width / 2;
       var anchorY = event && event.clientY ? event.clientY : lastRect.top + lastRect.height;
       var selection = {
