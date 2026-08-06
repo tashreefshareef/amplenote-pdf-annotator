@@ -18,6 +18,34 @@
  *
  * A highlight that LOOKS right but is drawn content rather than an annotation is the
  * failure mode to watch for — it would pass a screenshot check and fail acceptance.
+ *
+ * ============================================================================
+ * VERDICT: pdf-lib CAN do this. Phase 4 is de-risked. Verified in Chrome + PDF Gear.
+ * ============================================================================
+ *
+ * Findings that Phase 4 must carry over:
+ *
+ * 1. They are genuinely native annotations. In PDF Gear the highlights are
+ *    selectable and their color is editable through the reader's own UI — not
+ *    possible with drawn content.
+ *
+ * 2. An explicit /Popup child is REQUIRED for notes, not optional.
+ *    A/B tested: /Contents alone renders a hover note in Chrome (which synthesizes
+ *    the missing popup) but shows NOTHING in PDF Gear. Every note-carrying highlight
+ *    must get a /Popup with a bidirectional /Parent link.
+ *
+ * 3. Multiple quad sets in ONE annotation render as multiple bands. This is how a
+ *    selection wrapping across lines stays a single highlight the user can delete or
+ *    recolor in one action. Confirmed visually: two bands of differing width.
+ *
+ * 4. /QuadPoints ordering is TL, TR, BL, BR — top row first, NOT a clockwise
+ *    winding. Wrong order renders in some readers and vanishes in others.
+ *
+ * 5. All four spec colors render correctly at CA 0.4, with the underlying text
+ *    still readable.
+ *
+ * Still unverified: Acrobat and Preview specifically, and whether the annotations
+ * populate a reader's comment/review panel. Neither blocks Phase 1.
  */
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFArray, PDFString, PDFNumber } from "pdf-lib";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -39,18 +67,31 @@ const COLORS = [
  *
  * All coordinates are PDF user space, origin bottom-left (spec §3).
  */
-function createHighlightAnnotation(pdfDoc, { x, y, width, height, color, contents }) {
-  const x1 = x;
-  const x2 = x + width;
-  const y1 = y;
-  const y2 = y + height;
+function createHighlightAnnotation(pdfDoc, { rects, color, contents }) {
+  if (!rects?.length) throw new Error("createHighlightAnnotation: rects required");
 
-  const quadPoints = [
-    x1, y2, // top-left
-    x2, y2, // top-right
-    x1, y1, // bottom-left
-    x2, y1, // bottom-right
-  ];
+  // One quad set per rect. A selection wrapping across N lines produces N rects and
+  // 8N quad point values, all inside a SINGLE annotation — which is what makes it one
+  // highlight the user can delete or recolor in one action, not N separate ones.
+  const quadPoints = [];
+  for (const r of rects) {
+    const x1 = r.x;
+    const x2 = r.x + r.width;
+    const y1 = r.y;
+    const y2 = r.y + r.height;
+    quadPoints.push(
+      x1, y2, // top-left
+      x2, y2, // top-right
+      x1, y1, // bottom-left
+      x2, y1  // bottom-right
+    );
+  }
+
+  // /Rect is the bounding box of every quad.
+  const x1 = Math.min(...rects.map((r) => r.x));
+  const y1 = Math.min(...rects.map((r) => r.y));
+  const x2 = Math.max(...rects.map((r) => r.x + r.width));
+  const y2 = Math.max(...rects.map((r) => r.y + r.height));
 
   const dict = pdfDoc.context.obj({
     Type: PDFName.of("Annot"),
@@ -72,21 +113,17 @@ function createHighlightAnnotation(pdfDoc, { x, y, width, height, color, content
   const refs = [highlightRef];
 
   /**
-   * An EXPLICIT /Popup child annotation for the note.
+   * An EXPLICIT /Popup child annotation for the note. REQUIRED — do not remove.
    *
-   * NOT strictly required: /Contents alone already works in Chrome, which synthesizes
-   * a popup and shows it on hover (verified). This is declared anyway for two reasons:
-   *   1. Acrobat and Preview populate their comment panels from the annotation tree,
-   *      and an explicit popup is the standards-correct structure for a markup
-   *      annotation that carries text. Don't rely on every reader synthesizing one.
-   *   2. It lets us control the popup's rect and its default open state instead of
-   *      inheriting whatever each reader picks.
+   * Verified by A/B in this spike: a highlight with /Contents but no /Popup child
+   * shows NO note in PDF Gear, while an otherwise identical highlight WITH a /Popup
+   * shows it on hover. Chrome synthesizes a popup when one is missing and so hides
+   * the problem entirely; other readers do not. Relying on /Contents alone would have
+   * shipped notes that silently vanish in most PDF readers — exactly the kind of
+   * defect that passes a screenshot check and fails bounty acceptance.
    *
    * The link is bidirectional: highlight./Popup → popup, popup./Parent → highlight.
    * Readers that only follow one direction will otherwise ignore the note.
-   *
-   * If this turns out to REGRESS the hover behavior that already works, drop it —
-   * /Contents alone is the proven-good fallback.
    */
   if (contents) {
     const popupRef = pdfDoc.context.register(
@@ -140,10 +177,7 @@ async function main() {
   for (const line of lines) {
     const textWidth = font.widthOfTextAtSize(line.text, 10);
     const refs = createHighlightAnnotation(pdfDoc, {
-      x: 50,
-      y: line.y - 3,
-      width: textWidth,
-      height: 14,
+      rects: [{ x: 50, y: line.y - 3, width: textWidth, height: 14 }],
       color: line.color.rgb,
       // Only the yellow one carries a note, matching the spec's "at most one note
       // per highlight, optional" rule.
@@ -162,29 +196,17 @@ async function main() {
     x: 50, y: 400, size: 10, font, color: rgb(0, 0, 0),
   });
 
-  const multiQuads = [
-    50, 431, 360, 431, 50, 417, 360, 417,
-    50, 411, 260, 411, 50, 397, 260, 397,
-  ];
-  // CONTROL CASE: this one deliberately uses /Contents with NO explicit /Popup, so it
-  // A/Bs against the yellow highlight above (which has one). Compare the two in each
-  // reader — if they behave identically, the explicit popup is unnecessary ceremony
-  // and Phase 4 can skip it.
-  const multiRef = pdfDoc.context.register(
-    pdfDoc.context.obj({
-      Type: PDFName.of("Annot"),
-      Subtype: PDFName.of("Highlight"),
-      Rect: pdfDoc.context.obj([50, 397, 360, 431]),
-      QuadPoints: pdfDoc.context.obj(multiQuads),
-      C: pdfDoc.context.obj([0.518, 0.714, 0.851]),
-      F: PDFNumber.of(4),
-      T: PDFString.of("PDF Annotator"),
-      Contents: PDFString.of("A note on a highlight that spans two lines."),
-      M: PDFString.of(new Date().toISOString()),
-      CA: PDFNumber.of(0.4),
-    })
-  );
-  appendAnnotation(page, multiRef);
+  // Was the /Contents-only control case; the A/B is settled, so it now goes through
+  // the same helper and gets a proper popup. Two rects → two bands, one annotation.
+  const multiRefs = createHighlightAnnotation(pdfDoc, {
+    rects: [
+      { x: 50, y: 417, width: 310, height: 14 },
+      { x: 50, y: 397, width: 210, height: 14 },
+    ],
+    color: [0.518, 0.714, 0.851],
+    contents: "A note on a highlight that spans two lines.",
+  });
+  appendAnnotation(page, multiRefs);
 
   const bytes = await pdfDoc.save();
   mkdirSync("spike/out", { recursive: true });
@@ -196,16 +218,13 @@ async function main() {
   const annots = reloaded.getPage(0).node.get(PDFName.of("Annots"));
   const count = annots instanceof PDFArray ? annots.size() : 0;
 
-  // 4 single-line highlights + 1 popup (yellow's note) + 1 multi-line highlight.
-  const EXPECTED = 6;
+  // 5 highlights + 2 popups (yellow's note, and the multi-line one's).
+  const EXPECTED = 7;
   console.log(`Wrote spike/out/annotated-sample.pdf (${(bytes.length / 1024).toFixed(1)} kB)`);
   console.log(`Annotations present after reload: ${count} (expected ${EXPECTED})`);
   if (count !== EXPECTED) console.log("!! Count mismatch — annotations did not survive serialization.");
-  console.log("\nA/B to check in each reader:");
-  console.log("  Yellow highlight     — note via explicit /Popup (Open false)");
-  console.log("  Blue multi-line      — note via /Contents only, reader synthesizes");
-  console.log("Both should show their note on hover/click and appear in the reader's");
-  console.log("comment panel. If they behave the same, Phase 4 can drop the explicit popup.");
+  console.log("\nBoth note-carrying highlights (yellow, and the blue multi-line at the");
+  console.log("bottom) now have explicit popups. Both should show their note on hover.");
 }
 
 main().catch((err) => {
