@@ -44,7 +44,7 @@ in this plugin's note add a line pointing at this repo and an H1 heading named e
 `Code block` above the code block:
 
 ```
-repo: <owner>/<repo>/dist/plugin.js
+repo: tashreefshareef/amplenote-pdf-annotator/dist/plugin.js
 ```
 
 Run **Plugin Builder: Refresh** from the note's ⋯ menu and it pulls the latest build
