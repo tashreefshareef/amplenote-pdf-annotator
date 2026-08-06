@@ -182,6 +182,62 @@ export function createGeometry() {
     return rectFromCorners(a, b);
   }
 
+  /**
+   * Map a DOM sub-selection within ONE text-layer item into that item's OWN native
+   * coordinate space (a PDF.js text-content item's `transform`/`width`/`height`, taken
+   * straight from `page.getTextContent()`) - by computing what FRACTION of the item's
+   * own rendered CSS box the sub-selection covers, then applying that same fraction to
+   * the item's native box. This is a deliberate second path alongside
+   * `clientRectsToPdfRects`, not a replacement for it: that function converts through
+   * the page-level viewport transform, which this one avoids for exactly one reason,
+   * below.
+   *
+   * WHY THIS EXISTS. PDF.js applies a per-item horizontal `scaleX` CSS transform
+   * whenever the browser's substitute font renders a run of text at a different width
+   * than the PDF's own embedded font would have - correcting that ONE item's total
+   * rendered width back to the true PDF width. The compensation is exact for the WHOLE
+   * item, but not necessarily uniform per character, since different fonts don't share
+   * the same relative letter-widths. A PARTIAL selection within that item - exactly
+   * what selecting one word out of a longer line produces - converted through the
+   * page's viewport transform alone can therefore land at a slightly wrong width, and
+   * by how much depends on which font the VIEWER's browser happened to substitute. This
+   * was confirmed live: the identical highlight, on the identical PDF, measured
+   * correctly in one browser and overshot in another - the CSS width was correct in
+   * both (`scaleX` did its job), but the FRACTION of it covered by a partial-item
+   * selection wasn't. Normalizing against the item's OWN rendered box, instead of the
+   * page's global transform, cancels that per-item distortion out regardless of which
+   * font substitution caused it. Same technique as obsidian-pdf-plus's
+   * `src/lib/highlights/geometry.ts` (the `computeHighlightRectForItemFromTextLayer`
+   * fallback, used there when PDF.js's non-standard per-character data isn't
+   * available - which is always, for the stock PDF.js this embed loads from a CDN).
+   *
+   * @param itemBox {x1,y1,x2,y2} the item's own box, in ITS coordinate space - for a
+   *   PDF.js text-content item, x1,y1 = item.transform[4],[5] and x2,y2 = x1+item.width,
+   *   y1+item.height.
+   * @param parentRect the item's own rendered CSS box (e.g. a live
+   *   getBoundingClientRect() on the text-layer div PDF.js built for this item) - any
+   *   {left,top,right,bottom}-shaped rect.
+   * @param subRect the sub-selection's own rendered CSS box, a subset of parentRect,
+   *   same shape.
+   * @returns {x,y,width,height} in itemBox's coordinate space, or null if parentRect has
+   *   no area to take a fraction of.
+   */
+  function itemRelativeRect(itemBox, parentRect, subRect) {
+    var parentWidth = parentRect.right - parentRect.left;
+    var parentHeight = parentRect.bottom - parentRect.top;
+    if (parentWidth <= 0 || parentHeight <= 0) return null;
+
+    var itemWidth = itemBox.x2 - itemBox.x1;
+    var itemHeight = itemBox.y2 - itemBox.y1;
+
+    var left = itemBox.x1 + ((subRect.left - parentRect.left) / parentWidth) * itemWidth;
+    var right = itemBox.x2 - ((parentRect.right - subRect.right) / parentWidth) * itemWidth;
+    var bottom = itemBox.y1 + ((subRect.bottom - parentRect.bottom) / parentHeight) * itemHeight;
+    var top = itemBox.y2 - ((parentRect.top - subRect.top) / parentHeight) * itemHeight;
+
+    return { x: left, y: bottom, width: right - left, height: top - bottom };
+  }
+
   /** True when two rects overlap vertically enough to be the same line of text. */
   function onSameLine(a, b) {
     var overlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
@@ -315,6 +371,7 @@ export function createGeometry() {
     unionClientRects: unionClientRects,
     clientRectsToPdfRects: clientRectsToPdfRects,
     pdfRectToViewportRect: pdfRectToViewportRect,
+    itemRelativeRect: itemRelativeRect,
     mergeLineRects: mergeLineRects,
     rectContainsPoint: rectContainsPoint,
     hitTestHighlights: hitTestHighlights,
@@ -333,6 +390,7 @@ export const textTokenRanges = geometry.textTokenRanges;
 export const unionClientRects = geometry.unionClientRects;
 export const clientRectsToPdfRects = geometry.clientRectsToPdfRects;
 export const pdfRectToViewportRect = geometry.pdfRectToViewportRect;
+export const itemRelativeRect = geometry.itemRelativeRect;
 export const mergeLineRects = geometry.mergeLineRects;
 export const rectContainsPoint = geometry.rectContainsPoint;
 export const hitTestHighlights = geometry.hitTestHighlights;

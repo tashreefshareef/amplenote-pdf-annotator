@@ -22,6 +22,7 @@ import {
   unionClientRects,
   clientRectsToPdfRects,
   pdfRectToViewportRect,
+  itemRelativeRect,
   mergeLineRects,
   rectContainsPoint,
   hitTestHighlights,
@@ -361,6 +362,64 @@ describe("pdfRectToViewportRect", () => {
   });
 });
 
+describe("itemRelativeRect", () => {
+  // A text-content item 200 PDF-units wide, 12 tall, whose rendered CSS box is 300px
+  // wide (a font-substitution scaleX case: the browser's substitute font would have
+  // rendered wider, so PDF.js corrects the WHOLE item to 300px to represent 200 true
+  // units - a uniform 1.5x stretch that a partial selection does NOT necessarily share).
+  const itemBox = { x1: 1000, y1: 500, x2: 1200, y2: 512 };
+  const parentRect = { left: 100, top: 50, right: 400, bottom: 62 }; // 300px x 12px
+
+  // Scenario: selecting the WHOLE item must reproduce itemBox exactly - the identity
+  // case every other test's confidence rests on.
+  test("returns the item's own box unchanged for a full-item selection", () => {
+    const result = itemRelativeRect(itemBox, parentRect, parentRect);
+    expect(result).toEqual({ x: 1000, y: 500, width: 200, height: 12 });
+  });
+
+  // Scenario: THE bug this function exists to fix, reported live - the identical
+  // highlight measured correctly in one browser and overshot in another, because a
+  // partial (sub-item) selection converted through the page's viewport transform alone
+  // doesn't know about the item's own scaleX compensation. Selecting exactly the first
+  // half of the rendered box (150px of 300px) must yield exactly half the item's TRUE
+  // PDF width (100 of 200 units) - not half of some viewport-transformed pixel value
+  // that never accounts for the stretch.
+  test("takes a fraction of the item's own PDF-space width, not the viewport's", () => {
+    const firstHalf = { left: 100, top: 50, right: 250, bottom: 62 }; // 150 of 300px
+    const result = itemRelativeRect(itemBox, parentRect, firstHalf);
+    expect(result.x).toBe(1000);
+    expect(result.width).toBe(100);
+  });
+
+  // Scenario: a selection that starts mid-item, not just one that's cropped from the
+  // right - both the start AND end fractions must be computed independently.
+  test("handles a selection that starts and ends mid-item", () => {
+    const middleThird = { left: 200, top: 50, right: 300, bottom: 62 }; // px 100-200 of 300
+    const result = itemRelativeRect(itemBox, parentRect, middleThird);
+    // (100/300)*200 = 66.67 units in from the left edge.
+    expect(result.x).toBeCloseTo(1066.67, 1);
+    expect(result.width).toBeCloseTo(66.67, 1);
+  });
+
+  // Scenario: a sub-selection never extends vertically past its own item in practice
+  // (PDF.js text-content items are single lines; a DOM Range within one can only vary
+  // horizontally), so height must reproduce the item's own true height even though the
+  // formula is written generally enough to handle a cropped case too.
+  test("preserves the item's own height when the sub-selection spans it fully", () => {
+    const partial = { left: 150, top: 50, right: 220, bottom: 62 };
+    const result = itemRelativeRect(itemBox, parentRect, partial);
+    expect(result.y).toBe(500);
+    expect(result.height).toBe(12);
+  });
+
+  // Scenario: defensive - a collapsed or invalid parent box (no rendered area) must not
+  // divide by zero and produce Infinity/NaN geometry.
+  test("returns null when the parent box has no area", () => {
+    expect(itemRelativeRect(itemBox, { left: 10, top: 0, right: 10, bottom: 12 }, parentRect)).toBeNull();
+    expect(itemRelativeRect(itemBox, { left: 0, top: 10, right: 100, bottom: 10 }, parentRect)).toBeNull();
+  });
+});
+
 describe("mergeLineRects", () => {
   // Scenario: PDF.js emits one span per text run, so a single highlighted line arrives
   // as several adjacent rects. Left unmerged they waste storage and draw hairline gaps
@@ -518,6 +577,7 @@ describe("createGeometry", () => {
         "mergeLineRects",
         "normalizeQuoteText",
         "pdfRectToViewportRect",
+        "itemRelativeRect",
         "rectContainsPoint",
         "rectFromCorners",
         "roundRect",
