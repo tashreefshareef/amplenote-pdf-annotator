@@ -457,6 +457,19 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       }
       return out;
     }
+    function unionClientRects2(list) {
+      var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+      for (var i = 0; i < (list ? list.length : 0); i++) {
+        var r = list[i];
+        if (!isVisibleRect2(r)) continue;
+        left = Math.min(left, r.left);
+        top = Math.min(top, r.top);
+        right = Math.max(right, r.left + r.width);
+        bottom = Math.max(bottom, r.top + r.height);
+      }
+      if (!isFinite(left)) return null;
+      return { left, top, width: right - left, height: bottom - top };
+    }
     function clientRectsToPdfRects2(clientRects, containerRect, convertToPdfPoint) {
       var out = [];
       for (var i = 0; i < clientRects.length; i++) {
@@ -551,6 +564,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       roundRect: roundRect2,
       isVisibleRect: isVisibleRect2,
       textTokenRanges: textTokenRanges2,
+      unionClientRects: unionClientRects2,
       clientRectsToPdfRects: clientRectsToPdfRects2,
       pdfRectToViewportRect: pdfRectToViewportRect2,
       mergeLineRects: mergeLineRects2,
@@ -565,6 +579,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   var roundRect = geometry.roundRect;
   var isVisibleRect = geometry.isVisibleRect;
   var textTokenRanges = geometry.textTokenRanges;
+  var unionClientRects = geometry.unionClientRects;
   var clientRectsToPdfRects = geometry.clientRectsToPdfRects;
   var pdfRectToViewportRect = geometry.pdfRectToViewportRect;
   var mergeLineRects = geometry.mergeLineRects;
@@ -893,8 +908,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
           var part = document.createRange();
           part.setStart(node, tokens[t].start);
           part.setEnd(node, tokens[t].end);
-          var list = part.getClientRects();
-          for (var i = 0; i < list.length; i++) rects.push(list[i]);
+          var unioned = geom.unionClientRects(part.getClientRects());
+          if (unioned) rects.push(unioned);
           words.push(text.slice(tokens[t].start, tokens[t].end));
         }
       }

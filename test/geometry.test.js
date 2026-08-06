@@ -19,6 +19,7 @@ import {
   roundRect,
   isVisibleRect,
   textTokenRanges,
+  unionClientRects,
   clientRectsToPdfRects,
   pdfRectToViewportRect,
   mergeLineRects,
@@ -195,6 +196,82 @@ describe("textTokenRanges", () => {
       { x: 148, y: 700, width: 25, height: 13 },
     ];
     expect(mergeLineRects(words)).toEqual([{ x: 72, y: 700, width: 101, height: 13 }]);
+  });
+});
+
+describe("unionClientRects", () => {
+  const rect = (left, top, width, height) => ({ left, top, width, height });
+
+  // Scenario: THE bug this exists for, reported live: a highlight showed a thin colored
+  // underline beneath specific words - every one of them containing a descender (g, p,
+  // y, j, q). Range.getClientRects() on a single word can return a second, short rect
+  // for the part that dips below the baseline; unmerged, that sliver has too little
+  // vertical overlap with the main rect to be read as the same line by mergeLineRects,
+  // so it becomes its own tiny "line" and paints as an underline. Unioning the word's
+  // own rects before line-clustering removes the sliver entirely.
+  test("merges a word's main rect with a short descender sliver into one bounding box", () => {
+    const main = rect(100, 700, 42, 13); // the glyph body
+    const sliver = rect(102, 711, 8, 3); // the descender's ink, dipping below it
+    expect(unionClientRects([main, sliver])).toEqual({
+      left: 100,
+      top: 700,
+      width: 42,
+      height: 14, // 711 + 3 - 700
+    });
+  });
+
+  // Scenario: safe to union unconditionally, because a single word's Range can never
+  // legitimately span two different physical lines - PDF.js text-layer nodes contain no
+  // embedded line breaks. So however many rects a word produces, they always belong
+  // together.
+  test("collapses several rects for one word into their bounding box", () => {
+    const parts = [rect(100, 700, 20, 13), rect(120, 700, 15, 13), rect(135, 702, 5, 9)];
+    expect(unionClientRects(parts)).toEqual({ left: 100, top: 700, width: 40, height: 13 });
+  });
+
+  // Scenario: the common case - a word that produced exactly one rect must pass through
+  // unchanged, not be needlessly rebuilt.
+  test("returns a single rect unchanged", () => {
+    expect(unionClientRects([rect(50, 60, 30, 12)])).toEqual({
+      left: 50,
+      top: 60,
+      width: 30,
+      height: 12,
+    });
+  });
+
+  // Scenario: THE hazard this must not reintroduce. PDF.js also emits genuinely
+  // zero-size phantom rects between spans - captured directly from a live selection as
+  // {x:-30, width:0}. A naive union would drag the bounding box out to wherever that
+  // phantom sits, making the highlighted word far wider than it actually is. Degenerate
+  // rects must be excluded before the min/max, not included in it.
+  test("ignores zero-size phantom rects so they cannot widen the bounding box", () => {
+    const real = rect(100, 700, 40, 13);
+    const phantom = rect(-30, 700, 0, 0);
+    expect(unionClientRects([phantom, real])).toEqual(real);
+    expect(unionClientRects([real, phantom])).toEqual(real);
+  });
+
+  // Scenario: defensive - if every rect is degenerate (or the list is empty), there is
+  // no word to highlight; the caller must be able to tell and skip it rather than
+  // receiving a bogus zero-area rect at the origin.
+  test("returns null when there is nothing visible to union", () => {
+    expect(unionClientRects([])).toBeNull();
+    expect(unionClientRects([rect(0, 0, 0, 0)])).toBeNull();
+    expect(unionClientRects(null)).toBeNull();
+  });
+
+  // Scenario: end-to-end proof that the fix actually closes the reported gap. Two
+  // words on one line, the second with a descender sliver like "damage" would produce -
+  // unioning each word first, THEN merging across words, must still yield exactly one
+  // band for the line, not two.
+  test("keeps a line to one band even when one of its words has a descender sliver", () => {
+    const word1 = unionClientRects([rect(72, 700, 30, 13)]);
+    const word2 = unionClientRects([rect(105, 700, 40, 13), rect(107, 711, 10, 3)]);
+    const merged = mergeLineRects(
+      [word1, word2].map((r) => ({ x: r.left, y: r.top, width: r.width, height: r.height }))
+    );
+    expect(merged).toHaveLength(1);
   });
 });
 
@@ -435,6 +512,7 @@ describe("createGeometry", () => {
         "clientRectToLocal",
         "clientRectsToPdfRects",
         "textTokenRanges",
+        "unionClientRects",
         "hitTestHighlights",
         "isVisibleRect",
         "mergeLineRects",

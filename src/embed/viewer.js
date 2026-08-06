@@ -474,8 +474,12 @@ export function viewerMain() {
         var part = document.createRange();
         part.setStart(node, tokens[t].start);
         part.setEnd(node, tokens[t].end);
-        var list = part.getClientRects();
-        for (var i = 0; i < list.length; i++) rects.push(list[i]);
+        // A single word can come back as more than one rect (a browser quirk for
+        // descenders - see unionClientRects). Collapsing to one rect per word here
+        // stops that fragment from ever reaching line-clustering, where it would
+        // otherwise be misread as a separate line and paint as a stray underline.
+        var unioned = geom.unionClientRects(part.getClientRects());
+        if (unioned) rects.push(unioned);
         words.push(text.slice(tokens[t].start, tokens[t].end));
       }
     }

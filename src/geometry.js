@@ -118,6 +118,39 @@ export function createGeometry() {
   }
 
   /**
+   * Collapse a word's own client rects into a single bounding box.
+   *
+   * `Range.getClientRects()` on a SINGLE word can return more than one rect - a browser
+   * quirk seen for words containing a descender (g, p, y, j, q), where one rect covers
+   * the main glyph body and a second, short one covers the part that dips below the
+   * baseline. Left unmerged, that second rect has little vertical overlap with the
+   * first, so the line-clustering in mergeLineRects reads it as its own separate line -
+   * which paints as a thin colored underline beneath exactly the words that have
+   * descenders. Confirmed against a real report: every affected word ("Aggravated",
+   * "damage", "person", "registered") has one.
+   *
+   * Safe to union unconditionally: PDF.js text-layer nodes never contain a line break,
+   * so a single word's Range can only ever be on one physical line - multiple rects for
+   * it are necessarily a same-line rendering artifact, never two real lines to keep
+   * apart. Degenerate rects (the zero-width phantom rects PDF.js also emits between
+   * spans - visible directly in a live capture as e.g. `{x:-30, width:0}`) are excluded
+   * so they cannot drag the bounding box out to somewhere the word never was.
+   */
+  function unionClientRects(list) {
+    var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (var i = 0; i < (list ? list.length : 0); i++) {
+      var r = list[i];
+      if (!isVisibleRect(r)) continue;
+      left = Math.min(left, r.left);
+      top = Math.min(top, r.top);
+      right = Math.max(right, r.left + r.width);
+      bottom = Math.max(bottom, r.top + r.height);
+    }
+    if (!isFinite(left)) return null;
+    return { left: left, top: top, width: right - left, height: bottom - top };
+  }
+
+  /**
    * Convert a run of viewport-relative DOMRects (what `range.getClientRects()` returns)
    * into PDF user-space rects.
    *
@@ -279,6 +312,7 @@ export function createGeometry() {
     roundRect: roundRect,
     isVisibleRect: isVisibleRect,
     textTokenRanges: textTokenRanges,
+    unionClientRects: unionClientRects,
     clientRectsToPdfRects: clientRectsToPdfRects,
     pdfRectToViewportRect: pdfRectToViewportRect,
     mergeLineRects: mergeLineRects,
@@ -296,6 +330,7 @@ export const rectFromCorners = geometry.rectFromCorners;
 export const roundRect = geometry.roundRect;
 export const isVisibleRect = geometry.isVisibleRect;
 export const textTokenRanges = geometry.textTokenRanges;
+export const unionClientRects = geometry.unionClientRects;
 export const clientRectsToPdfRects = geometry.clientRectsToPdfRects;
 export const pdfRectToViewportRect = geometry.pdfRectToViewportRect;
 export const mergeLineRects = geometry.mergeLineRects;
