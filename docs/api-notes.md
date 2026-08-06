@@ -9,40 +9,86 @@ Sources:
 3. Actions reference — https://www.amplenote.com/help/developing_amplenote_plugins/actions
 4. Markdown reference / cycle colors — https://www.amplenote.com/help/plugin_api_markdown_reference_parse_markdown
 
-## Status
+**Last verified against source 2 on 2026-08-06.**
 
-**Nothing below is verified yet.** These are the open questions to answer by reading the
-docs above, before Phase 1 writes code against them. Replace each row with the confirmed
-signature and mark it verified as you go.
+## Core types
 
-| Need | Assumed name | Verified? | Notes |
-|------|--------------|-----------|-------|
-| List a note's attachments | `app.getNoteAttachments(noteUUID)` | ❌ | Return shape? Does it include a uuid and a mime type? |
-| Get attachment bytes/URL | `app.getAttachmentURL(...)` | ❌ | **Critical for Phase 1.** Bytes directly, or a URL to fetch? If a URL, is it CORS-fetchable from inside the embed? |
-| Upload the annotated PDF | `app.attachNoteMedia(note, dataURL)` | ❌ | Data URL only, or Blob? Size limit for a multi-MB PDF? |
-| Read note content | `app.getNoteContent({ uuid })` | ❌ | Markdown string? |
-| Write note content | `app.replaceNoteContent({ uuid }, content)` | ❌ | Whole-note replace — needed for the managed storage section. |
-| Append to a note | `app.insertNoteContent({ uuid }, content, { atEnd: true })` | ❌ | For "send highlight to note". |
-| Create the export note | `app.createNote(name, tags)` | ❌ | Returns uuid? Behavior if the name already exists? |
-| Prompt the user | `app.prompt(message, { inputs: [...] })` | ❌ | Radio input shape, for picking which PDF. |
-| Embed args | `app.context.updateEmbedArgs(...)` + `app.context.renderEmbed()` | ❌ | Exact call order for the deep-link jump. |
-| Light/dark | `app.context.lightDarkMode` | ❌ | Values: `"light"` / `"dark"`? |
+**`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and
+`tags` when returned from `findNote`. Methods take the handle, **not** a bare uuid
+string. `app.context.noteUUID` is a bare string, so wrap it: `{ uuid: app.context.noteUUID }`.
 
-## Open questions beyond signatures
+## Verified methods
 
-- **Cycle-color indices.** `src/constants.js` hardcodes 12/14/15/18 from the bounty note.
-  Confirm against doc 4 before Phase 5 — a wrong index means every exported link is the
-  wrong color, which is a visible acceptance failure.
-- **"Double-quoted block".** Confirm the exact markdown Amplenote produces for the
-  export format in spec §4. Match the layout in the requirements note precisely.
-- **Deep-link format.** What URL scheme opens a plugin embed with arguments? This
-  determines the link written into every exported highlight (spec §7.3).
-- **Embed CSP.** Can the embed load PDF.js + its worker and pdf-lib from cdnjs?
-  Blocking issue for Phase 1; fallbacks are another CDN, or inlining the library text.
+| Method | Signature | Returns | Notes |
+|---|---|---|---|
+| `app.getNoteAttachments` | `(noteHandle)` | `Array` of attachments, or `null` if the note doesn't exist | ✅ |
+| `app.getAttachmentURL` | `(attachmentUUID: String)` | `String` — a **temporary** URL | ✅ Fetch bytes from this URL. Temporary, so don't cache it across sessions. |
+| `app.attachNoteMedia` | `(noteHandle, dataURL)` | `String` URL of the uploaded media | ✅ Throws if the file is too large or on network error. |
+| `app.getNoteContent` | `(noteHandle)` | note content as markdown `String` | ✅ |
+| `app.insertNoteContent` | `(noteHandle, content, { atEnd })` | **nothing** | ✅ Throws over 100k chars or if the note is readonly. |
+| `app.replaceNoteContent` | `(noteHandle, content, { section })` | `boolean` | ✅ See "section" below — important. |
+| `app.createNote` | `(name?, tags?, { archive }?)` | `uuid` of the new note | ✅ |
+| `app.findNote` | `(noteHandle)` — `{uuid}` or `{name, tags?}` | `noteHandle` with metadata, or `null` | ✅ |
+| `app.prompt` | `(message, { inputs, actions })` | entered value(s), **`null` if cancelled**, or action result | ✅ Cancel is `null`, not `undefined`. |
+| `app.alert` | `(message, { actions, preface, primaryAction, scrollToEnd })` | `null` if dismissed, `-1` for primary action, else action index/value | ✅ |
+| `app.navigate` | `(url: String)` | `boolean` | ✅ Amplenote URL format. |
+
+### `app.context`
+
+| Property | Type | Notes |
+|---|---|---|
+| `noteUUID` | `String` | uuid of the note the action was invoked from. |
+| `embedArgs` | **`Array`** | Available in `onEmbedCall`. It's an array, not an object. |
+| `updateEmbedArgs` | `(newArgs)` | **Does NOT trigger a re-render.** Must be followed by `renderEmbed()`. |
+| `renderEmbed` | `()` | Re-renders the embed with the current args. |
+| `lightDarkMode` | `String` | `"light"` or `"dark"`. |
+
+### Embed ↔ plugin
+
+- `onEmbedCall(app, value)` — the plugin-side handler.
+- From inside embed HTML: `window.callAmplenotePlugin(value)` invokes it.
+
+## Findings that change the design
+
+**1. `app.notify` DOES NOT EXIST.** ❌ The mock originally had it, and code calling it
+would have thrown at runtime inside the sandbox — with the embed's console as the only
+clue. Use `app.alert` for user messaging. Removed from the mock.
+
+**2. Note content is capped at 100k characters.** Both `insertNoteContent` and
+`replaceNoteContent` throw above it. This is a real constraint on the persistence
+design (spec §7.4): the annotation JSON shares that budget with the user's own note
+content. Rough math — a highlight with rects plus quote text runs a few hundred bytes
+of JSON, so a heavily annotated long PDF could approach the cap. **Open design question
+for Phase 2:** keep the stored JSON compact (short keys, rounded coordinates), and
+decide whether the PDF's own native annotations become the source of truth with the
+note JSON as a cache. Not blocking Phase 1.
+
+**3. `replaceNoteContent` accepts `{ section: { heading: { text: "..." } } }`** and
+replaces only the content under that heading, leaving the heading itself in place. This
+is a much better fit for the managed storage section than whole-note replace, and it
+directly addresses the spec §7.4 worry about corrupting the user's manual edits — we
+never rewrite the whole note.
+
+## Still unverified
+
+| Question | Why it matters | How to resolve |
+|---|---|---|
+| **Attachment object shape** | Need a uuid to call `getAttachmentURL`, and a name/mime type to filter for PDFs and to show in the picker. Docs confirm `uuid` exists but don't list the rest. | Runtime discovery in Phase 1 — log the array from a real note. |
+| **CORS on `getAttachmentURL`** | Phase 1 blocker. If the embed can't `fetch()` those bytes, the whole render path changes. | Try it in Phase 1; fallback is round-tripping bytes through `onEmbedCall`. |
+| **Embed CSP / CDN loading** | Phase 1 blocker. Can the embed load PDF.js + worker and pdf-lib from cdnjs? | Try it; fallbacks are another CDN, or inlining the library. |
+| **Cycle-color indices 12/14/15/18** | A wrong index means every exported link is the wrong color — a visible acceptance failure. | Check doc 4 before Phase 5. |
+| **"Double-quoted block" markdown** | The export format must match the requirements note exactly. | Check doc 4 before Phase 5. |
+| **Deep-link URL format** | Determines the link written into every exported highlight. | Check docs 1/3 before Phase 5. |
+| **`prompt` radio input shape** | Needed for the "which PDF?" picker. | Check doc 2's `inputs` array detail. |
 
 ## Corrections log
 
-When a real signature differs from what `test/helpers.js` mocks, fix the mock **first**,
-then the source. A mock that drifts from reality makes green tests meaningless.
+Fix `test/helpers.js` **first** when reality differs from the mock, then the source. A
+mock that drifts from reality makes green tests meaningless.
 
-_(empty)_
+- **2026-08-06** — `app.notify` removed; it does not exist in the API.
+- **2026-08-06** — `app.prompt` returns `null` on cancel; the mock returned `undefined`.
+- **2026-08-06** — `app.context.embedArgs` is an `Array`; the mock had an object.
+- **2026-08-06** — `insertNoteContent` returns nothing; the mock returned `true`.
+- **2026-08-06** — `getNoteAttachments` takes a `noteHandle`, not a bare uuid string.
+- **2026-08-06** — `replaceNoteContent` gained `{ section }` support in the mock.
