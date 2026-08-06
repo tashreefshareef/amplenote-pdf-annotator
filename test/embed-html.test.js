@@ -138,21 +138,29 @@ describe("buildEmbedHtml", () => {
     expect(out).toMatch(/\.textLayer\s*\{\s*z-index:\s*2/);
   });
 
-  // Scenario: THE bug reported live - a multi-line highlight showed a visibly darker
-  // seam at every line boundary. A tightly-set line of text can genuinely have its own
-  // line rect overlap its neighbour's by a pixel or two (descender ink dipping into the
-  // next line's ascender space). With mix-blend-mode on each individual rect, that
-  // overlap got the highlight color applied twice. The blend mode has to live on a
-  // per-highlight GROUP with isolation, not on the rects themselves, so the group's own
-  // rects flatten together before blending against the page as one unit - the exact
-  // pattern already used for the text layer's own opacity, just not carried over here.
-  test("blends each highlight as an isolated group instead of per rect", () => {
+  // Scenario: TWO live-reported bugs, same underlying cause, different scope each time.
+  // First: a multi-line highlight showed a darker seam at every line boundary within
+  // ITSELF (adjacent line rects of one highlight can genuinely overlap by a pixel or two
+  // - descender ink dipping into the next line's ascender space). Fixing that by
+  // isolating each highlight's OWN group left the identical seam wherever two DIFFERENT
+  // highlights' rects touched (a recolored highlight beside another, two highlights on
+  // adjacent lines) - each was its own isolated group, so two groups touching still each
+  // multiplied the page independently. The fix has to isolate the WHOLE overlay layer,
+  // not any one highlight, so every rect on the page - regardless of which highlight
+  // owns it - flattens together once before the single blend against the canvas.
+  test("blends the entire highlight overlay as one isolated group, not per highlight or per rect", () => {
     const out = html();
+    const layer = out.match(/\.pdfa-highlights\s*\{[^}]*\}/)[0];
+    expect(layer).toMatch(/mix-blend-mode:\s*multiply/);
+    expect(layer).toMatch(/isolation:\s*isolate/);
+
+    // Nothing INSIDE that layer may carry its own blend mode or isolation, or it
+    // re-isolates its own subtree and reintroduces exactly the bug this fixes - a
+    // highlight (or a single rect) sealed off from the rest of the layer, doubling the
+    // color again wherever it touches a neighbour.
     const group = out.match(/\.pdfa-hl-group\s*\{[^}]*\}/)[0];
-    expect(group).toMatch(/mix-blend-mode:\s*multiply/);
-    expect(group).toMatch(/isolation:\s*isolate/);
-    // The individual rect must NOT carry its own blend mode, or two overlapping rects
-    // within the same group would double the color right back.
+    expect(group).not.toMatch(/mix-blend-mode/);
+    expect(group).not.toMatch(/isolation/);
     const rect = out.match(/\.pdfa-hl\s*\{[^}]*\}/)[0];
     expect(rect).not.toMatch(/mix-blend-mode/);
   });

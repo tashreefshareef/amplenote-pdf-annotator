@@ -1362,22 +1362,33 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
      PDF-space rects instead. Giving the rects their own pointer events would block text
      selection over anything already highlighted.
 
-     Deliberately NO z-index here: "mix-blend-mode" blends against the backdrop only up
-     to the nearest stacking context, and a z-index on this container would create one,
-     isolating each rect against a transparent parent instead of the rendered page. DOM
-     order (canvas, then this, then the text layer) already gives the right paint order. */
-  .pdfa-highlights { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-  /* One group PER HIGHLIGHT, blend mode on the GROUP, not on each rect - the same
-     pattern as the text layer's opacity above, and for the same reason. A multi-line
-     highlight's own line rects can genuinely overlap by a pixel or two: tightly-set text
-     can have one line's descender ink dip into the next line's ascender space. With
-     mix-blend-mode on each rect individually, that sliver of overlap got colored TWICE,
-     showing as a darker seam at every line boundary - reported live as a "darker
-     underline" running the width of the overlap between each pair of lines. Isolation
-     makes the group's own rects composite flat against each other first (the same solid
-     color painted twice looks identical to once), then the whole highlight blends
-     against the page a single time. */
-  .pdfa-hl-group { position: absolute; inset: 0; mix-blend-mode: multiply; isolation: isolate; }
+     Blend mode + isolation live on THIS layer, not on each rect and not per highlight -
+     see the comment below for why the scope had to widen twice. DOM order (canvas, then
+     this, then the text layer) already gives the right paint order; isolation does not
+     change that, it only decides what a descendant's blend mode composites against. */
+  .pdfa-highlights { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+    mix-blend-mode: multiply; isolation: isolate; }
+  /* Every rect on the page - across EVERY highlight, not just within one - has to
+     flatten together before the single multiply pass against the canvas, or two
+     overlapping rects double-color wherever they touch.
+     Two live reports, same underlying bug, different scope each time:
+       1. One highlight's OWN line rects can overlap by a pixel or two - tightly-set
+          text can have one line's descender ink dip into the next line's ascender
+          space. Fixed first by isolating per HIGHLIGHT (one group per highlight).
+       2. That fix left the SAME seam between two DIFFERENT highlights whose rects
+          happen to touch at a line boundary (recolor a highlight beside an existing
+          one, or two separate highlights on adjacent lines) - each highlight was its
+          own isolated group, so two groups touching still each multiplied the page
+          independently, compounding right back.
+     Isolating the whole layer instead of each highlight fixes both at once: every rect
+     on the page composites flat against every other rect first (same or different
+     highlight, doesn't matter - two opaque rects overlapping just show whichever
+     painted last, no color math), and the FLATTENED result blends against the canvas
+     exactly once. The .pdfa-hl-group class below is now purely organizational (keeps a
+     highlight's own rects together, carries its id) - it has no blend mode of its own,
+     or it would re-isolate its own subtree and undo the point of the wider scope.
+     (No backticks anywhere in this comment - STYLES is itself a template literal.) */
+  .pdfa-hl-group { position: absolute; inset: 0; }
   .pdfa-hl { position: absolute; border-radius: 2px; }
 
   /* The four colors are top-level toolbar buttons, single click, no submenu - an
