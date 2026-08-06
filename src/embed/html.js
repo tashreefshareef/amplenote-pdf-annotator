@@ -59,12 +59,15 @@ const STYLES = `
   .pdfa-error { color: var(--pdfa-error); opacity: 1; white-space: pre-wrap; }
 
   /* Text layer: invisible glyphs positioned exactly over the canvas. It must stay
-     selectable — this is what Phase 2 reads selection geometry from. */
-  .pdfa-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1;
-    opacity: 0.25; --scale-factor: 1; }
+     selectable — this is what Phase 2 reads selection geometry from.
+
+     --scale-factor is set per page in JS to match the render scale. It is NOT declared
+     here: a static value silently offsets every span from the glyph it covers, which
+     presents as selection hitting the wrong text or nothing at all. */
+  .pdfa-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; }
   .pdfa-textlayer > span { color: transparent; position: absolute; white-space: pre;
     cursor: text; transform-origin: 0% 0%; }
-  .pdfa-textlayer ::selection { background: rgba(0, 100, 255, .35); }
+  .pdfa-textlayer > span::selection { background: rgba(0, 100, 255, .4); }
 `;
 
 /** Light and dark palettes, driven by `app.context.lightDarkMode`. */

@@ -203,7 +203,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       pageLabel: document.getElementById("pdfa-page-label"),
       zoomLabel: document.getElementById("pdfa-zoom-label")
     };
-    var state = { doc: null, scale: 1.25, pageCount: 0, current: 1, rendering: false };
+    var state = { doc: null, scale: 1.25, pageCount: 0, current: 1, rendering: false, textSpans: 0 };
     function status(message, isError) {
       els.status.textContent = message || "";
       els.status.style.display = message ? "block" : "none";
@@ -247,6 +247,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       textLayer.className = "pdfa-textlayer";
       textLayer.style.width = viewport.width + "px";
       textLayer.style.height = viewport.height + "px";
+      textLayer.style.setProperty("--scale-factor", String(state.scale));
       wrap.appendChild(textLayer);
       els.pages.appendChild(wrap);
       var ctx = canvas.getContext("2d");
@@ -254,18 +255,22 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       return page.render({ canvasContext: ctx, viewport }).promise.then(function() {
         return page.getTextContent();
       }).then(function(textContent) {
+        var divs = [];
         return window.pdfjsLib.renderTextLayer({
           textContent,
           container: textLayer,
           viewport,
-          textDivs: []
-        }).promise;
+          textDivs: divs
+        }).promise.then(function() {
+          state.textSpans += divs.length;
+        });
       });
     }
     function renderAll() {
       if (state.rendering) return Promise.resolve();
       state.rendering = true;
       els.pages.innerHTML = "";
+      state.textSpans = 0;
       status("Rendering...");
       var chain = Promise.resolve();
       for (var i = 1; i <= state.pageCount; i++) {
@@ -278,7 +283,11 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         })(i);
       }
       return chain.then(function() {
-        status("");
+        if (state.textSpans === 0) {
+          status("No selectable text found - this PDF may be a scan.", true);
+        } else {
+          status("");
+        }
         state.rendering = false;
         updateLabels();
       }).catch(function(err) {
@@ -405,12 +414,15 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   .pdfa-error { color: var(--pdfa-error); opacity: 1; white-space: pre-wrap; }
 
   /* Text layer: invisible glyphs positioned exactly over the canvas. It must stay
-     selectable \u2014 this is what Phase 2 reads selection geometry from. */
-  .pdfa-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1;
-    opacity: 0.25; --scale-factor: 1; }
+     selectable \u2014 this is what Phase 2 reads selection geometry from.
+
+     --scale-factor is set per page in JS to match the render scale. It is NOT declared
+     here: a static value silently offsets every span from the glyph it covers, which
+     presents as selection hitting the wrong text or nothing at all. */
+  .pdfa-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; }
   .pdfa-textlayer > span { color: transparent; position: absolute; white-space: pre;
     cursor: text; transform-origin: 0% 0%; }
-  .pdfa-textlayer ::selection { background: rgba(0, 100, 255, .35); }
+  .pdfa-textlayer > span::selection { background: rgba(0, 100, 255, .4); }
 `;
   var THEMES = {
     light: `--pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0; --pdfa-btn:#fff; --pdfa-btn-hover:#eceef1; --pdfa-error:#b3261e;`,

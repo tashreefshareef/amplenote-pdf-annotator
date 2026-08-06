@@ -22,7 +22,7 @@ export function viewerMain() {
     zoomLabel: document.getElementById("pdfa-zoom-label"),
   };
 
-  var state = { doc: null, scale: 1.25, pageCount: 0, current: 1, rendering: false };
+  var state = { doc: null, scale: 1.25, pageCount: 0, current: 1, rendering: false, textSpans: 0 };
 
   function status(message, isError) {
     els.status.textContent = message || "";
@@ -89,6 +89,10 @@ export function viewerMain() {
     textLayer.className = "pdfa-textlayer";
     textLayer.style.width = viewport.width + "px";
     textLayer.style.height = viewport.height + "px";
+    // PDF.js 3.x positions text spans relative to this CSS variable. It MUST match the
+    // viewport scale — hardcoding it leaves every span offset from the glyph it covers,
+    // so clicks and drags hit the wrong text (or nothing) even though the layer exists.
+    textLayer.style.setProperty("--scale-factor", String(state.scale));
     wrap.appendChild(textLayer);
 
     els.pages.appendChild(wrap);
@@ -102,12 +106,19 @@ export function viewerMain() {
         return page.getTextContent();
       })
       .then(function (textContent) {
-        return window.pdfjsLib.renderTextLayer({
-          textContent: textContent,
-          container: textLayer,
-          viewport: viewport,
-          textDivs: [],
-        }).promise;
+        var divs = [];
+        return window.pdfjsLib
+          .renderTextLayer({
+            textContent: textContent,
+            container: textLayer,
+            viewport: viewport,
+            textDivs: divs,
+          })
+          .promise.then(function () {
+            // Counted so a silently empty text layer is visible in the toolbar rather
+            // than presenting as "selection mysteriously does nothing".
+            state.textSpans += divs.length;
+          });
       });
   }
 
@@ -115,6 +126,7 @@ export function viewerMain() {
     if (state.rendering) return Promise.resolve();
     state.rendering = true;
     els.pages.innerHTML = "";
+    state.textSpans = 0;
     status("Rendering...");
 
     var chain = Promise.resolve();
@@ -130,7 +142,13 @@ export function viewerMain() {
 
     return chain
       .then(function () {
-        status("");
+        // A PDF with zero selectable spans is a scanned image, not a failure of ours —
+        // say so, because "highlighting does nothing" is otherwise baffling.
+        if (state.textSpans === 0) {
+          status("No selectable text found - this PDF may be a scan.", true);
+        } else {
+          status("");
+        }
         state.rendering = false;
         updateLabels();
       })
