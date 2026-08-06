@@ -17,6 +17,19 @@
  *   4. Quad order is TL, TR, BL, BR (top row first) - NOT a clockwise winding. Wrong
  *      order renders in some readers and silently vanishes in others.
  *
+ * A fifth finding, added after the spike, from a real download opened in Adobe's own
+ * tools: /QuadPoints + /C alone is not enough. Chrome and several third-party readers
+ * synthesize a default appearance for a Highlight annotation from those two fields, but
+ * Adobe's renderers do not - without an explicit /AP (appearance stream), the annotation
+ * is simply invisible there, present in the file but never drawn. This is a well-known,
+ * spec-documented gap (ISO 32000-1 12.5.5), not an Adobe bug: an appearance stream is
+ * optional per the spec, "existing readers may or may not generate one," and Adobe's own
+ * products are the strict end of that range. buildHighlightAnnotation therefore builds
+ * an /AP /N Form XObject by hand: one filled rectangle per quad, in an isolated graphics
+ * state with /BM /Multiply - the SAME blend mode note 12.5.6.19 recommends for Highlight
+ * annotations specifically, and the same one the on-screen overlay already uses, so a
+ * downloaded file looks like what the user saw in the viewer.
+ *
  * WHY THIS FILE HAS THE SAME UNUSUAL SHAPE AS geometry.js
  *
  * Reading the annotated PDF's own bytes back out and re-serializing them has to happen
@@ -44,6 +57,54 @@ export function createAnnotationWriter() {
    * a highlight reaches storage its color has already been validated by
    * createHighlight, so this is a last-resort fallback, not the normal path. */
   var FALLBACK_RGB = [0.957, 0.871, 0.424];
+
+  /**
+   * Build the /AP /N Form XObject Adobe's tools require to render the highlight at all
+   * (see the file header - finding 5). One filled rectangle per quad, painted with the
+   * given color inside an isolated graphics state carrying /BM /Multiply, the blend mode
+   * the PDF spec itself recommends for Highlight annotations and the same one the
+   * on-screen overlay already uses.
+   *
+   * BBox is set to the SAME numbers as the annotation's own /Rect, and Matrix is left at
+   * pdf-lib's default identity - per the spec's appearance-stream algorithm (12.5.5),
+   * that combination maps the form's content directly onto /Rect with no additional
+   * transform, so the rectangles below can be drawn in the SAME page-space coordinates
+   * used everywhere else in this file, no re-deriving a second coordinate system.
+   *
+   * @returns {PDFRef} the registered Form XObject, ready to hang off /AP /N.
+   */
+  function buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, bbox) {
+    var gsRef = pdfDoc.context.register(
+      pdfDoc.context.obj({
+        Type: PDFLib.PDFName.of("ExtGState"),
+        BM: PDFLib.PDFName.of("Multiply"),
+        // Baked into the appearance itself, not just the annotation's own /CA, since a
+        // reader that renders the /AP is not guaranteed to also apply /CA on top of it.
+        ca: PDFLib.PDFNumber.of(0.4),
+      })
+    );
+
+    var operators = [PDFLib.pushGraphicsState(), PDFLib.setGraphicsState("GS0")];
+    operators.push(PDFLib.setFillingColor(PDFLib.rgb(rgbTriple[0], rgbTriple[1], rgbTriple[2])));
+    for (var i = 0; i < rects.length; i++) {
+      var r = rects[i];
+      // Each rect is its own closed subpath; one fill() paints all of them at once
+      // (nonzero winding handles disjoint subpaths without needing a union).
+      operators.push(PDFLib.moveTo(r.x, r.y));
+      operators.push(PDFLib.lineTo(r.x, r.y + r.height));
+      operators.push(PDFLib.lineTo(r.x + r.width, r.y + r.height));
+      operators.push(PDFLib.lineTo(r.x + r.width, r.y));
+      operators.push(PDFLib.closePath());
+    }
+    operators.push(PDFLib.fill());
+    operators.push(PDFLib.popGraphicsState());
+
+    var form = pdfDoc.context.formXObject(operators, {
+      BBox: bbox,
+      Resources: { ExtGState: { GS0: gsRef } },
+    });
+    return pdfDoc.context.register(form);
+  }
 
   /**
    * One native /Highlight annotation, with an explicit /Popup child when there's a
@@ -89,6 +150,11 @@ export function createAnnotationWriter() {
     if (highlight.note) {
       dict.set(PDFLib.PDFName.of("Contents"), PDFLib.PDFString.of(highlight.note));
     }
+
+    // Finding 5 - without this, the annotation is invisible in Adobe's tools even
+    // though it is present in the file and visible in Chrome/PDFGear/PDF.js.
+    var apRef = buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, [minX, minY, maxX, maxY]);
+    dict.set(PDFLib.PDFName.of("AP"), pdfDoc.context.obj({ N: apRef }));
 
     var highlightRef = pdfDoc.context.register(dict);
     var refs = [highlightRef];

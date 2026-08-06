@@ -12,6 +12,47 @@ lesson** (the part worth remembering outside this repo) → commit for full deta
 
 ---
 
+## Hand-built PDF annotations need an explicit /AP or Adobe's tools show nothing
+
+**Symptom:** a PDF with programmatically-added highlight annotations displayed them
+correctly in Chrome, PDF.js and a third-party viewer (PDFGear) - but the SAME file
+opened in Adobe's tools showed no highlights at all. The annotations were genuinely in
+the file (present in the object graph, correct `/QuadPoints` and `/C`), just invisible in
+one specific family of renderer.
+
+**Cause:** `/QuadPoints` + `/C` alone describe *where* a Highlight annotation is and
+*what color* it is, not what to actually paint. Rendering an appearance from those two
+fields when no `/AP` (appearance stream) is present is optional per spec (ISO 32000-1
+12.5.5) - Chrome, PDF.js-based tools, and PDFGear synthesize one; Adobe's renderers do
+not, and fall back to drawing nothing rather than guessing.
+
+**Fix:** build the `/AP /N` Form XObject by hand: a small content stream that fills one
+rectangle per quad in the annotation's color, wrapped in an isolated graphics state
+carrying `/BM /Multiply` (the blend mode the spec itself recommends for Highlight
+annotations, and the same one already used for the on-screen rendering, so the download
+matches what the user saw). Setting the Form's `BBox` to the same numbers as the
+annotation's own `/Rect`, with the library's default identity `Matrix`, maps the
+content 1:1 onto the annotation with no second coordinate transform to derive.
+
+**General lesson:** never assume that data alone is enough to make a hand-built PDF
+object visible in every reader - many annotation and form-field types have an *optional*
+appearance-generation step that different renderers implement inconsistently, and the
+strictest reader in your target set (often Adobe's own) will not fill that gap for you.
+If you're building annotations at the object-dictionary level (bypassing your library's
+high-level API, which is itself a sign the library doesn't consider your case common), an
+explicit appearance stream is not an optimization - it's the only way to get consistent
+behavior across renderers. Test against more than one reader family before calling a
+hand-built PDF feature done.
+
+**Verification note:** confirmed both ways used elsewhere in this log - a Jest suite
+decoding the appearance stream's actual operators (via the library's own
+decompress-and-read path, not a regex over raw PDF bytes) to check the color, rectangle
+count and blend mode are correct, and a live download in a real browser re-parsed with
+the same library to confirm the file on disk matches. Still not confirmed by opening the
+downloaded file in Adobe's own tools directly - that needs a human with Acrobat.
+
+---
+
 ## Overlapping same-color elements with individual `mix-blend-mode` double-darken
 
 **Symptom:** a multi-line highlight showed a visibly darker strip exactly at the boundary

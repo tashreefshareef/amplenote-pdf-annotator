@@ -590,6 +590,34 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   // src/annotations.js
   function createAnnotationWriter() {
     var FALLBACK_RGB = [0.957, 0.871, 0.424];
+    function buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, bbox) {
+      var gsRef = pdfDoc.context.register(
+        pdfDoc.context.obj({
+          Type: PDFLib.PDFName.of("ExtGState"),
+          BM: PDFLib.PDFName.of("Multiply"),
+          // Baked into the appearance itself, not just the annotation's own /CA, since a
+          // reader that renders the /AP is not guaranteed to also apply /CA on top of it.
+          ca: PDFLib.PDFNumber.of(0.4)
+        })
+      );
+      var operators = [PDFLib.pushGraphicsState(), PDFLib.setGraphicsState("GS0")];
+      operators.push(PDFLib.setFillingColor(PDFLib.rgb(rgbTriple[0], rgbTriple[1], rgbTriple[2])));
+      for (var i = 0; i < rects.length; i++) {
+        var r = rects[i];
+        operators.push(PDFLib.moveTo(r.x, r.y));
+        operators.push(PDFLib.lineTo(r.x, r.y + r.height));
+        operators.push(PDFLib.lineTo(r.x + r.width, r.y + r.height));
+        operators.push(PDFLib.lineTo(r.x + r.width, r.y));
+        operators.push(PDFLib.closePath());
+      }
+      operators.push(PDFLib.fill());
+      operators.push(PDFLib.popGraphicsState());
+      var form = pdfDoc.context.formXObject(operators, {
+        BBox: bbox,
+        Resources: { ExtGState: { GS0: gsRef } }
+      });
+      return pdfDoc.context.register(form);
+    }
     function buildHighlightAnnotation2(PDFLib, pdfDoc, highlight, rgbTriple) {
       var rects = highlight.rects;
       var quadPoints = [];
@@ -622,6 +650,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       if (highlight.note) {
         dict.set(PDFLib.PDFName.of("Contents"), PDFLib.PDFString.of(highlight.note));
       }
+      var apRef = buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, [minX, minY, maxX, maxY]);
+      dict.set(PDFLib.PDFName.of("AP"), pdfDoc.context.obj({ N: apRef }));
       var highlightRef = pdfDoc.context.register(dict);
       var refs = [highlightRef];
       if (highlight.note) {

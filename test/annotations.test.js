@@ -8,10 +8,14 @@
  * actually reads back - mirroring the verification step the pdf-lib spike itself used
  * (spike/pdf-lib-annotations.mjs), now as asserted tests rather than a console log.
  *
- * What this suite does NOT cover: whether annotations render correctly in Acrobat,
- * Preview, or Chrome. That was verified manually in the spike and needs re-confirming
- * with a real downloaded file from the live app - a Jest suite can prove the annotation
- * DICTIONARY is well-formed, not that every reader's rendering engine agrees.
+ * What this suite does NOT cover: whether annotations actually PAINT correctly in
+ * Acrobat, Preview, or Chrome - that needs a real reader, which Jest cannot drive. What
+ * it CAN prove, and does: that the /AP appearance stream this file builds by hand (see
+ * "finding 5" in annotations.js's header - Adobe's tools do not synthesize a default
+ * appearance from /QuadPoints the way Chrome and PDFGear do, so without an explicit one
+ * the annotation is invisible there even though it is present in the file) contains the
+ * right operators, colors and blend mode, decoded via pdf-lib's own
+ * getContentsString() rather than by regexing raw PDF bytes.
  */
 import * as PDFLib from "pdf-lib";
 import { createAnnotationWriter, writeHighlightsIntoPdf } from "../src/annotations.js";
@@ -43,6 +47,17 @@ async function annotsOnPage(bytes, pageIndex = 0) {
   const doc = await PDFLib.PDFDocument.load(bytes);
   const annots = doc.getPage(pageIndex).node.get(PDFLib.PDFName.of("Annots"));
   return annots instanceof PDFLib.PDFArray ? annots : null;
+}
+
+/**
+ * Decode a stream's content into readable operator text. After a save + reload round
+ * trip, a Form XObject comes back as a PDFRawStream holding FlateDecode-compressed
+ * bytes - its own getContentsString() returns those bytes UNDECODED. decodePDFRawStream
+ * is what pdf-lib itself uses internally to undo the filter; .decode() on its result is
+ * the actual readable operator string.
+ */
+function formContentString(stream) {
+  return Buffer.from(PDFLib.decodePDFRawStream(stream).decode()).toString("latin1");
 }
 
 /** Dereference a PDFRef found inside an /Annots array into its dictionary. */
@@ -201,6 +216,86 @@ describe("writeHighlightsIntoPdf", () => {
     const dict = resolve(doc, annots.get(0));
     expect(dict.get(PDFLib.PDFName.of("Contents"))).toBeUndefined();
     expect(dict.get(PDFLib.PDFName.of("Popup"))).toBeUndefined();
+  });
+
+  // Scenario: THE bug reported live - a downloaded PDF's highlights were invisible in
+  // Adobe's own tools, though present in the file and visible in Chrome/PDFGear. Chrome
+  // and several third-party readers synthesize a default appearance from /QuadPoints;
+  // Adobe's do not (ISO 32000-1 12.5.5 makes an appearance stream optional, and Adobe
+  // sits at the strict end of that range). Every highlight must carry an explicit /AP.
+  test("gives every highlight an /AP appearance stream, not just /QuadPoints", async () => {
+    const bytes = await writeHighlightsIntoPdf(PDFLib, await makePdf(), [highlight()], RGB_TABLE);
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    const dict = resolve(doc, (await annotsOnPage(bytes)).get(0));
+
+    const ap = dict.get(PDFLib.PDFName.of("AP"));
+    expect(ap).toBeDefined();
+    const form = doc.context.lookup(ap.get(PDFLib.PDFName.of("N")));
+    expect(form.dict.get(PDFLib.PDFName.of("Subtype"))).toEqual(PDFLib.PDFName.of("Form"));
+  });
+
+  // Scenario: the appearance's own coordinate system must line up with /Rect, or the
+  // painted rectangle would sit somewhere other than where /QuadPoints says the
+  // highlight is. Per the spec's appearance algorithm, BBox equal to /Rect with the
+  // (default) identity Matrix maps 1:1 with no extra transform - the simplest way to get
+  // this right, and the one this file relies on rather than deriving a second transform.
+  test("sets the appearance's BBox to the same bounding box as /Rect", async () => {
+    const rects = [
+      { x: 50, y: 700, width: 100, height: 14 },
+      { x: 200, y: 680, width: 50, height: 14 },
+    ];
+    const bytes = await writeHighlightsIntoPdf(PDFLib, await makePdf(), [highlight({ rects })], RGB_TABLE);
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    const dict = resolve(doc, (await annotsOnPage(bytes)).get(0));
+
+    const rect = dict.get(PDFLib.PDFName.of("Rect")).asArray().map((n) => n.asNumber());
+    const form = doc.context.lookup(dict.get(PDFLib.PDFName.of("AP")).get(PDFLib.PDFName.of("N")));
+    const bbox = form.dict.get(PDFLib.PDFName.of("BBox")).asArray().map((n) => n.asNumber());
+
+    expect(bbox).toEqual(rect);
+  });
+
+  // Scenario: the appearance must actually paint the SAME color and the SAME rects as
+  // the annotation's own /C and /QuadPoints - reading the decoded content stream
+  // operators directly is what proves the appearance isn't just present but correct.
+  test("paints the appearance in the highlight's own color, one rectangle per quad", async () => {
+    const rects = [
+      { x: 50, y: 700, width: 100, height: 14 },
+      { x: 50, y: 680, width: 60, height: 14 },
+    ];
+    const bytes = await writeHighlightsIntoPdf(PDFLib, await makePdf(), [highlight({ color: "blue", rects })], RGB_TABLE);
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    const dict = resolve(doc, (await annotsOnPage(bytes)).get(0));
+    const form = doc.context.lookup(dict.get(PDFLib.PDFName.of("AP")).get(PDFLib.PDFName.of("N")));
+    const content = formContentString(form);
+
+    // The blue triple, formatted the way pdf-lib's own rg operator writes numbers.
+    expect(content).toContain("0.518 0.714 0.851 rg");
+    // One closed rectangle path per rect: moveTo -> 3 lineTo -> closePath.
+    expect((content.match(/\bm\b/g) || []).length).toBe(2);
+    expect((content.match(/\bl\b/g) || []).length).toBe(6);
+    expect((content.match(/\bh\b/g) || []).length).toBe(2);
+    // A single fill paints every subpath at once, not one fill per rect.
+    expect((content.match(/^f$/gm) || []).length).toBe(1);
+  });
+
+  // Scenario: THE reason for building the appearance by hand instead of leaving it to a
+  // reader's default - the spec recommends Multiply blend mode specifically for
+  // Highlight annotations, and it is what makes the underlying text stay readable
+  // through the color. It has to live in an ExtGState, since blend mode is not a raw
+  // content-stream operator on its own.
+  test("sets the appearance's blend mode to Multiply via an ExtGState, opacity included", async () => {
+    const bytes = await writeHighlightsIntoPdf(PDFLib, await makePdf(), [highlight()], RGB_TABLE);
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    const dict = resolve(doc, (await annotsOnPage(bytes)).get(0));
+    const form = doc.context.lookup(dict.get(PDFLib.PDFName.of("AP")).get(PDFLib.PDFName.of("N")));
+
+    const resources = form.dict.get(PDFLib.PDFName.of("Resources"));
+    const extGState = doc.context.lookup(resources.get(PDFLib.PDFName.of("ExtGState")).get(PDFLib.PDFName.of("GS0")));
+    expect(extGState.get(PDFLib.PDFName.of("BM"))).toEqual(PDFLib.PDFName.of("Multiply"));
+    expect(extGState.get(PDFLib.PDFName.of("ca")).asNumber()).toBe(0.4);
+    // And the content stream actually invokes it, not just declares it unused.
+    expect(formContentString(form)).toContain("/GS0 gs");
   });
 
   // Scenario: several highlights on the same page must all land in /Annots, not
