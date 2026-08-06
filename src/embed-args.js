@@ -2,14 +2,14 @@
  * Embed argument encoding.
  *
  * Amplenote passes embed parameters as a QUERY STRING, verified in the live app:
- *   <object data="plugin://UUID?page=3&x=100" />  →  renderEmbed(app, "page=3&x=100")
+ *   <object data="plugin://UUID?page=3&x=100" />  ->  renderEmbed(app, "page=3&x=100")
  *
- * Built in Phase 1 even though only `att` is used yet, because spec §7.3 warns that
+ * Built in Phase 1 even though only `att` is used yet, because spec section 7.3 warns that
  * retrofitting the deep-link schema in Phase 5 is the expensive path. The exported
  * highlight links in Phase 5 are just `buildEmbedArgs` with page and coordinates filled.
  *
  * Coordinates are PDF user-space (origin bottom-left), matching the storage model in
- * spec §3 — never screen pixels.
+ * spec section 3 - never screen pixels.
  */
 
 /**

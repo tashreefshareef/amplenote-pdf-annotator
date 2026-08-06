@@ -2,10 +2,10 @@
  * Builds the HTML string returned by `renderEmbed`.
  *
  * The toolbar already reserves the slot where Phase 2's four single-click color buttons
- * go — the spec is explicit that they must be top-level toolbar buttons, not a dropdown
+ * go - the spec is explicit that they must be top-level toolbar buttons, not a dropdown
  * or sidebar, so the layout is designed for them from the start.
  *
- * SCRIPT LOADING — two live failures are baked into the shape of this file:
+ * SCRIPT LOADING - two live failures are baked into the shape of this file:
  *
  * 1. The viewer must NOT be attached as an `onload="..."` attribute. Its source is full
  *    of double quotes, which terminate the HTML attribute at the first one, so it never
@@ -15,7 +15,7 @@
  * 2. PDF.js must NOT be a plain `<script src>` here. Amplenote re-executes the embed's
  *    inline scripts immediately while an external script is still downloading, so the
  *    viewer ran before the library existed. The viewer therefore loads PDF.js itself
- *    and waits for onload — the sequence proven to work in the live app.
+ *    and waits for onload - the sequence proven to work in the live app.
  */
 import { CDN } from "../constants.js";
 import { viewerMain } from "./viewer.js";
@@ -60,26 +60,26 @@ const STYLES = `
   .pdfa-status { padding: 10px 12px; text-align: center; opacity: .8; }
   .pdfa-error { color: var(--pdfa-error); opacity: 1; white-space: pre-wrap; }
 
-  /* Text layer: invisible glyphs positioned exactly over the canvas. It must stay
-     selectable — this is what Phase 2 reads selection geometry from. Mirrors PDF.js's
-     own pdf_viewer.css; deviate from it carefully.
+  /* TEXT LAYER
+     Styling comes from PDF.js's own pdf_viewer.css, linked above. Do not reimplement
+     those rules - the layer's geometry is coupled to what renderTextLayer emits, and
+     two positioning bugs have already come from hand-rolled substitutes.
 
-     --scale-factor is set per page in JS to match the render scale. It is NOT declared
-     here: a static value silently offsets every span from the glyph it covers, which
-     presents as selection hitting the wrong text or nothing at all.
+     What follows is only (a) a safety net if that stylesheet fails to load, and (b) the
+     selection colour, which is ours to choose.
 
-     OPACITY GOES ON THE CONTAINER, and the selection colour is OPAQUE. This ordering
-     matters and is not cosmetic. Span boxes are slightly taller than their glyphs, so
-     spans on consecutive lines overlap; if each painted its own translucent selection,
-     the alpha would compound and leave dark seams between lines. Group opacity forces
-     the browser to composite all spans into one buffer first, then fade the result —
-     giving the flat, even selection the native viewers show. */
-  .pdfa-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1;
-    text-align: initial; text-size-adjust: none; forced-color-adjust: none;
-    transform-origin: 0 0; opacity: 0.3; }
-  .pdfa-textlayer > span { color: transparent; position: absolute; white-space: pre;
+     The safety net matters: without "color: transparent" a failed stylesheet paints
+     every glyph a second time on top of the canvas, which looks like a corrupted PDF
+     rather than a missing CSS file. (No backticks in this comment - STYLES is itself a
+     template literal, and one would terminate it.) */
+  .textLayer { position: absolute; inset: 0; overflow: hidden; line-height: 1;
+    opacity: 0.3; forced-color-adjust: none; }
+  .textLayer > span { color: transparent; position: absolute; white-space: pre;
     cursor: text; transform-origin: 0% 0%; }
-  .pdfa-textlayer > span::selection { background: #1a73e8; }
+  /* Opaque on purpose: the container's opacity fades the layer as a single group, so
+     overlapping spans can't compound their alpha into dark seams between lines. */
+  .textLayer ::selection { background: #1a73e8; }
+  .textLayer > span::selection { background: #1a73e8; }
 `;
 
 /** Light and dark palettes, driven by `app.context.lightDarkMode`. */
@@ -97,7 +97,7 @@ const THEMES = {
  */
 export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = null, lightDarkMode = "light" } = {}) {
   const theme = THEMES[lightDarkMode] || THEMES.light;
-  // The library URL travels in the config because the viewer loads PDF.js itself —
+  // The library URL travels in the config because the viewer loads PDF.js itself -
   // see the ordering note above.
   const config = {
     attachmentUUID,
@@ -106,7 +106,10 @@ export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = nul
     workerSrc: CDN.pdfJsWorker,
   };
 
-  return `<style>:root{${theme}}${STYLES}</style>
+  // The upstream stylesheet is linked BEFORE ours so our selection colour and safety
+  // net win on equal specificity.
+  return `<link rel="stylesheet" href="${CDN.pdfViewerCss}">
+<style>:root{${theme}}${STYLES}</style>
 <div id="pdfa-root">
   <div class="pdfa-toolbar">
     <!-- Identifies this viewer at a glance. Amplenote renders its OWN PDF preview for
@@ -115,7 +118,7 @@ export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = nul
     <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
     <span class="pdfa-sep"></span>
     <button id="pdfa-prev" title="Previous page">&#8249;</button>
-    <span class="pdfa-label" id="pdfa-page-label">– / –</span>
+    <span class="pdfa-label" id="pdfa-page-label">- / -</span>
     <button id="pdfa-next" title="Next page">&#8250;</button>
     <span class="pdfa-sep"></span>
     <button id="pdfa-zoom-out" title="Zoom out">&#8722;</button>

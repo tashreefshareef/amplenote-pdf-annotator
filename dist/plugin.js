@@ -30,6 +30,15 @@ var __pluginModule = (() => {
   var CDN = {
     pdfJs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
     pdfJsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+    /**
+     * PDF.js's OWN viewer stylesheet, used for the text layer.
+     *
+     * Hand-rolling those rules caused two separate positioning bugs (a static
+     * --scale-factor that broke hit-testing, then group-opacity blotching). The text
+     * layer's geometry is tightly coupled to what renderTextLayer emits, so the upstream
+     * stylesheet is the reference implementation - use it rather than reimplementing it.
+     */
+    pdfViewerCss: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css",
     pdfLib: "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"
   };
   var CORS_PROXY = "https://plugins.amplenote.com/cors-proxy";
@@ -135,7 +144,7 @@ var __pluginModule = (() => {
     }
     const content = await app.getNoteContent({ uuid: noteUUID });
     if (hasEmbedFor(content, pluginUUID, attachment.uuid)) {
-      await app.alert(`"${attachment.name}" is already open in this note \u2014 scroll to the viewer.`);
+      await app.alert(`"${attachment.name}" is already open in this note - scroll to the viewer.`);
       return attachment.uuid;
     }
     await app.insertNoteContent(
@@ -243,7 +252,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       canvas.style.height = viewport.height + "px";
       wrap.appendChild(canvas);
       var textLayer = document.createElement("div");
-      textLayer.className = "pdfa-textlayer";
+      textLayer.className = "textLayer";
       textLayer.style.width = viewport.width + "px";
       textLayer.style.height = viewport.height + "px";
       textLayer.style.setProperty("--scale-factor", String(state.scale));
@@ -414,26 +423,26 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   .pdfa-status { padding: 10px 12px; text-align: center; opacity: .8; }
   .pdfa-error { color: var(--pdfa-error); opacity: 1; white-space: pre-wrap; }
 
-  /* Text layer: invisible glyphs positioned exactly over the canvas. It must stay
-     selectable \u2014 this is what Phase 2 reads selection geometry from. Mirrors PDF.js's
-     own pdf_viewer.css; deviate from it carefully.
+  /* TEXT LAYER
+     Styling comes from PDF.js's own pdf_viewer.css, linked above. Do not reimplement
+     those rules - the layer's geometry is coupled to what renderTextLayer emits, and
+     two positioning bugs have already come from hand-rolled substitutes.
 
-     --scale-factor is set per page in JS to match the render scale. It is NOT declared
-     here: a static value silently offsets every span from the glyph it covers, which
-     presents as selection hitting the wrong text or nothing at all.
+     What follows is only (a) a safety net if that stylesheet fails to load, and (b) the
+     selection colour, which is ours to choose.
 
-     OPACITY GOES ON THE CONTAINER, and the selection colour is OPAQUE. This ordering
-     matters and is not cosmetic. Span boxes are slightly taller than their glyphs, so
-     spans on consecutive lines overlap; if each painted its own translucent selection,
-     the alpha would compound and leave dark seams between lines. Group opacity forces
-     the browser to composite all spans into one buffer first, then fade the result \u2014
-     giving the flat, even selection the native viewers show. */
-  .pdfa-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1;
-    text-align: initial; text-size-adjust: none; forced-color-adjust: none;
-    transform-origin: 0 0; opacity: 0.3; }
-  .pdfa-textlayer > span { color: transparent; position: absolute; white-space: pre;
+     The safety net matters: without "color: transparent" a failed stylesheet paints
+     every glyph a second time on top of the canvas, which looks like a corrupted PDF
+     rather than a missing CSS file. (No backticks in this comment - STYLES is itself a
+     template literal, and one would terminate it.) */
+  .textLayer { position: absolute; inset: 0; overflow: hidden; line-height: 1;
+    opacity: 0.3; forced-color-adjust: none; }
+  .textLayer > span { color: transparent; position: absolute; white-space: pre;
     cursor: text; transform-origin: 0% 0%; }
-  .pdfa-textlayer > span::selection { background: #1a73e8; }
+  /* Opaque on purpose: the container's opacity fades the layer as a single group, so
+     overlapping spans can't compound their alpha into dark seams between lines. */
+  .textLayer ::selection { background: #1a73e8; }
+  .textLayer > span::selection { background: #1a73e8; }
 `;
   var THEMES = {
     light: `--pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0; --pdfa-btn:#fff; --pdfa-btn-hover:#eceef1; --pdfa-error:#b3261e; --pdfa-accent:#1a6fb5;`,
@@ -447,7 +456,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       pdfJsSrc: CDN.pdfJs,
       workerSrc: CDN.pdfJsWorker
     };
-    return `<style>:root{${theme}}${STYLES}</style>
+    return `<link rel="stylesheet" href="${CDN.pdfViewerCss}">
+<style>:root{${theme}}${STYLES}</style>
 <div id="pdfa-root">
   <div class="pdfa-toolbar">
     <!-- Identifies this viewer at a glance. Amplenote renders its OWN PDF preview for
@@ -456,7 +466,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
     <span class="pdfa-sep"></span>
     <button id="pdfa-prev" title="Previous page">&#8249;</button>
-    <span class="pdfa-label" id="pdfa-page-label">\u2013 / \u2013</span>
+    <span class="pdfa-label" id="pdfa-page-label">- / -</span>
     <button id="pdfa-next" title="Next page">&#8250;</button>
     <span class="pdfa-sep"></span>
     <button id="pdfa-zoom-out" title="Zoom out">&#8722;</button>

@@ -1,5 +1,5 @@
 /**
- * The four highlight colors (spec §4).
+ * The four highlight colors (spec section 4).
  *
  * `cycleIndex` is the Amplenote cycle-color index used to color the deep-link in an
  * exported highlight block, so the link color matches the highlight color in the PDF.
@@ -21,13 +21,13 @@ export const HIGHLIGHT_COLORS = [
 
 export const DEFAULT_COLOR_ID = "yellow";
 
-/** Marker for the managed note section that stores annotation JSON (spec §7.4). */
+/** Marker for the managed note section that stores annotation JSON (spec section 7.4). */
 export const STORAGE_SECTION_HEADING = "PDF Annotator data";
 
 /**
- * Pinned CDN versions (spec §3 requires recording these for reproducibility).
+ * Pinned CDN versions (spec section 3 requires recording these for reproducibility).
  *
- * VERIFIED LOADING inside a live Amplenote embed on 2026-08-06 — these exact URLs
+ * VERIFIED LOADING inside a live Amplenote embed on 2026-08-06 - these exact URLs
  * parsed a real 7-page PDF, worker and text layer included. Do not bump casually.
  *
  * PDF.js is deliberately held at 3.x: 4.x ships as `.mjs` ES modules, which a plain
@@ -37,11 +37,20 @@ export const STORAGE_SECTION_HEADING = "PDF Annotator data";
 export const CDN = {
   pdfJs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
   pdfJsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+  /**
+   * PDF.js's OWN viewer stylesheet, used for the text layer.
+   *
+   * Hand-rolling those rules caused two separate positioning bugs (a static
+   * --scale-factor that broke hit-testing, then group-opacity blotching). The text
+   * layer's geometry is tightly coupled to what renderTextLayer emits, so the upstream
+   * stylesheet is the reference implementation - use it rather than reimplementing it.
+   */
+  pdfViewerCss: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css",
   pdfLib: "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js",
 };
 
 /**
- * Amplenote's CORS proxy — the ONLY way to read attachment bytes.
+ * Amplenote's CORS proxy - the ONLY way to read attachment bytes.
  *
  * `getAttachmentURL` hands back a presigned S3 URL that carries no CORS headers, so a
  * direct fetch fails from both the embed and the plugin sandbox. This proxy is not in

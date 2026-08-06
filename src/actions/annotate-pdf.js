@@ -1,7 +1,7 @@
 /**
  * The "Annotate PDF" note option: pick a PDF on the note and open the annotator embed.
  *
- * Standalone function taking `app` as a parameter, per spec §8 — this is what makes it
+ * Standalone function taking `app` as a parameter, per spec section 8 - this is what makes it
  * reachable from the Jest suite, which the bounty T&C requires for actions that modify
  * note data.
  */
@@ -35,7 +35,7 @@ export async function annotatePdf(app, noteUUID, pluginUUID) {
 
   // Re-running the option shouldn't stack duplicate viewers in the note.
   if (hasEmbedFor(content, pluginUUID, attachment.uuid)) {
-    await app.alert(`"${attachment.name}" is already open in this note — scroll to the viewer.`);
+    await app.alert(`"${attachment.name}" is already open in this note - scroll to the viewer.`);
     return attachment.uuid;
   }
 

@@ -94,17 +94,27 @@ describe("buildEmbedHtml", () => {
   // rendering blemish rather than a bug, so it is pinned.
   test("fades the text layer as a group, with an opaque selection colour", () => {
     const out = html();
-    expect(out).toMatch(/\.pdfa-textlayer\s*\{[^}]*opacity:\s*0?\.\d+/);
+    expect(out).toMatch(/\.textLayer\s*\{[^}]*opacity:\s*0?\.\d+/);
     // The selection rule must not use a translucent colour.
-    const selectionRule = out.match(/\.pdfa-textlayer > span::selection\s*\{[^}]*\}/)[0];
+    const selectionRule = out.match(/\.textLayer > span::selection\s*\{[^}]*\}/)[0];
     expect(selectionRule).not.toMatch(/rgba|hsla/);
     expect(selectionRule).toMatch(/background:\s*#[0-9a-f]{3,8}/i);
   });
 
-  // Scenario: the glyph text itself must stay invisible — only the canvas underneath
-  // should be legible. A visible text layer double-renders every character.
-  test("keeps text layer glyphs transparent", () => {
-    expect(html()).toMatch(/\.pdfa-textlayer > span\s*\{[^}]*color:\s*transparent/);
+  // Scenario: if the upstream stylesheet fails to load, `color: transparent` is what
+  // stops every glyph being painted a second time over the canvas — which looks like a
+  // corrupted PDF rather than a missing CSS file.
+  test("keeps text layer glyphs transparent even without the upstream stylesheet", () => {
+    expect(html()).toMatch(/\.textLayer > span\s*\{[^}]*color:\s*transparent/);
+  });
+
+  // Scenario: the text layer's geometry is coupled to what renderTextLayer emits.
+  // Hand-rolled substitutes caused two positioning bugs, so the upstream stylesheet
+  // must be linked, and it must come before ours so our overrides win.
+  test("links PDF.js's own viewer stylesheet ahead of our overrides", () => {
+    const out = html();
+    expect(out).toContain(CDN.pdfViewerCss);
+    expect(out.indexOf(CDN.pdfViewerCss)).toBeLessThan(out.indexOf("<style>"));
   });
 
   // Scenario: THE bug that silently broke the first live run. The viewer source is

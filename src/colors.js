@@ -1,5 +1,5 @@
 /**
- * Color lookups. Pure functions, no `app` dependency — the easiest things in the
+ * Color lookups. Pure functions, no `app` dependency - the easiest things in the
  * codebase to test, and Phase 5's export correctness depends entirely on them.
  */
 import { HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "./constants.js";
@@ -22,7 +22,7 @@ export function defaultColor() {
 
 /**
  * Amplenote cycle-color index for a highlight color, for coloring the exported
- * deep-link (spec §4). Returns null for unknown colors so callers can decide whether
+ * deep-link (spec section 4). Returns null for unknown colors so callers can decide whether
  * to fall back or surface an error, rather than silently exporting a wrong color.
  */
 export function cycleIndexFor(idOrHex) {

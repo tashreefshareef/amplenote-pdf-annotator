@@ -2,14 +2,14 @@
  * The PDF viewer that runs INSIDE the embed iframe.
  *
  * This function is serialized with `.toString()` and injected into the embed HTML, so:
- *   - it must be entirely self-contained — no imports, no closure over module scope
+ *   - it must be entirely self-contained - no imports, no closure over module scope
  *   - configuration arrives on `window.__PDFA_CONFIG`
  *   - it cannot be unit tested (it needs a real iframe, PDF.js, and a live plugin
  *     bridge), which is exactly why everything decidable lives in src/ modules instead.
- *     Keep this file about DOM and PDF.js wiring only. See spec §8.
+ *     Keep this file about DOM and PDF.js wiring only. See spec section 8.
  *
  * Phase 1 scope: render every page to canvas with a real text layer over it, plus zoom
- * and page navigation. Highlighting is Phase 2 — but the text layer built here is what
+ * and page navigation. Highlighting is Phase 2 - but the text layer built here is what
  * makes it possible, so its geometry has to be right.
  */
 export function viewerMain() {
@@ -38,7 +38,7 @@ export function viewerMain() {
    * the wire format in both directions.
    *
    * Wrapped in a promise so a SYNCHRONOUS throw from callAmplenotePlugin becomes a
-   * rejection the caller's .catch can report — otherwise it escapes the chain entirely
+   * rejection the caller's .catch can report - otherwise it escapes the chain entirely
    * and the viewer sits on "Loading..." forever with nothing to diagnose.
    */
   function callPlugin(payload) {
@@ -86,11 +86,12 @@ export function viewerMain() {
     // the canvas, which Phase 2 turns into highlight geometry. Without it we could only
     // draw region boxes, which the spec explicitly rules out.
     var textLayer = document.createElement("div");
-    textLayer.className = "pdfa-textlayer";
+    // PDF.js's own class name, so its upstream stylesheet applies.
+    textLayer.className = "textLayer";
     textLayer.style.width = viewport.width + "px";
     textLayer.style.height = viewport.height + "px";
     // PDF.js 3.x positions text spans relative to this CSS variable. It MUST match the
-    // viewport scale — hardcoding it leaves every span offset from the glyph it covers,
+    // viewport scale - hardcoding it leaves every span offset from the glyph it covers,
     // so clicks and drags hit the wrong text (or nothing) even though the layer exists.
     textLayer.style.setProperty("--scale-factor", String(state.scale));
     wrap.appendChild(textLayer);
@@ -142,7 +143,7 @@ export function viewerMain() {
 
     return chain
       .then(function () {
-        // A PDF with zero selectable spans is a scanned image, not a failure of ours —
+        // A PDF with zero selectable spans is a scanned image, not a failure of ours -
         // say so, because "highlighting does nothing" is otherwise baffling.
         if (state.textSpans === 0) {
           status("No selectable text found - this PDF may be a scan.", true);
@@ -206,7 +207,7 @@ export function viewerMain() {
    * downloading when the viewer starts and `window.pdfjsLib` is undefined.
    *
    * NOTE: this whole function is serialized into an inline script, comments included.
-   * Never write a literal closing script tag anywhere in this file — even inside a
+   * Never write a literal closing script tag anywhere in this file - even inside a
    * comment or string, it would terminate the embed's script block early.
    */
   function loadPdfJs() {
@@ -255,7 +256,7 @@ export function viewerMain() {
         return renderAll();
       })
       .then(function () {
-        // Deep-link target from the embed args (spec §7.3). Phase 5 exports links
+        // Deep-link target from the embed args (spec section 7.3). Phase 5 exports links
         // carrying page + coordinates; jumping to the page is the half that works now.
         if (cfg.page) goToPage(cfg.page);
       })
@@ -265,7 +266,7 @@ export function viewerMain() {
   }
 
   // Any throw from here on would leave the embed frozen on its initial status with no
-  // clue why, so surface it in the UI — the embed's console is not reachable from the
+  // clue why, so surface it in the UI - the embed's console is not reachable from the
   // parent page.
   try {
     document.getElementById("pdfa-prev").onclick = function () { goToPage(state.current - 1); };

@@ -2,18 +2,18 @@
  * `onEmbedCall` request handling.
  *
  * The embed cannot reach the app interface, and it cannot fetch the attachment URL
- * directly either — so every privileged operation is a message to the plugin. Kept in
- * its own module, separate from the plugin object, so it is testable (spec §8).
+ * directly either - so every privileged operation is a message to the plugin. Kept in
+ * its own module, separate from the plugin object, so it is testable (spec section 8).
  *
  * Protocol: the embed sends `{ action, ...params }` and always gets an object back.
- * Errors are RETURNED, not thrown — a rejected promise surfaces in the embed as an
+ * Errors are RETURNED, not thrown - a rejected promise surfaces in the embed as an
  * opaque failure, whereas `{ error }` can be shown to the user.
  */
 import { fetchableAttachmentURL } from "./attachments.js";
 
 /**
  * Look up an attachment's display name from the note the embed lives in.
- * Never throws — a missing name is cosmetic and must not block loading the PDF.
+ * Never throws - a missing name is cosmetic and must not block loading the PDF.
  */
 async function attachmentName(app, attachmentUUID) {
   try {
@@ -29,7 +29,7 @@ async function attachmentName(app, attachmentUUID) {
  * Normalize whatever crossed the embed bridge into a request object.
  *
  * The payload arrives as a JSON string. Structured objects were tried first and the
- * bridge hung silently — no error, no resolution — so the wire format is deliberately
+ * bridge hung silently - no error, no resolution - so the wire format is deliberately
  * a plain string in both directions. A bare action name is also accepted.
  */
 export function parseEmbedPayload(payload) {

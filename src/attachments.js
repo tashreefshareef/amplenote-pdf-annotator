@@ -10,7 +10,7 @@ export const PDF_MIME = "application/pdf";
 
 /**
  * PDFs only. `getNoteAttachments` returns null for a nonexistent note and [] for a note
- * with none, so both must be handled — callers should always get an array back.
+ * with none, so both must be handled - callers should always get an array back.
  */
 export function pdfAttachments(attachments) {
   if (!Array.isArray(attachments)) return [];
@@ -20,7 +20,7 @@ export function pdfAttachments(attachments) {
 /**
  * Let the user choose which PDF to annotate.
  *
- * Skips the dialog when there's exactly one — an unavoidable prompt for a single
+ * Skips the dialog when there's exactly one - an unavoidable prompt for a single
  * obvious choice is friction, and the spec's flow is "open the PDF", not "answer a
  * question first".
  *
@@ -44,7 +44,7 @@ export async function choosePdfAttachment(app, noteUUID) {
     ],
   });
 
-  // `prompt` returns null when the user cancels — NOT undefined. Treating a cancel as
+  // `prompt` returns null when the user cancels - NOT undefined. Treating a cancel as
   // a default selection would open a file the user didn't ask for.
   if (result === null || result === undefined) return null;
 
@@ -56,7 +56,7 @@ export async function choosePdfAttachment(app, noteUUID) {
 /**
  * A URL the embed can actually fetch.
  *
- * `getAttachmentURL` returns a presigned S3 link with no CORS headers — fetching it
+ * `getAttachmentURL` returns a presigned S3 link with no CORS headers - fetching it
  * directly fails from both the embed and the plugin sandbox. Everything must go through
  * Amplenote's CORS proxy. See docs/api-notes.md.
  *
