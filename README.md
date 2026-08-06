@@ -123,6 +123,12 @@ too slow to debug geometry in. What it **cannot** tell you is whether Amplenote'
 accepts the embed — only the live app answers that, so every phase still ends with a run
 in real Amplenote.
 
+`?seed=overlappingHighlights` pre-populates the note with two different-colored
+highlights whose rects deliberately touch — the regression fixture for the darker-seam
+class of bug (see `docs/bugs-found.md`). Reloading the harness normally resets its
+in-memory note, so this seeds at page construction rather than via a runtime call a
+reload would just discard.
+
 ## Layout
 
 ```

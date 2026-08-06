@@ -10,8 +10,36 @@
  * and see what was actually persisted.
  */
 import { handleEmbedCallSerialized } from "../src/embed-call.js";
+import { STORAGE_SECTION_HEADING } from "../src/constants.js";
 
-const note = { uuid: "note-1", content: "# My reading notes\n\nsome text the user wrote\n" };
+/**
+ * `?seed=overlappingHighlights` pre-populates the note with two DIFFERENT-colored
+ * highlights on adjacent lines whose rects deliberately touch by a few PDF units -
+ * a regression fixture for the class of bug fixed in commits 9a36261 and the one after
+ * it (a darker seam where two highlights meet, first within one highlight's own line
+ * rects, then between two separate highlights). Reloading the harness page resets this
+ * in-memory note entirely, so seeding at construction time - rather than via a runtime
+ * addHighlight call that a reload would immediately discard - is what makes the fixture
+ * survive a hard reload during manual verification.
+ */
+const SEED_FIXTURES = {
+  overlappingHighlights: () => {
+    const payload = {
+      "attach-1": [
+        { id: "hl-seed-a", page: 1, color: "blue", rects: [{ x: 72, y: 650, width: 260, height: 14 }], quoteText: "line A", note: null },
+        { id: "hl-seed-b", page: 1, color: "green", rects: [{ x: 72, y: 641, width: 260, height: 14 }], quoteText: "line B", note: null },
+      ],
+    };
+    return `# My reading notes\n\nsome text the user wrote\n\n# ${STORAGE_SECTION_HEADING}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\`\n`;
+  },
+};
+
+const seedName = new URLSearchParams(location.search).get("seed");
+const seedFixture = seedName && SEED_FIXTURES[seedName];
+const note = {
+  uuid: "note-1",
+  content: seedFixture ? seedFixture() : "# My reading notes\n\nsome text the user wrote\n",
+};
 
 const app = {
   context: { noteUUID: note.uuid, lightDarkMode: "light" },

@@ -21,30 +21,56 @@ precisely enough that it read as an intentional underline rather than a renderin
 **Cause:** each line's highlight rect was its own DOM element with `mix-blend-mode:
 multiply` applied individually. Real text can have one line's glyph box (a descender)
 overlap the next line's box (an ascender) by a pixel or two — legitimate geometry, not a
-bug. Where two same-color elements with their own blend mode overlap, the color gets
-applied to the backdrop twice, which for `multiply` means darker each time.
+bug. Where two elements with their own blend mode overlap, the color gets applied to the
+backdrop twice, which for `multiply` means darker each time.
 
-**Fix:** blend mode belongs on a **group wrapper**, not on each element. Wrap all of one
-logical unit's rects in a container with `mix-blend-mode` + `isolation: isolate`; leave
-the individual rects with no blend mode of their own (default `normal`, so overlapping
-same-color rects just paint flat). The isolated group's children composite against each
-other first, then the whole group blends against the backdrop exactly once.
+**Fix, round one (incomplete):** blend mode moved to a **group wrapper**, one per
+highlight — `mix-blend-mode` + `isolation: isolate` on the wrapper, individual rects left
+at the default `normal` blend so overlapping rects of the same highlight paint flat. This
+fixed a highlight's own line rects overlapping each other.
 
-**General lesson:** any time you draw a shape as **more than one overlapping element**
-and want them to look like one continuous region, blend/opacity effects go on a wrapper
-with `isolation: isolate`, never on the individual pieces. This applies to any
-multi-rect selection highlight, multi-segment progress bar, or overlapping stroke —
-not just PDF text.
+**It did not fix the same bug one scope up.** Two *different* highlights whose rects
+happened to touch at a line boundary — a recolored highlight beside another, two
+highlights on adjacent lines — were still two separate isolated groups, each blending
+against the canvas independently. The seam came back, just between highlights instead of
+within one.
+
+**Fix, round two (the actual fix):** isolate the whole overlay layer, not any one
+highlight. Every rect on the page — across every highlight — now composites flat against
+every other rect first (two opaque rects overlapping just show whichever painted last, no
+color math), and the flattened result blends against the canvas exactly once. The
+per-highlight wrapper still exists, but purely to group a highlight's own rects and carry
+its id — it must carry **no blend mode of its own**, or it re-isolates its own subtree and
+reintroduces the exact bug one level down.
+
+**General lesson:** when several elements need to look like *one continuous surface* and
+you reach for `isolation: isolate` + a group blend mode, ask **how many elements can ever
+overlap, not just how many belong to the same logical unit.** Isolating per-unit only
+solves within-unit overlap; if two different units (two highlights, two shapes, two
+overlapping selections) can also touch, the isolation boundary has to be wide enough to
+contain both, or the fix silently narrows the bug rather than closing it. This applies to
+any multi-rect highlight, multi-segment progress bar, or overlapping stroke — not just
+PDF text — and it's exactly the mistake to check for after fixing the "obvious" scope: did
+this fix generalize, or just move the boundary?
 
 **Verification note:** this environment's browser pane doesn't always composite frames
 (headless/non-visible tab), so screenshots aren't reliable for confirming a blend-mode
 fix. `mix-blend-mode: multiply` and Canvas 2D's `globalCompositeOperation = "multiply"`
-implement the identical CSS Compositing spec formula, so reproducing both DOM structures
-as canvas draws and comparing `getImageData` pixel values is a legitimate substitute —
-used here to prove the fix numerically (`rgb(233,193,46)` buggy vs `rgb(244,222,108)` —
-exactly the source color — fixed) without a screenshot.
+implement the identical CSS Compositing spec formula, so reproducing the DOM structure as
+canvas draws and comparing `getImageData` pixel values is a legitimate substitute — used
+here to prove both rounds numerically:
+- same-highlight overlap: `rgb(233,193,46)` buggy vs `rgb(244,222,108)` (exactly the
+  source color) fixed
+- cross-highlight overlap: `rgb(97,160,101)` (a muddy blend of both colors) buggy vs
+  `rgb(187,224,119)` (exactly the later highlight's own color, painted cleanly on top)
+  fixed
 
-Commit: `9a36261`
+A repeatable regression fixture for the cross-highlight case is seeded via
+`npm run harness -- ` then navigating to `?seed=overlappingHighlights` (see
+`spike/harness-bridge.js`) — two different-colored highlights whose rects are constructed
+to touch, surviving a reload so the scenario doesn't need re-creating by hand each time.
+
+Commits: `9a36261` (round one, incomplete), `78c4933` (round two, the actual fix)
 
 ---
 
