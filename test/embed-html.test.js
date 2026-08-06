@@ -87,6 +87,26 @@ describe("buildEmbedHtml", () => {
     expect(html({ lightDarkMode: "dark" })).toContain("--pdfa-accent:");
   });
 
+  // Scenario: span boxes on consecutive lines overlap. If the selection colour were
+  // translucent, each span would paint its own layer and the alpha would compound into
+  // dark seams between lines. Opacity must sit on the CONTAINER (compositing the spans
+  // as one group) with an OPAQUE selection colour. Regressing this looks like a subtle
+  // rendering blemish rather than a bug, so it is pinned.
+  test("fades the text layer as a group, with an opaque selection colour", () => {
+    const out = html();
+    expect(out).toMatch(/\.pdfa-textlayer\s*\{[^}]*opacity:\s*0?\.\d+/);
+    // The selection rule must not use a translucent colour.
+    const selectionRule = out.match(/\.pdfa-textlayer > span::selection\s*\{[^}]*\}/)[0];
+    expect(selectionRule).not.toMatch(/rgba|hsla/);
+    expect(selectionRule).toMatch(/background:\s*#[0-9a-f]{3,8}/i);
+  });
+
+  // Scenario: the glyph text itself must stay invisible — only the canvas underneath
+  // should be legible. A visible text layer double-renders every character.
+  test("keeps text layer glyphs transparent", () => {
+    expect(html()).toMatch(/\.pdfa-textlayer > span\s*\{[^}]*color:\s*transparent/);
+  });
+
   // Scenario: THE bug that silently broke the first live run. The viewer source is
   // full of double quotes; putting it in an onload="..." attribute truncates it at the
   // first one and it never executes. The symptom is indistinguishable from a hang —

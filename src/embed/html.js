@@ -61,15 +61,25 @@ const STYLES = `
   .pdfa-error { color: var(--pdfa-error); opacity: 1; white-space: pre-wrap; }
 
   /* Text layer: invisible glyphs positioned exactly over the canvas. It must stay
-     selectable — this is what Phase 2 reads selection geometry from.
+     selectable — this is what Phase 2 reads selection geometry from. Mirrors PDF.js's
+     own pdf_viewer.css; deviate from it carefully.
 
      --scale-factor is set per page in JS to match the render scale. It is NOT declared
      here: a static value silently offsets every span from the glyph it covers, which
-     presents as selection hitting the wrong text or nothing at all. */
-  .pdfa-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; }
+     presents as selection hitting the wrong text or nothing at all.
+
+     OPACITY GOES ON THE CONTAINER, and the selection colour is OPAQUE. This ordering
+     matters and is not cosmetic. Span boxes are slightly taller than their glyphs, so
+     spans on consecutive lines overlap; if each painted its own translucent selection,
+     the alpha would compound and leave dark seams between lines. Group opacity forces
+     the browser to composite all spans into one buffer first, then fade the result —
+     giving the flat, even selection the native viewers show. */
+  .pdfa-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1;
+    text-align: initial; text-size-adjust: none; forced-color-adjust: none;
+    transform-origin: 0 0; opacity: 0.3; }
   .pdfa-textlayer > span { color: transparent; position: absolute; white-space: pre;
     cursor: text; transform-origin: 0% 0%; }
-  .pdfa-textlayer > span::selection { background: rgba(0, 100, 255, .4); }
+  .pdfa-textlayer > span::selection { background: #1a73e8; }
 `;
 
 /** Light and dark palettes, driven by `app.context.lightDarkMode`. */
