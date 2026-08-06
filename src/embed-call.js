@@ -10,6 +10,8 @@
  * opaque failure, whereas `{ error }` can be shown to the user.
  */
 import { fetchableAttachmentURL } from "./attachments.js";
+import { loadHighlights, saveHighlights } from "./storage.js";
+import { createHighlight, removeHighlight, updateHighlight, withColor } from "./highlights.js";
 
 /**
  * Look up an attachment's display name from the note the embed lives in.
@@ -23,6 +25,28 @@ async function attachmentName(app, attachmentUUID) {
   } catch {
     return "";
   }
+}
+
+/**
+ * Load the stored highlights, apply one change, save, and hand back the result.
+ *
+ * The embed sends an INTENT ("recolor this id"), never its own copy of the list, and
+ * every mutation re-reads the note first. Two viewers open on the same note - or one
+ * viewer whose in-memory copy went stale after a failed save - therefore cannot clobber
+ * each other's highlights with a whole-list overwrite.
+ *
+ * `mutate` must return a NEW array to signal a real change; returning the array it was
+ * given (which `updateHighlight` does for an unknown id) skips the write entirely rather
+ * than rewriting the note's managed section for nothing.
+ */
+async function mutateHighlights(app, attachmentUUID, mutate) {
+  const noteUUID = app.context.noteUUID;
+  const current = await loadHighlights(app, noteUUID, attachmentUUID);
+  const next = mutate(current);
+  if (next !== current) {
+    await saveHighlights(app, noteUUID, attachmentUUID, next);
+  }
+  return { highlights: next };
 }
 
 /**
@@ -67,6 +91,54 @@ export async function handleEmbedCall(app, payload) {
         return { url, name: await attachmentName(app, attachmentUUID) };
       } catch (err) {
         return { error: `Could not load the PDF: ${err.message}` };
+      }
+    }
+
+    case "loadHighlights": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      try {
+        return {
+          highlights: await loadHighlights(app, app.context.noteUUID, request.attachmentUUID),
+        };
+      } catch (err) {
+        return { error: `Could not load highlights: ${err.message}` };
+      }
+    }
+
+    case "addHighlight": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      try {
+        // Validation happens HERE, not in the embed: createHighlight is the tested
+        // gatekeeper for the storage shape, and the embed cannot import it. It also
+        // assigns the id, so the viewer never has to invent one.
+        const highlight = createHighlight(request.highlight || {});
+        return await mutateHighlights(app, request.attachmentUUID, (list) =>
+          list.concat([highlight])
+        );
+      } catch (err) {
+        return { error: `Could not save the highlight: ${err.message}` };
+      }
+    }
+
+    case "recolorHighlight": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      try {
+        return await mutateHighlights(app, request.attachmentUUID, (list) =>
+          updateHighlight(list, request.id, (h) => withColor(h, request.color))
+        );
+      } catch (err) {
+        return { error: `Could not change the highlight color: ${err.message}` };
+      }
+    }
+
+    case "removeHighlight": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      try {
+        return await mutateHighlights(app, request.attachmentUUID, (list) =>
+          removeHighlight(list, request.id)
+        );
+      } catch (err) {
+        return { error: `Could not remove the highlight: ${err.message}` };
       }
     }
 

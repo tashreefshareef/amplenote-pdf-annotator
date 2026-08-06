@@ -1,9 +1,16 @@
 /**
  * Builds the HTML string returned by `renderEmbed`.
  *
- * The toolbar already reserves the slot where Phase 2's four single-click color buttons
- * go - the spec is explicit that they must be top-level toolbar buttons, not a dropdown
- * or sidebar, so the layout is designed for them from the start.
+ * The four highlight colors sit as top-level toolbar buttons - the spec is explicit that
+ * they must not be a dropdown or a sidebar - and the viewer mounts them from the color
+ * table in constants.js so there is one source of truth per color.
+ *
+ * TWO SCRIPTS ARE INJECTED, both by serializing a function's source:
+ *   - `createGeometry()` from src/geometry.js, so the embed runs the SAME rect
+ *     arithmetic the Jest suite covers instead of an untested transcription of it
+ *   - `viewerMain()`, the DOM and PDF.js wiring
+ * Neither can import anything, and neither may contain a literal closing script tag
+ * anywhere in its source - comments included. There are tests for both.
  *
  * SCRIPT LOADING - two live failures are baked into the shape of this file:
  *
@@ -17,7 +24,8 @@
  *    viewer ran before the library existed. The viewer therefore loads PDF.js itself
  *    and waits for onload - the sequence proven to work in the live app.
  */
-import { CDN } from "../constants.js";
+import { CDN, HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "../constants.js";
+import { createGeometry } from "../geometry.js";
 import { viewerMain } from "./viewer.js";
 
 /** Escape a value being interpolated into HTML text or an attribute. */
@@ -80,6 +88,43 @@ const STYLES = `
      overlapping spans can't compound their alpha into dark seams between lines. */
   .textLayer ::selection { background: #1a73e8; }
   .textLayer > span::selection { background: #1a73e8; }
+  /* Above the highlight overlay, so text stays selectable over an existing highlight. */
+  .textLayer { z-index: 2; }
+
+  /* HIGHLIGHT OVERLAY
+     Sits between the canvas and the text layer, and takes no pointer events at all -
+     clicks on a highlight are found by hit-testing the click point against the stored
+     PDF-space rects instead. Giving the rects their own pointer events would block text
+     selection over anything already highlighted.
+
+     Deliberately NO z-index here: "mix-blend-mode" blends against the backdrop only up
+     to the nearest stacking context, and a z-index on this container would create one,
+     isolating each rect against a transparent parent instead of the rendered page. DOM
+     order (canvas, then this, then the text layer) already gives the right paint order. */
+  .pdfa-highlights { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .pdfa-hl { position: absolute; border-radius: 2px; mix-blend-mode: multiply; }
+
+  /* The four colors are top-level toolbar buttons, single click, no submenu - an
+     explicit spec requirement, not a layout preference. The bare .pdfa-color selector is
+     for the popover copies; the descendant one exists only to outrank
+     ".pdfa-toolbar button" above, which would otherwise impose its padding. */
+  .pdfa-color, .pdfa-toolbar .pdfa-color { width: 20px; height: 20px; padding: 0; border-radius: 50%;
+    border: 1px solid rgba(0,0,0,.28); cursor: pointer; font: inherit; }
+  .pdfa-color[aria-pressed="true"], .pdfa-toolbar .pdfa-color[aria-pressed="true"] {
+    box-shadow: 0 0 0 2px var(--pdfa-toolbar), 0 0 0 4px var(--pdfa-accent); }
+  .pdfa-hint { display: none; opacity: .75; font-size: 12px; white-space: nowrap; }
+
+  /* Remove / recolor actions for an existing highlight. Positioned "fixed" because the
+     embed is its own iframe, so a click's client coordinates are already relative to
+     this element's containing block - no scroll-offset arithmetic to get wrong. */
+  .pdfa-popover { position: fixed; display: none; gap: 5px; align-items: center; padding: 6px 8px;
+    z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg);
+    border: 1px solid var(--pdfa-border); border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,.3); }
+  .pdfa-popover.pdfa-open { display: flex; }
+  .pdfa-popover .pdfa-remove { font: inherit; font-size: 12px; padding: 3px 8px; line-height: 1.2;
+    border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit;
+    border-radius: 5px; cursor: pointer; }
+  .pdfa-popover .pdfa-remove:hover { background: var(--pdfa-btn-hover); }
 `;
 
 /** Light and dark palettes, driven by `app.context.lightDarkMode`. */
@@ -104,6 +149,10 @@ export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = nul
     page,
     pdfJsSrc: CDN.pdfJs,
     workerSrc: CDN.pdfJsWorker,
+    // Only what the embed needs to draw and label a swatch. cycleIndex and rgb stay on
+    // the plugin side - they belong to export (Phase 5) and pdf-lib (Phase 4).
+    colors: HIGHLIGHT_COLORS.map((c) => ({ id: c.id, label: c.label, hex: c.hex })),
+    defaultColorId: DEFAULT_COLOR_ID,
   };
 
   // The upstream stylesheet is linked BEFORE ours so our selection colour and safety
@@ -125,14 +174,20 @@ export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = nul
     <span class="pdfa-label" id="pdfa-zoom-label">125%</span>
     <button id="pdfa-zoom-in" title="Zoom in">+</button>
     <span class="pdfa-sep"></span>
-    <!-- Phase 2 mounts the four single-click highlight color buttons here. -->
+    <!-- The four single-click highlight color buttons, mounted by the viewer from
+         config.colors. Top-level toolbar buttons with no submenu is an explicit spec
+         requirement (section 4), which is why the slot is here and not in a panel. -->
     <span id="pdfa-colors"></span>
+    <span class="pdfa-hint" id="pdfa-hint"></span>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
+  <!-- Remove / recolor actions, filled in and positioned when a highlight is clicked. -->
+  <div class="pdfa-popover" id="pdfa-popover"></div>
 </div>
-<script>window.__PDFA_CONFIG = ${safeJson(config)};<\/script>
+<script>window.__PDFA_CONFIG = ${safeJson(config)};
+window.__PDFA_GEOM = (${createGeometry.toString()})();<\/script>
 <script>(${viewerMain.toString()})();<\/script>`;
 }

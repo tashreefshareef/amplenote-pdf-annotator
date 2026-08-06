@@ -8,8 +8,10 @@ page and position.
 
 Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty_plugins).
 
-> **Status: Phase 0.** Scaffold, build pipeline, and test harness are in place. The
-> annotator itself starts at Phase 1. See
+> **Status: Phase 2.** The PDF renders in the note with a working text layer, zoom and
+> page navigation (Phase 1), and highlights now work end to end: select text, click one
+> of four toolbar colors, and the highlight is drawn and saved into the note. Click an
+> existing highlight to recolor or remove it. Notes on highlights are Phase 3. See
 > [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan.
 
 ## Why there's a build step
@@ -99,7 +101,24 @@ whole note, and pasting then destroys the metadata table.
 | `npm run build` | Bundle `src/` → `dist/plugin.js` (GitHub sync target) and `dist/plugin-paste.js` (manual paste) |
 | `npm test` | Run the Jest suite |
 | `npm run test:watch` | Jest in watch mode |
+| `npm run harness` | Serve the viewer standalone at `http://localhost:4173`, no Amplenote needed |
 | `npm run spike:annotations` | Generate `spike/out/annotated-sample.pdf` to verify native PDF annotations in external readers |
+
+### The harness
+
+`npm run harness` builds a page containing the exact HTML `renderEmbed` returns, wired to
+the real plugin-side handler with an in-memory note standing in for Amplenote. Only two
+things are faked: the PDF comes from a local sample instead of Amplenote's CORS proxy,
+and the note lives in a JS object. The viewer, the geometry helpers, `embed-call.js`,
+`storage.js` and `highlights.js` are all the real code, so a highlight created in the
+harness travels the same path it will in the app — `window.__harness.note.content` shows
+the markdown that would be written.
+
+This exists because coordinate bugs are only visible against a real PDF.js text layer,
+and the alternative loop (build, push, Plugin Builder refresh, reload the note) is far
+too slow to debug geometry in. What it **cannot** tell you is whether Amplenote's sandbox
+accepts the embed — only the live app answers that, so every phase still ends with a run
+in real Amplenote.
 
 ## Layout
 
@@ -107,13 +126,19 @@ whole note, and pasting then destroys the metadata table.
 src/               Plugin source, authored as ES modules
   plugin.js        The plugin object — kept thin, delegates to actions/
   actions/         One file per action; each takes `app` as its first parameter
+  embed-call.js    Everything the embed asks the plugin to do, incl. highlight CRUD
+  embed/html.js    Builds the HTML `renderEmbed` returns
+  embed/viewer.js  The viewer that runs inside the embed — DOM and PDF.js wiring only
+  geometry.js      Pure rect arithmetic; also injected into the embed (see below)
+  highlights.js    Highlight data model and validation
+  storage.js       The managed note section highlights are persisted into
   colors.js        Highlight color lookups
   constants.js     Color table, CDN versions, storage section name
 esbuild.js         Build: src/ → dist/plugin.js
 dist/plugin.js     Build output (committed)
 test/              Jest suites
   helpers.js       Mock Amplenote `app` object
-spike/             Throwaway research scripts, not part of the plugin
+spike/             Throwaway research scripts and the dev harness
 docs/api-notes.md  Verified Amplenote API signatures
 ```
 
@@ -128,6 +153,16 @@ live in pure, importable functions in `src/` that take `app` as a parameter.** A
 written inline in the plugin object, or welded into an embed HTML string, is unreachable
 from tests. The bounty terms require test coverage of every action that modifies note
 data, so untestable code is a compliance problem and not only a style one.
+
+The embed pushes that further. `src/embed/viewer.js` cannot import anything — it is
+serialized with `.toString()` and injected into the page — so any logic worth testing
+would normally have to be transcribed into it by hand. Instead `src/geometry.js` wraps
+its functions in a `createGeometry()` factory that closes over nothing, and
+`src/embed/html.js` injects *that function's source* alongside the viewer. The embed
+reads the result off `window.__PDFA_GEOM`, so the rect arithmetic the browser runs is
+byte-for-byte the code Jest covers. Two rules follow: nothing inside `createGeometry` may
+reference module scope, and neither serialized function may contain a literal closing
+`script` tag anywhere in its source, comments included. There are tests for both.
 
 ```bash
 npm test

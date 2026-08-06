@@ -7,7 +7,7 @@
  * unescaped filename yields a blank embed with no error anywhere.
  */
 import { buildEmbedHtml } from "../src/embed/html.js";
-import { CDN } from "../src/constants.js";
+import { CDN, HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "../src/constants.js";
 
 describe("buildEmbedHtml", () => {
   const html = (over = {}) =>
@@ -58,6 +58,7 @@ describe("buildEmbedHtml", () => {
     for (const id of [
       "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
+      "pdfa-colors", "pdfa-hint", "pdfa-popover",
     ]) {
       expect(out).toContain(`id="${id}"`);
     }
@@ -65,10 +66,44 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("pdfa-name");
   });
 
-  // Scenario: the spec requires the 4 color buttons as top-level toolbar buttons in
-  // Phase 2. The mount point is reserved now so the layout doesn't have to change.
-  test("reserves a toolbar slot for the Phase 2 color buttons", () => {
-    expect(html()).toContain('id="pdfa-colors"');
+  // Scenario: the spec is explicit that all four colors are top-level toolbar buttons,
+  // switchable in a single click - no dropdown, no sidebar. The viewer mounts them from
+  // config, so every color has to reach the embed with the hex it will paint.
+  test("passes all four highlight colors to the viewer", () => {
+    const out = html();
+    expect(HIGHLIGHT_COLORS).toHaveLength(4);
+    for (const color of HIGHLIGHT_COLORS) {
+      expect(out).toContain(`"id":"${color.id}"`);
+      expect(out).toContain(`"hex":"${color.hex}"`);
+      expect(out).toContain(`"label":"${color.label}"`);
+    }
+    expect(out).toContain(`"defaultColorId":"${DEFAULT_COLOR_ID}"`);
+    // The color buttons sit in the toolbar, not in a panel below it.
+    const toolbar = out.match(/<div class="pdfa-toolbar">[\s\S]*?<\/div>/)[0];
+    expect(toolbar).toContain('id="pdfa-colors"');
+  });
+
+  // Scenario: cycleIndex and rgb belong to export (Phase 5) and pdf-lib (Phase 4), both
+  // of which run plugin-side. Shipping them into the embed would invite the viewer to
+  // start making export decisions it cannot be tested on.
+  test("does not leak export-only color metadata into the embed", () => {
+    const out = html();
+    expect(out).not.toContain("cycleIndex");
+    expect(out).not.toContain('"rgb"');
+  });
+
+  // Scenario: the overlay must sit ABOVE the rendered page but BELOW the text layer, or
+  // highlighted text stops being selectable - which is exactly where a user wants to
+  // re-highlight. It also must not take pointer events, since clicks are resolved by
+  // hit-testing stored coordinates instead.
+  test("layers the highlight overlay under the text layer and out of the pointer path", () => {
+    const out = html();
+    const overlay = out.match(/\.pdfa-highlights\s*\{[^}]*\}/)[0];
+    expect(overlay).toMatch(/pointer-events:\s*none/);
+    // A z-index here would create a stacking context and isolate mix-blend-mode from
+    // the canvas it is supposed to blend with.
+    expect(overlay).not.toMatch(/z-index/);
+    expect(out).toMatch(/\.textLayer\s*\{\s*z-index:\s*2/);
   });
 
   // Scenario: Amplenote renders its OWN PDF preview for an attachment, and both can
@@ -162,5 +197,35 @@ describe("buildEmbedHtml", () => {
     // Everything after the config block is the viewer body plus its own closer.
     const viewerBlock = out.slice(out.indexOf("__PDFA_CONFIG || {}"));
     expect((viewerBlock.match(/<\/script>/g) || []).length).toBe(1);
+  });
+
+  // Scenario: the same hazard for the second serialized function. The geometry module's
+  // source is injected alongside the config so the embed runs the code the Jest suite
+  // covers rather than an untested transcription of it.
+  test("injects the tested geometry helpers, with a script-safe source", () => {
+    const out = html();
+    expect(out).toContain("window.__PDFA_GEOM");
+    // The functions the viewer actually calls off that object.
+    for (const fn of [
+      "clientRectsToPdfRects",
+      "pdfRectToViewportRect",
+      "mergeLineRects",
+      "hitTestHighlights",
+      "normalizeQuoteText",
+    ]) {
+      expect(out).toContain(fn);
+    }
+    // The config block runs from the start of the document to where the viewer begins.
+    const configBlock = out.slice(0, out.indexOf("__PDFA_CONFIG || {}"));
+    expect((configBlock.match(/<\/script>/g) || []).length).toBe(1);
+  });
+
+  // Scenario: the coordinate transform is PDF.js's, in both directions. Every past
+  // positioning bug in this project came from substituting hand-written math for it, so
+  // the viewer must be calling the real thing.
+  test("the viewer uses PDF.js's own coordinate conversion in both directions", () => {
+    const out = html();
+    expect(out).toContain("convertToPdfPoint");
+    expect(out).toContain("convertToViewportPoint");
   });
 });

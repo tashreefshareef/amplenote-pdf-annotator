@@ -263,6 +263,19 @@ Related: anything serialized into the inline script (including comments) must no
 contain a literal closing script tag, or the block terminates early. There is a test
 guarding this.
 
+### PDF.js stalls in a hidden tab (not an Amplenote problem, but it looks like one)
+
+Cost real debugging time during Phase 2, and would cost it again. PDF.js drives its
+canvas render task off `requestAnimationFrame`, which browsers pause in a hidden or
+non-compositing tab. The symptom is the viewer sitting on "Rendering..." forever with the
+document parsed, the canvas element sized correctly, and no error anywhere — identical to
+a genuine hang.
+
+`document.visibilityState === "hidden"` is the tell. Nothing to fix in the plugin: an
+embed in a background browser tab is supposed to wait. It matters only for automation —
+`spike/harness.mjs` swaps in a timer when `document.hidden` is true at load, which is why
+the harness works headless.
+
 ### The embed bridge only reliably carries strings
 
 `window.callAmplenotePlugin(value)` → `onEmbedCall(app, value)` works with strings.
