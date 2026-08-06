@@ -1,0 +1,9 @@
+node_modules/
+spike/out/
+coverage/
+.DS_Store
+*.log
+
+# dist/plugin.js is intentionally COMMITTED — the T&C requires the public repo to hold
+# the most recent version of the code, and dist/plugin.js is what actually runs in
+# Amplenote. Keeping it in the repo is what "repo and plugin page in sync" means here.

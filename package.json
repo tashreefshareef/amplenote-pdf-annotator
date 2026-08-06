@@ -1,0 +1,20 @@
+{
+  "name": "amplenote-pdf-annotator",
+  "version": "0.1.0",
+  "description": "Amplenote plugin: highlight and annotate PDFs attached to notes, with native PDF annotations and export back into Amplenote.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "node esbuild.js",
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest",
+    "test:watch": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --watch",
+    "spike:annotations": "node spike/pdf-lib-annotations.mjs"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.21.5",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "pdf-lib": "^1.17.1"
+  }
+}
