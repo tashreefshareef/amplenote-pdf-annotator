@@ -12,6 +12,63 @@ lesson** (the part worth remembering outside this repo) → commit for full deta
 
 ---
 
+## A highlight's width was correct in one browser and wrong in another
+
+**Symptom:** the identical highlight, on the identical PDF, rendered correctly in one
+browser and visibly overshot past its own text - extending into blank space with no
+glyphs under it at all - in another. Extensive numeric investigation on the "wrong"
+browser (word-by-word measurement, same-moment DOM comparison of a highlight against its
+own text span) kept coming back internally consistent, which made no sense until the
+browser itself turned out to be the variable.
+
+**Cause:** the capture code measured a text selection by taking the DOM's rendered pixel
+rect (`Range.getClientRects()`) and converting it through the PDF page's viewport
+transform - a single, uniform, page-level scale. That transform has no way to know about
+a DIFFERENT correction PDF.js applies per text item: when the browser's substitute font
+renders a run of text at a different width than the PDF's own embedded font would have,
+PDF.js applies a per-item horizontal `scaleX` CSS transform to correct that item's total
+rendered width back to the true PDF width. The correction is exact for the WHOLE item,
+but not necessarily uniform per character, since different fonts don't share the same
+relative letter-widths. A PARTIAL selection within that item - selecting one word out of
+a longer line, the normal case - inherits the item's overall scale correction without
+inheriting its accuracy, and by how much depends on which font the browser happened to
+substitute for that specific PDF's embedded font. Different browsers make different
+substitution choices, so the same document measures differently on each.
+
+**Fix:** stop trusting the page-level transform for anything narrower than a whole text
+item. Instead, compute what FRACTION of the item's own rendered CSS box a partial
+selection covers, then apply that fraction to the item's own native size and position -
+taken from the text-extraction API's own metadata (PDF.js: `item.transform`,
+`item.width`, `item.height` from `page.getTextContent()`), not from the DOM at all. This
+cancels the per-item font-substitution distortion regardless of which font caused it,
+because the fraction and the item's true size come from the same font-substitution-free
+source. Ported from a mature prior art implementation
+([obsidian-pdf-plus](https://github.com/RyotaUshio/obsidian-pdf-plus)'s
+`src/lib/highlights/geometry.ts`, specifically its
+`computeHighlightRectForItemFromTextLayer` fallback - used there whenever
+per-character glyph data isn't available, which for a stock, CDN-loaded PDF.js build is
+always) rather than re-derived from scratch, since a hand-rolled version of an already
+subtle coordinate transform is exactly how three earlier bugs in this project happened.
+
+**General lesson:** a "linear transform + measure the DOM" approach to converting
+screen geometry back to a document's native coordinate space is only as accurate as the
+DOM's own rendering - and text rendering is not guaranteed pixel-faithful to the source
+document, especially across different fonts, font-substitution logic, and subpixel
+rounding, which varies by browser and even by browser version. Whenever the source
+format's own parser exposes native positioning metadata for the same content (here:
+PDF.js's per-text-item `transform`/`width`/`height`, extracted directly from the PDF's
+content stream), prefer normalizing DOM measurements against THAT as ground truth over
+trusting a page-level viewport/screen transform applied to raw DOM pixels - particularly
+for anything narrower than one atomic unit of the source format's own text runs, where a
+per-run rendering correction can silently distort a sub-run measurement. Comparing
+against an existing, mature implementation of the same problem surfaced this in minutes;
+guessing at increasingly specific hypotheses without one had already taken several
+rounds and produced two wrong diagnoses.
+
+Commit: `e3a9de1`
+
+---
+
 ## Hand-built PDF annotations need an explicit /AP or Adobe's tools show nothing
 
 **Symptom:** a PDF with programmatically-added highlight annotations displayed them
