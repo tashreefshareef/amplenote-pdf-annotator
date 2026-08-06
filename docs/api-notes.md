@@ -69,16 +69,111 @@ is a much better fit for the managed storage section than whole-note replace, an
 directly addresses the spec §7.4 worry about corrupting the user's manual edits — we
 never rewrite the whole note.
 
+## Runtime findings (measured in the live app, 2026-08-06)
+
+Probed by installing throwaway code in the real plugin note and running it against a
+scratch note. These could not be answered from documentation.
+
+### ✅ Resolved — the embed works, and CDN loading is NOT blocked
+
+The single biggest Phase 1 unknown. Inside a live embed:
+
+```
+embed booted
+origin=https://plugins.amplenote.com
+args=[]
+callAmplenotePlugin=function
+PDFJS OK v3.11.174
+PDFLIB OK
+```
+
+- **PDF.js 3.11.174 and pdf-lib 1.17.1 both load from cdnjs.** No CSP block. The §7.5
+  worry about inlining libraries is unnecessary.
+- **`window.callAmplenotePlugin` is present** as a function, as documented.
+- **The embed runs on its own origin, `https://plugins.amplenote.com`** — NOT
+  amplenote.com. Everything the embed touches on an Amplenote host is cross-origin.
+  This is the root cause of the CORS problem below.
+
+### ⚠️ Inline embeds work; the sidebar embed is Pro-gated
+
+- `app.openSidebarEmbed()` opens the **Peek Viewer, which requires a Pro subscription**.
+  On a Personal plan it renders an upgrade prompt instead of the embed. Do not build the
+  primary UI on it.
+- **Inline embeds work on Personal.** Insert into a note body:
+  `<object data="plugin://PLUGIN_NOTE_UUID" data-aspect-ratio="1.5" />`
+  This can be written straight into a note with `insertNoteContent`, and it renders.
+  This is the surface the annotator should use.
+- Embed parameters use **query-string syntax**:
+  `plugin://UUID?page=3&x=100` arrives as `renderEmbed(app, "page=3&x=100")` — a single
+  string, not structured args. **This is the mechanism for the Phase 5 deep-link** (§7.3),
+  so design the link format around a query string.
+
+### ❌ BLOCKER: cross-origin fetch of Amplenote-hosted media fails
+
+Fetching `https://images.amplenote.com/...` returned **"Failed to fetch"** from BOTH the
+embed context and the plugin action context.
+
+**Caveat — this is a proxy test, not the real one.** It used a media URL from
+`attachNoteMedia`, not a URL from `getAttachmentURL`. Attachment URLs are temporary and
+may well carry permissive CORS headers precisely because plugins are meant to read them.
+**Must be re-tested against a genuine PDF attachment before treating it as fatal.**
+
+If it does hold for real attachments, the fallbacks are: read the bytes in the plugin
+context and pass base64 to the embed via `renderEmbed` args or `onEmbedCall` (only viable
+if the plugin context can fetch), or fall back to a user-supplied file input inside the
+embed.
+
+### ❌ `attachNoteMedia` rejects PDFs
+
+| Data URL | Result |
+|---|---|
+| `data:image/png;base64,...` | ✅ Returns `https://images.amplenote.com/<note>/<uuid>.png` |
+| `data:application/pdf;base64,...` | ❌ Throws `NetworkError` |
+
+The docs only say it throws if the file is "too large, or otherwise not allowed" — in
+practice PDFs are not allowed. The test PDF was a valid 949-byte pdf-lib document, so
+size is not the cause.
+
+**Impact on Phase 4:** the spec's plan to upload the annotated PDF back to the note via
+`attachNoteMedia` does not work as written. Re-read §4 though — the actual bounty
+requirement is to "offer a way to export/download the PDF with those annotations baked
+in." Download via a blob URL satisfies that; uploading back was the spec's own
+suggestion, not a requirement. Treat upload-back as dropped unless another path appears.
+
+### Media is not an attachment
+
+`attachNoteMedia` succeeded and returned a URL, but `getNoteAttachments` still returned
+`[]`. Media uploaded that way is **not** listed as a note attachment. The two systems are
+separate; `getNoteAttachments` covers files added through the paperclip/attach control.
+
+### Correction to the docs table
+
+`getNoteAttachments` returns **`[]`** for an existing note with no attachments — not
+`null`. (`null` is presumably reserved for a nonexistent note; not separately verified.)
+
+### Editing the plugin code block is hostile to automation
+
+The code block is a **CodeMirror** editor with **automatic bracket closing**. Typing
+multi-line JS produces surplus closing braces, because a typed `}` does not overtype the
+auto-inserted one once a newline intervenes. Same class of hazard as the Grammarly
+warning in §8.
+
+Practical workarounds when pasting/typing code in:
+- Type the plugin as a **single line** — same-line closers overtype correctly, leaving at
+  most one surplus brace at the very end.
+- Always verify balance before running: count `{` vs `}` in `.cm-content`.
+- Real edits should use the GitHub→Amplenote sync plugin rather than typing.
+
 ## Still unverified
 
 | Question | Why it matters | How to resolve |
 |---|---|---|
-| **Attachment object shape** | Need a uuid to call `getAttachmentURL`, and a name/mime type to filter for PDFs and to show in the picker. Docs confirm `uuid` exists but don't list the rest. | Runtime discovery in Phase 1 — log the array from a real note. |
-| **CORS on `getAttachmentURL`** | Phase 1 blocker. If the embed can't `fetch()` those bytes, the whole render path changes. | Try it in Phase 1; fallback is round-tripping bytes through `onEmbedCall`. |
-| **Embed CSP / CDN loading** | Phase 1 blocker. Can the embed load PDF.js + worker and pdf-lib from cdnjs? | Try it; fallbacks are another CDN, or inlining the library. |
+| **Attachment object shape** | Need a uuid for `getAttachmentURL`, plus a name/mime type to filter for PDFs and populate the picker. | **Blocked:** needs a real PDF attachment on a test note. `attachNoteMedia` can't create one and file upload is sandboxed off, so a human must attach it. |
+| **CORS on `getAttachmentURL`** | **THE Phase 1 blocker.** A proxy test against `images.amplenote.com` failed from both contexts; unknown whether real attachment URLs behave the same. | Same blocker as above — re-run the probe once a PDF is attached. |
+| ~~Embed CSP / CDN loading~~ | — | ✅ Resolved above: cdnjs works. |
+| **PDF.js worker loading** | The worker is a separate cross-origin script; it can fail even when the main library loads. | Test alongside the attachment probe. Fallback is `disableWorker`, at a performance cost. |
 | **Cycle-color indices 12/14/15/18** | A wrong index means every exported link is the wrong color — a visible acceptance failure. | Check doc 4 before Phase 5. |
 | **"Double-quoted block" markdown** | The export format must match the requirements note exactly. | Check doc 4 before Phase 5. |
-| **Deep-link URL format** | Determines the link written into every exported highlight. | Check docs 1/3 before Phase 5. |
 | **`prompt` radio input shape** | Needed for the "which PDF?" picker. | Check doc 2's `inputs` array detail. |
 
 ## Corrections log
