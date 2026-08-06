@@ -1,49 +1,96 @@
 /**
- * Tests for the plugin object's shape and its note options.
+ * Tests for the plugin object's shape and wiring.
  *
- * Why these matter: a malformed plugin object fails silently in Amplenote — the option
- * just never appears in the ⋯ menu, with no error to debug. Asserting the shape here
- * catches that before it costs a paste-and-reload cycle.
+ * Why these matter: a malformed plugin object fails SILENTLY in Amplenote — the option
+ * simply never appears in the ⋯ menu and no error is raised anywhere. Asserting the
+ * shape here catches that before it costs a paste-and-reload cycle in the live app.
+ *
+ * Action behaviour is covered in annotate-pdf.test.js; this file only checks that the
+ * object exposes what Amplenote looks for and delegates correctly.
  */
 import plugin from "../src/plugin.js";
-import { annotatePdf } from "../src/actions/annotate-pdf.js";
-import { createMockApp } from "./helpers.js";
+import { PDF_MIME } from "../src/attachments.js";
+import { createMockApp, mockAttachment } from "./helpers.js";
 
-describe("plugin object", () => {
-  // Scenario: Amplenote reads action names off the object's keys. The label is
-  // user-visible and is what the spec names, so it is pinned.
-  test("exposes an 'Annotate PDF' note option", () => {
+const PLUGIN_UUID = "plug-uuid";
+
+function appFixture(attachments = [mockAttachment({ uuid: "att-1", name: "p.pdf", type: PDF_MIME })]) {
+  const app = createMockApp({
+    notes: [{ uuid: "note-1", name: "Research", content: "", attachments }],
+  });
+  app.context.pluginUUID = PLUGIN_UUID;
+  app.context.noteUUID = "note-1";
+  return app;
+}
+
+describe("plugin object shape", () => {
+  // Scenario: Amplenote reads action names off the object's keys, and this label is
+  // what the user clicks. It is named in the spec, so it is pinned.
+  test("exposes the 'Annotate PDF' note option", () => {
     expect(typeof plugin.noteOption["Annotate PDF"]).toBe("function");
   });
 
-  // Scenario: every action must be async — Amplenote awaits them, and a sync action
-  // that returns a non-promise breaks error propagation.
-  test("note options are async functions", () => {
+  // Scenario: the embed surface and its bridge both have to exist, or the viewer
+  // renders as a blank box.
+  test("exposes renderEmbed and onEmbedCall", () => {
+    expect(typeof plugin.renderEmbed).toBe("function");
+    expect(typeof plugin.onEmbedCall).toBe("function");
+  });
+
+  // Scenario: Amplenote awaits actions; a sync action returning a non-promise breaks
+  // error propagation.
+  test("note options and onEmbedCall are async", () => {
     for (const fn of Object.values(plugin.noteOption)) {
       expect(fn.constructor.name).toBe("AsyncFunction");
     }
+    expect(plugin.onEmbedCall.constructor.name).toBe("AsyncFunction");
   });
 });
 
-describe("annotatePdf action", () => {
-  // Scenario: Phase 0 milestone — the option fires and reaches the user.
-  test("alerts the user and returns the note it was invoked on", async () => {
-    const app = createMockApp({ notes: [{ uuid: "note-1", name: "Research" }] });
-
-    const result = await annotatePdf(app, "note-1");
-
-    expect(app.alert).toHaveBeenCalledTimes(1);
-    expect(app._calls.alerts[0]).toContain("PDF Annotator");
-    expect(result).toBe("note-1");
-  });
-
-  // Scenario: the action is reached through the plugin object exactly as Amplenote
-  // would call it, confirming the delegation wiring is intact.
-  test("is reachable through the plugin object's note option", async () => {
-    const app = createMockApp({ notes: [{ uuid: "note-1", name: "Research" }] });
+describe("noteOption delegation", () => {
+  // Scenario: the option must pass app.context.pluginUUID through, since that is what
+  // the plugin:// embed markup has to point at. Passing the wrong id yields an embed
+  // that renders nothing.
+  test("passes the plugin uuid into the inserted embed markup", async () => {
+    const app = appFixture();
 
     await plugin.noteOption["Annotate PDF"](app, "note-1");
 
-    expect(app.alert).toHaveBeenCalledTimes(1);
+    expect(app._notes.get("note-1").content).toContain(`plugin://${PLUGIN_UUID}?att=att-1`);
+  });
+});
+
+describe("renderEmbed", () => {
+  // Scenario: normal render — args arrive as a single query string.
+  test("renders the viewer for the attachment named in the args", () => {
+    const html = plugin.renderEmbed(appFixture(), "att=att-1&page=3");
+    expect(html).toContain('"attachmentUUID":"att-1"');
+    expect(html).toContain('"page":3');
+  });
+
+  // Scenario: an embed inserted without params (or with corrupted ones) must explain
+  // itself rather than render an empty frame the user can't diagnose.
+  test("shows a recovery message when no attachment is specified", () => {
+    const html = plugin.renderEmbed(appFixture(), "");
+    expect(html).toMatch(/isn't linked to a PDF/i);
+    expect(html).toMatch(/Annotate PDF/);
+  });
+
+  // Scenario: theme follows the app.
+  test("honours the app's light/dark mode", () => {
+    const app = appFixture();
+    app.context.lightDarkMode = "dark";
+    expect(plugin.renderEmbed(app, "att=att-1")).toContain("--pdfa-bg:#1e2126");
+  });
+});
+
+describe("onEmbedCall", () => {
+  // Scenario: the bridge the viewer depends on for its bytes.
+  test("resolves a proxied PDF URL for the embed", async () => {
+    const result = await plugin.onEmbedCall(appFixture(), {
+      action: "getPdfUrl",
+      attachmentUUID: "att-1",
+    });
+    expect(result.url).toContain("cors-proxy");
   });
 });

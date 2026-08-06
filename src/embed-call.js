@@ -1,0 +1,52 @@
+/**
+ * `onEmbedCall` request handling.
+ *
+ * The embed cannot reach the app interface, and it cannot fetch the attachment URL
+ * directly either — so every privileged operation is a message to the plugin. Kept in
+ * its own module, separate from the plugin object, so it is testable (spec §8).
+ *
+ * Protocol: the embed sends `{ action, ...params }` and always gets an object back.
+ * Errors are RETURNED, not thrown — a rejected promise surfaces in the embed as an
+ * opaque failure, whereas `{ error }` can be shown to the user.
+ */
+import { fetchableAttachmentURL } from "./attachments.js";
+
+/**
+ * Look up an attachment's display name from the note the embed lives in.
+ * Never throws — a missing name is cosmetic and must not block loading the PDF.
+ */
+async function attachmentName(app, attachmentUUID) {
+  try {
+    const list = await app.getNoteAttachments({ uuid: app.context.noteUUID });
+    const match = Array.isArray(list) && list.find((a) => a && a.uuid === attachmentUUID);
+    return match ? match.name : "";
+  } catch {
+    return "";
+  }
+}
+
+export async function handleEmbedCall(app, payload) {
+  const request = typeof payload === "string" ? { action: payload } : payload || {};
+
+  switch (request.action) {
+    case "getPdfUrl": {
+      const attachmentUUID = request.attachmentUUID;
+      if (!attachmentUUID) return { error: "No attachment specified for this viewer." };
+      try {
+        const url = await fetchableAttachmentURL(app, attachmentUUID);
+        // The embed only knows the uuid, so send the display name along with it rather
+        // than making the viewer issue a second round-trip just to label its toolbar.
+        return { url, name: await attachmentName(app, attachmentUUID) };
+      } catch (err) {
+        return { error: `Could not load the PDF: ${err.message}` };
+      }
+    }
+
+    case "ping":
+      // Lets the embed verify the bridge before doing real work.
+      return { ok: true };
+
+    default:
+      return { error: `Unknown embed action: ${String(request.action)}` };
+  }
+}
