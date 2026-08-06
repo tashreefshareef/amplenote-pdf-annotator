@@ -320,19 +320,28 @@ export function viewerMain() {
 
       for (var j = 0; j < state.highlights.length; j++) {
         var h = state.highlights[j];
-        if (!h || h.page !== num || !h.rects) continue;
+        if (!h || h.page !== num || !h.rects || !h.rects.length) continue;
+
+        // One blend group per highlight (see the CSS comment on .pdfa-hl-group) - the
+        // id lives on the group now, since it identifies the highlight, not any one
+        // of its line rects.
+        var group = document.createElement("div");
+        group.className = "pdfa-hl-group";
+        group.dataset.id = h.id || "";
+
         for (var k = 0; k < h.rects.length; k++) {
           var vr = geom.pdfRectToViewportRect(h.rects[k], convert);
           var el = document.createElement("div");
           el.className = "pdfa-hl";
-          el.dataset.id = h.id || "";
           el.style.left = vr.x + "px";
           el.style.top = vr.y + "px";
           el.style.width = vr.width + "px";
           el.style.height = vr.height + "px";
           el.style.background = colorHex(h.color);
-          layer.appendChild(el);
+          group.appendChild(el);
         }
+
+        layer.appendChild(group);
       }
     }
   }

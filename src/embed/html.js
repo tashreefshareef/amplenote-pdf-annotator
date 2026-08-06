@@ -106,7 +106,18 @@ const STYLES = `
      isolating each rect against a transparent parent instead of the rendered page. DOM
      order (canvas, then this, then the text layer) already gives the right paint order. */
   .pdfa-highlights { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-  .pdfa-hl { position: absolute; border-radius: 2px; mix-blend-mode: multiply; }
+  /* One group PER HIGHLIGHT, blend mode on the GROUP, not on each rect - the same
+     pattern as the text layer's opacity above, and for the same reason. A multi-line
+     highlight's own line rects can genuinely overlap by a pixel or two: tightly-set text
+     can have one line's descender ink dip into the next line's ascender space. With
+     mix-blend-mode on each rect individually, that sliver of overlap got colored TWICE,
+     showing as a darker seam at every line boundary - reported live as a "darker
+     underline" running the width of the overlap between each pair of lines. Isolation
+     makes the group's own rects composite flat against each other first (the same solid
+     color painted twice looks identical to once), then the whole highlight blends
+     against the page a single time. */
+  .pdfa-hl-group { position: absolute; inset: 0; mix-blend-mode: multiply; isolation: isolate; }
+  .pdfa-hl { position: absolute; border-radius: 2px; }
 
   /* The four colors are top-level toolbar buttons, single click, no submenu - an
      explicit spec requirement, not a layout preference. The bare .pdfa-color selector is

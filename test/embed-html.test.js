@@ -138,6 +138,25 @@ describe("buildEmbedHtml", () => {
     expect(out).toMatch(/\.textLayer\s*\{\s*z-index:\s*2/);
   });
 
+  // Scenario: THE bug reported live - a multi-line highlight showed a visibly darker
+  // seam at every line boundary. A tightly-set line of text can genuinely have its own
+  // line rect overlap its neighbour's by a pixel or two (descender ink dipping into the
+  // next line's ascender space). With mix-blend-mode on each individual rect, that
+  // overlap got the highlight color applied twice. The blend mode has to live on a
+  // per-highlight GROUP with isolation, not on the rects themselves, so the group's own
+  // rects flatten together before blending against the page as one unit - the exact
+  // pattern already used for the text layer's own opacity, just not carried over here.
+  test("blends each highlight as an isolated group instead of per rect", () => {
+    const out = html();
+    const group = out.match(/\.pdfa-hl-group\s*\{[^}]*\}/)[0];
+    expect(group).toMatch(/mix-blend-mode:\s*multiply/);
+    expect(group).toMatch(/isolation:\s*isolate/);
+    // The individual rect must NOT carry its own blend mode, or two overlapping rects
+    // within the same group would double the color right back.
+    const rect = out.match(/\.pdfa-hl\s*\{[^}]*\}/)[0];
+    expect(rect).not.toMatch(/mix-blend-mode/);
+  });
+
   // Scenario: Amplenote renders its OWN PDF preview for an attachment, and both can
   // appear in the same note looking broadly alike. Without a label there is no
   // reliable way — for a user or for testing — to tell which viewer is on screen.
