@@ -85,12 +85,16 @@ describe("renderEmbed", () => {
 });
 
 describe("onEmbedCall", () => {
-  // Scenario: the bridge the viewer depends on for its bytes.
-  test("resolves a proxied PDF URL for the embed", async () => {
-    const result = await plugin.onEmbedCall(appFixture(), {
-      action: "getPdfUrl",
-      attachmentUUID: "att-1",
-    });
-    expect(result.url).toContain("cors-proxy");
+  // Scenario: the bridge the viewer depends on for its bytes. The reply must be a
+  // JSON STRING — structured objects hang the bridge silently, leaving the viewer
+  // stuck on "Loading..." with nothing to diagnose.
+  test("replies with a JSON string carrying the proxied PDF URL", async () => {
+    const raw = await plugin.onEmbedCall(
+      appFixture(),
+      JSON.stringify({ action: "getPdfUrl", attachmentUUID: "att-1" })
+    );
+
+    expect(typeof raw).toBe("string");
+    expect(JSON.parse(raw).url).toContain("cors-proxy");
   });
 });

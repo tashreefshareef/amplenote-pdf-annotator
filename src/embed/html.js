@@ -4,6 +4,18 @@
  * The toolbar already reserves the slot where Phase 2's four single-click color buttons
  * go — the spec is explicit that they must be top-level toolbar buttons, not a dropdown
  * or sidebar, so the layout is designed for them from the start.
+ *
+ * SCRIPT LOADING — two live failures are baked into the shape of this file:
+ *
+ * 1. The viewer must NOT be attached as an `onload="..."` attribute. Its source is full
+ *    of double quotes, which terminate the HTML attribute at the first one, so it never
+ *    runs at all. The symptom is indistinguishable from a hang: the static "Loading..."
+ *    markup just sits there.
+ *
+ * 2. PDF.js must NOT be a plain `<script src>` here. Amplenote re-executes the embed's
+ *    inline scripts immediately while an external script is still downloading, so the
+ *    viewer ran before the library existed. The viewer therefore loads PDF.js itself
+ *    and waits for onload — the sequence proven to work in the live app.
  */
 import { CDN } from "../constants.js";
 import { viewerMain } from "./viewer.js";
@@ -70,7 +82,14 @@ const THEMES = {
  */
 export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = null, lightDarkMode = "light" } = {}) {
   const theme = THEMES[lightDarkMode] || THEMES.light;
-  const config = { attachmentUUID, page, workerSrc: CDN.pdfJsWorker };
+  // The library URL travels in the config because the viewer loads PDF.js itself —
+  // see the ordering note above.
+  const config = {
+    attachmentUUID,
+    page,
+    pdfJsSrc: CDN.pdfJs,
+    workerSrc: CDN.pdfJsWorker,
+  };
 
   return `<style>:root{${theme}}${STYLES}</style>
 <div id="pdfa-root">
@@ -88,9 +107,9 @@ export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = nul
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
   </div>
-  <div class="pdfa-status" id="pdfa-status">Loading…</div>
+  <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
 </div>
 <script>window.__PDFA_CONFIG = ${safeJson(config)};<\/script>
-<script src="${CDN.pdfJs}" onload="(${viewerMain.toString()})()" onerror="document.getElementById('pdfa-status').textContent='Could not load PDF.js from the CDN.'"><\/script>`;
+<script>(${viewerMain.toString()})();<\/script>`;
 }

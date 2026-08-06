@@ -1,5 +1,5 @@
-// Amplenote PDF Annotator — v0.1.0
-// GENERATED FILE — do not edit. Edit src/ and run `npm run build`.
+// Amplenote PDF Annotator - v0.1.0
+// GENERATED FILE - do not edit. Edit src/ and run `npm run build`.
 // Paste the entire contents of this file into the plugin note's code block.
 (() => {
 var __pluginModule = (() => {
@@ -159,8 +159,22 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       return "";
     }
   }
+  function parseEmbedPayload(payload) {
+    if (payload && typeof payload === "object") return payload;
+    if (typeof payload !== "string") return {};
+    const trimmed = payload.trim();
+    if (!trimmed.startsWith("{")) return { action: trimmed };
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return { action: trimmed };
+    }
+  }
+  async function handleEmbedCallSerialized(app, payload) {
+    return JSON.stringify(await handleEmbedCall(app, parseEmbedPayload(payload)));
+  }
   async function handleEmbedCall(app, payload) {
-    const request = typeof payload === "string" ? { action: payload } : payload || {};
+    const request = parseEmbedPayload(payload);
     switch (request.action) {
       case "getPdfUrl": {
         const attachmentUUID = request.attachmentUUID;
@@ -196,7 +210,24 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       els.status.className = isError ? "pdfa-status pdfa-error" : "pdfa-status";
     }
     function callPlugin(payload) {
-      return window.callAmplenotePlugin(payload);
+      return new Promise(function(resolve, reject) {
+        try {
+          if (typeof window.callAmplenotePlugin !== "function") {
+            throw new Error("Plugin bridge unavailable (callAmplenotePlugin missing)");
+          }
+          resolve(window.callAmplenotePlugin(JSON.stringify(payload)));
+        } catch (err) {
+          reject(err);
+        }
+      }).then(function(raw) {
+        if (raw && typeof raw === "object") return raw;
+        if (typeof raw !== "string") throw new Error("Empty reply from the plugin");
+        try {
+          return JSON.parse(raw);
+        } catch {
+          throw new Error("Unreadable reply from the plugin: " + String(raw).slice(0, 120));
+        }
+      });
     }
     function renderPage(page, index) {
       var viewport = page.getViewport({ scale: state.scale });
@@ -235,7 +266,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       if (state.rendering) return Promise.resolve();
       state.rendering = true;
       els.pages.innerHTML = "";
-      status("Rendering\u2026");
+      status("Rendering...");
       var chain = Promise.resolve();
       for (var i = 1; i <= state.pageCount; i++) {
         (function(pageNum) {
@@ -286,10 +317,27 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         updateLabels();
       }
     }
+    function loadPdfJs() {
+      return new Promise(function(resolve, reject) {
+        if (window.pdfjsLib) return resolve(window.pdfjsLib);
+        var tag = document.createElement("script");
+        tag.src = cfg.pdfJsSrc;
+        tag.onload = function() {
+          if (window.pdfjsLib) resolve(window.pdfjsLib);
+          else reject(new Error("PDF.js loaded but did not register itself."));
+        };
+        tag.onerror = function() {
+          reject(new Error("Could not load PDF.js from the CDN."));
+        };
+        document.head.appendChild(tag);
+      });
+    }
     function boot() {
-      status("Loading PDF\u2026");
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = cfg.workerSrc;
-      callPlugin({ action: "getPdfUrl", attachmentUUID: cfg.attachmentUUID }).then(function(result) {
+      status("Loading PDF...");
+      loadPdfJs().then(function(pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = cfg.workerSrc;
+        return callPlugin({ action: "getPdfUrl", attachmentUUID: cfg.attachmentUUID });
+      }).then(function(result) {
         if (!result || !result.url) {
           throw new Error(result && result.error || "Could not resolve the PDF URL");
         }
@@ -312,20 +360,24 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         status(err.message || String(err), true);
       });
     }
-    document.getElementById("pdfa-prev").onclick = function() {
-      goToPage(state.current - 1);
-    };
-    document.getElementById("pdfa-next").onclick = function() {
-      goToPage(state.current + 1);
-    };
-    document.getElementById("pdfa-zoom-in").onclick = function() {
-      setZoom(state.scale + 0.25);
-    };
-    document.getElementById("pdfa-zoom-out").onclick = function() {
-      setZoom(state.scale - 0.25);
-    };
-    els.root.querySelector(".pdfa-scroll").addEventListener("scroll", trackScroll);
-    boot();
+    try {
+      document.getElementById("pdfa-prev").onclick = function() {
+        goToPage(state.current - 1);
+      };
+      document.getElementById("pdfa-next").onclick = function() {
+        goToPage(state.current + 1);
+      };
+      document.getElementById("pdfa-zoom-in").onclick = function() {
+        setZoom(state.scale + 0.25);
+      };
+      document.getElementById("pdfa-zoom-out").onclick = function() {
+        setZoom(state.scale - 0.25);
+      };
+      els.root.querySelector(".pdfa-scroll").addEventListener("scroll", trackScroll);
+      boot();
+    } catch (err) {
+      status("Viewer failed to start: " + (err && err.message ? err.message : err), true);
+    }
   }
 
   // src/embed/html.js
@@ -366,7 +418,12 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   };
   function buildEmbedHtml({ attachmentUUID, attachmentName: attachmentName2 = "", page = null, lightDarkMode = "light" } = {}) {
     const theme = THEMES[lightDarkMode] || THEMES.light;
-    const config = { attachmentUUID, page, workerSrc: CDN.pdfJsWorker };
+    const config = {
+      attachmentUUID,
+      page,
+      pdfJsSrc: CDN.pdfJs,
+      workerSrc: CDN.pdfJsWorker
+    };
     return `<style>:root{${theme}}${STYLES}</style>
 <div id="pdfa-root">
   <div class="pdfa-toolbar">
@@ -383,11 +440,11 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName2)}</span>
   </div>
-  <div class="pdfa-status" id="pdfa-status">Loading\u2026</div>
+  <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
 </div>
 <script>window.__PDFA_CONFIG = ${safeJson(config)};<\/script>
-<script src="${CDN.pdfJs}" onload="(${viewerMain.toString()})()" onerror="document.getElementById('pdfa-status').textContent='Could not load PDF.js from the CDN.'"><\/script>`;
+<script>(${viewerMain.toString()})();<\/script>`;
   }
 
   // src/plugin.js
@@ -414,7 +471,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       });
     },
     onEmbedCall: async function(app, ...args) {
-      return handleEmbedCall(app, args[0]);
+      return handleEmbedCallSerialized(app, args[0]);
     }
   };
   var plugin_default = plugin;

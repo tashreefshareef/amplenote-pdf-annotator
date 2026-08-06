@@ -244,6 +244,31 @@ separate; `getNoteAttachments` covers files added through the paperclip/attach c
 `getNoteAttachments` returns **`[]`** for an existing note with no attachments — not
 `null`. (`null` is presumably reserved for a nonexistent note; not separately verified.)
 
+### Embed script loading — two traps that both look like a hung viewer
+
+Found by debugging a viewer that rendered its static markup and then did nothing. Both
+failures are silent: no console error reaches the parent page, because the embed is a
+cross-origin iframe.
+
+**1. Amplenote re-executes the embed's inline scripts immediately.** An external
+`<script src>` in the returned HTML is still downloading when the inline script after it
+runs, so the library is undefined. Don't rely on classic script ordering — have the
+embed's own code create the script element and wait for `onload`.
+
+**2. Never attach embed code via an `onload="..."` attribute.** A serialized function's
+source is full of double quotes, which terminate the HTML attribute at the first one.
+The code silently never runs. Invoke from a `<script>` block instead.
+
+Related: anything serialized into the inline script (including comments) must not
+contain a literal closing script tag, or the block terminates early. There is a test
+guarding this.
+
+### The embed bridge only reliably carries strings
+
+`window.callAmplenotePlugin(value)` → `onEmbedCall(app, value)` works with strings.
+Passing a structured object hung with no error and no resolution. JSON-stringify in both
+directions.
+
 ### Editing the plugin code block is hostile to automation
 
 The code block is a **CodeMirror** editor with **automatic bracket closing**. Typing

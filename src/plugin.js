@@ -10,7 +10,7 @@
  * into Amplenote — paste the build output.
  */
 import { annotatePdf } from "./actions/annotate-pdf.js";
-import { handleEmbedCall } from "./embed-call.js";
+import { handleEmbedCallSerialized } from "./embed-call.js";
 import { buildEmbedHtml } from "./embed/html.js";
 import { parseEmbedArgs } from "./embed-args.js";
 
@@ -43,7 +43,7 @@ const plugin = {
   },
 
   onEmbedCall: async function (app, ...args) {
-    return handleEmbedCall(app, args[0]);
+    return handleEmbedCallSerialized(app, args[0]);
   },
 };
 

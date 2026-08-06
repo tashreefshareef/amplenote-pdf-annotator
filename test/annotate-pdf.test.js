@@ -5,7 +5,7 @@
  * (spec §5.2): the action writes embed markup into the user's note.
  */
 import { annotatePdf } from "../src/actions/annotate-pdf.js";
-import { handleEmbedCall } from "../src/embed-call.js";
+import { handleEmbedCall, handleEmbedCallSerialized, parseEmbedPayload } from "../src/embed-call.js";
 import { PDF_MIME } from "../src/attachments.js";
 import { createMockApp, mockAttachment } from "./helpers.js";
 
@@ -126,5 +126,54 @@ describe("handleEmbedCall", () => {
     expect(await handleEmbedCall(app(), "ping")).toEqual({ ok: true });
     expect((await handleEmbedCall(app(), { action: "nope" })).error).toMatch(/Unknown embed action/);
     expect((await handleEmbedCall(app(), undefined)).error).toMatch(/Unknown embed action/);
+  });
+});
+
+describe("embed bridge wire format", () => {
+  // Scenario: the bridge silently hangs when structured objects are sent across it —
+  // no error, no resolution, viewer stuck on "Loading...". Everything must therefore
+  // travel as a JSON string. These tests pin that contract.
+  test("parses a JSON string payload into a request object", () => {
+    expect(parseEmbedPayload('{"action":"getPdfUrl","attachmentUUID":"a1"}')).toEqual({
+      action: "getPdfUrl",
+      attachmentUUID: "a1",
+    });
+  });
+
+  test("accepts a bare action name and passes objects through unchanged", () => {
+    expect(parseEmbedPayload("ping")).toEqual({ action: "ping" });
+    expect(parseEmbedPayload({ action: "ping" })).toEqual({ action: "ping" });
+  });
+
+  // Scenario: malformed JSON must not throw inside onEmbedCall — a rejected bridge
+  // call surfaces in the embed as an unexplained hang.
+  test("never throws on malformed or missing payloads", () => {
+    expect(parseEmbedPayload("{not json")).toEqual({ action: "{not json" });
+    expect(parseEmbedPayload(undefined)).toEqual({});
+    expect(parseEmbedPayload(42)).toEqual({});
+  });
+
+  // Scenario: the reply must be a STRING the viewer can JSON.parse.
+  test("returns a JSON string the viewer can parse", async () => {
+    const a = appWith([pdf("paper.pdf", "att-1")]);
+    a.context.noteUUID = "note-1";
+
+    const raw = await handleEmbedCallSerialized(
+      a,
+      JSON.stringify({ action: "getPdfUrl", attachmentUUID: "att-1" })
+    );
+
+    expect(typeof raw).toBe("string");
+    const parsed = JSON.parse(raw);
+    expect(parsed.url).toContain("cors-proxy");
+    expect(parsed.name).toBe("paper.pdf");
+  });
+
+  // Scenario: errors must round-trip as data too, not as a rejection.
+  test("serializes errors rather than rejecting", async () => {
+    const a = appWith([]);
+    a.context.noteUUID = "note-1";
+    const parsed = JSON.parse(await handleEmbedCallSerialized(a, '{"action":"getPdfUrl"}'));
+    expect(parsed.error).toMatch(/No attachment/);
   });
 });

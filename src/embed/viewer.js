@@ -30,8 +30,36 @@ export function viewerMain() {
     els.status.className = isError ? "pdfa-status pdfa-error" : "pdfa-status";
   }
 
+  /**
+   * Talk to the plugin.
+   *
+   * The payload is JSON-stringified and the reply is parsed back. Passing structured
+   * objects across this bridge hung with no error and no resolution, so strings are
+   * the wire format in both directions.
+   *
+   * Wrapped in a promise so a SYNCHRONOUS throw from callAmplenotePlugin becomes a
+   * rejection the caller's .catch can report — otherwise it escapes the chain entirely
+   * and the viewer sits on "Loading..." forever with nothing to diagnose.
+   */
   function callPlugin(payload) {
-    return window.callAmplenotePlugin(payload);
+    return new Promise(function (resolve, reject) {
+      try {
+        if (typeof window.callAmplenotePlugin !== "function") {
+          throw new Error("Plugin bridge unavailable (callAmplenotePlugin missing)");
+        }
+        resolve(window.callAmplenotePlugin(JSON.stringify(payload)));
+      } catch (err) {
+        reject(err);
+      }
+    }).then(function (raw) {
+      if (raw && typeof raw === "object") return raw;
+      if (typeof raw !== "string") throw new Error("Empty reply from the plugin");
+      try {
+        return JSON.parse(raw);
+      } catch {
+        throw new Error("Unreadable reply from the plugin: " + String(raw).slice(0, 120));
+      }
+    });
   }
 
   // ---- rendering -----------------------------------------------------------
@@ -87,7 +115,7 @@ export function viewerMain() {
     if (state.rendering) return Promise.resolve();
     state.rendering = true;
     els.pages.innerHTML = "";
-    status("Rendering…");
+    status("Rendering...");
 
     var chain = Promise.resolve();
     for (var i = 1; i <= state.pageCount; i++) {
@@ -152,12 +180,41 @@ export function viewerMain() {
 
   // ---- boot ----------------------------------------------------------------
 
+  /**
+   * Load PDF.js and resolve once it is actually available.
+   *
+   * Done here rather than with an external script tag in the embed HTML: Amplenote
+   * re-executes the embed's inline scripts immediately, so such a tag is still
+   * downloading when the viewer starts and `window.pdfjsLib` is undefined.
+   *
+   * NOTE: this whole function is serialized into an inline script, comments included.
+   * Never write a literal closing script tag anywhere in this file — even inside a
+   * comment or string, it would terminate the embed's script block early.
+   */
+  function loadPdfJs() {
+    return new Promise(function (resolve, reject) {
+      if (window.pdfjsLib) return resolve(window.pdfjsLib);
+      var tag = document.createElement("script");
+      tag.src = cfg.pdfJsSrc;
+      tag.onload = function () {
+        if (window.pdfjsLib) resolve(window.pdfjsLib);
+        else reject(new Error("PDF.js loaded but did not register itself."));
+      };
+      tag.onerror = function () {
+        reject(new Error("Could not load PDF.js from the CDN."));
+      };
+      document.head.appendChild(tag);
+    });
+  }
+
   function boot() {
-    status("Loading PDF…");
+    status("Loading PDF...");
 
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = cfg.workerSrc;
-
-    callPlugin({ action: "getPdfUrl", attachmentUUID: cfg.attachmentUUID })
+    loadPdfJs()
+      .then(function (pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = cfg.workerSrc;
+        return callPlugin({ action: "getPdfUrl", attachmentUUID: cfg.attachmentUUID });
+      })
       .then(function (result) {
         if (!result || !result.url) {
           throw new Error((result && result.error) || "Could not resolve the PDF URL");
@@ -189,11 +246,17 @@ export function viewerMain() {
       });
   }
 
-  document.getElementById("pdfa-prev").onclick = function () { goToPage(state.current - 1); };
-  document.getElementById("pdfa-next").onclick = function () { goToPage(state.current + 1); };
-  document.getElementById("pdfa-zoom-in").onclick = function () { setZoom(state.scale + 0.25); };
-  document.getElementById("pdfa-zoom-out").onclick = function () { setZoom(state.scale - 0.25); };
-  els.root.querySelector(".pdfa-scroll").addEventListener("scroll", trackScroll);
-
-  boot();
+  // Any throw from here on would leave the embed frozen on its initial status with no
+  // clue why, so surface it in the UI — the embed's console is not reachable from the
+  // parent page.
+  try {
+    document.getElementById("pdfa-prev").onclick = function () { goToPage(state.current - 1); };
+    document.getElementById("pdfa-next").onclick = function () { goToPage(state.current + 1); };
+    document.getElementById("pdfa-zoom-in").onclick = function () { setZoom(state.scale + 0.25); };
+    document.getElementById("pdfa-zoom-out").onclick = function () { setZoom(state.scale - 0.25); };
+    els.root.querySelector(".pdfa-scroll").addEventListener("scroll", trackScroll);
+    boot();
+  } catch (err) {
+    status("Viewer failed to start: " + (err && err.message ? err.message : err), true);
+  }
 }

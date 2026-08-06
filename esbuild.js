@@ -35,14 +35,31 @@ const result = await esbuild.build({
 const bundled = result.outputFiles[0].text;
 const version = JSON.parse(readFileSync("package.json", "utf8")).version;
 
-const output = `// Amplenote PDF Annotator — v${version}
-// GENERATED FILE — do not edit. Edit src/ and run \`npm run build\`.
+const output = `// Amplenote PDF Annotator - v${version}
+// GENERATED FILE - do not edit. Edit src/ and run \`npm run build\`.
 // Paste the entire contents of this file into the plugin note's code block.
 (() => {
 ${bundled}
   return __pluginModule.default;
 })()
 `;
+
+/**
+ * The output must be pure ASCII.
+ *
+ * This file's delivery mechanism is a clipboard paste into a note's code block, and
+ * clipboards do not reliably preserve encoding — a real paste through clip.exe turned
+ * an em-dash into "a€"". esbuild already escapes non-ASCII inside string literals, so
+ * the usual culprit is a comment. Fail the build rather than ship mojibake into
+ * someone's plugin note.
+ */
+const nonAscii = [...output].filter((ch) => ch.charCodeAt(0) > 127);
+if (nonAscii.length) {
+  const unique = [...new Set(nonAscii)].join(" ");
+  console.error(`Build failed: ${nonAscii.length} non-ASCII character(s) in output: ${unique}`);
+  console.error("Replace them with ASCII equivalents (- for dashes, ... for ellipses).");
+  process.exit(1);
+}
 
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(OUT_FILE, output, "utf8");

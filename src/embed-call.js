@@ -25,8 +25,36 @@ async function attachmentName(app, attachmentUUID) {
   }
 }
 
+/**
+ * Normalize whatever crossed the embed bridge into a request object.
+ *
+ * The payload arrives as a JSON string. Structured objects were tried first and the
+ * bridge hung silently — no error, no resolution — so the wire format is deliberately
+ * a plain string in both directions. A bare action name is also accepted.
+ */
+export function parseEmbedPayload(payload) {
+  if (payload && typeof payload === "object") return payload;
+  if (typeof payload !== "string") return {};
+  const trimmed = payload.trim();
+  if (!trimmed.startsWith("{")) return { action: trimmed };
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return { action: trimmed };
+  }
+}
+
+/**
+ * Bridge entry point: takes the raw payload, returns a JSON STRING.
+ *
+ * Strings are the only format observed to survive the round-trip reliably.
+ */
+export async function handleEmbedCallSerialized(app, payload) {
+  return JSON.stringify(await handleEmbedCall(app, parseEmbedPayload(payload)));
+}
+
 export async function handleEmbedCall(app, payload) {
-  const request = typeof payload === "string" ? { action: payload } : payload || {};
+  const request = parseEmbedPayload(payload);
 
   switch (request.action) {
     case "getPdfUrl": {

@@ -71,9 +71,50 @@ describe("buildEmbedHtml", () => {
     expect(html()).toContain('id="pdfa-colors"');
   });
 
-  // Scenario: if the CDN is unreachable the user must see why, not an empty box.
-  test("shows a message when PDF.js fails to load", () => {
-    expect(html()).toContain("onerror=");
-    expect(html()).toContain("Could not load PDF.js");
+  // Scenario: THE bug that silently broke the first live run. The viewer source is
+  // full of double quotes; putting it in an onload="..." attribute truncates it at the
+  // first one and it never executes. The symptom is indistinguishable from a hang —
+  // the static "Loading..." markup simply stays on screen. It must be invoked from its
+  // own script block instead.
+  test("invokes the viewer from a script block, never from an inline event attribute", () => {
+    const out = html();
+    expect(out).not.toMatch(/onload\s*=\s*"/);
+    expect(out).not.toMatch(/onerror\s*=\s*"/);
+    expect(out).toContain("__PDFA_CONFIG || {}");
+  });
+
+  // Scenario: the second live failure. Amplenote re-executes the embed's inline
+  // scripts immediately, so an external <script src> is still downloading when the
+  // viewer starts and window.pdfjsLib is undefined. The library URL must instead be
+  // handed to the viewer, which loads it and waits for onload.
+  test("does not use a script src tag for PDF.js; passes the URL in config instead", () => {
+    const out = html();
+    expect(out).not.toMatch(/<script[^>]+src=/);
+    expect(out).toContain(`"pdfJsSrc":"${CDN.pdfJs}"`);
+  });
+
+  // Scenario: a CDN failure must be reported, not left as a blank frame.
+  test("reports a missing PDF.js library from inside the viewer", () => {
+    expect(html()).toContain("Could not load PDF.js from the CDN");
+  });
+
+  // Scenario: two script blocks — config and the viewer — each properly opened and
+  // closed. An unbalanced pair makes the browser swallow the rest of the embed as
+  // script text and render nothing.
+  test("emits two balanced script blocks", () => {
+    const out = html();
+    expect((out.match(/<script>/g) || []).length).toBe(2);
+    expect((out.match(/<\/script>/g) || []).length).toBe(2);
+  });
+
+  // Scenario: the viewer function is serialized into an inline script INCLUDING its
+  // comments. A literal closing script tag anywhere in that source — even inside a
+  // comment — would terminate the block early and break the whole embed. Easy to
+  // reintroduce while documenting script loading, hence the guard.
+  test("the serialized viewer source contains no closing script tag", () => {
+    const out = html();
+    // Everything after the config block is the viewer body plus its own closer.
+    const viewerBlock = out.slice(out.indexOf("__PDFA_CONFIG || {}"));
+    expect((viewerBlock.match(/<\/script>/g) || []).length).toBe(1);
   });
 });
