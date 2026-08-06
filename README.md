@@ -142,7 +142,9 @@ dist/plugin.js     Build output (committed)
 test/              Jest suites
   helpers.js       Mock Amplenote `app` object
 spike/             Throwaway research scripts and the dev harness
-docs/api-notes.md  Verified Amplenote API signatures
+docs/api-notes.md   Verified Amplenote API signatures and platform quirks
+docs/bugs-found.md  General web-platform bugs (PDF.js, CSS, DOM) and their fixes -
+                     written to transfer to other projects, not just this one
 ```
 
 ## Testing
@@ -181,6 +183,12 @@ Note: Jest runs in ESM mode, so `jest.fn()` and friends need an explicit
    it validates.
 3. Run `npm test` and `npm run build` before committing, and commit the rebuilt
    `dist/plugin.js` alongside your source change.
+4. If you confirm and fix a real bug (not a design decision, an actual "this was
+   wrong") in web-platform code — PDF.js, CSS, the DOM, browser selection APIs, the
+   markdown-as-storage format — add an entry to
+   [`docs/bugs-found.md`](docs/bugs-found.md): symptom, cause, fix, and the general
+   lesson stripped of anything Amplenote-specific. Amplenote-platform-only findings
+   (API signatures, sandbox quirks) go in `docs/api-notes.md` instead.
 
 ## License
 
