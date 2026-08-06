@@ -75,6 +75,50 @@ export function createGeometry() {
   }
 
   /**
+   * Trim selection rects to the text they actually cover.
+   *
+   * `range.getClientRects()` is not a promise that every rect is backed by glyphs. A
+   * rect can run past the last visible character because the text-layer span carries
+   * trailing whitespace from the PDF's content stream, or because the range picked up a
+   * line-break element. The symptom is a highlight whose colored band overshoots the end
+   * of the sentence, sometimes all the way to the edge of the page - reported from a
+   * real insurance PDF whose runs are padded, and not reproducible on a PDF written by
+   * pdf-lib, whose spans hug their glyphs exactly.
+   *
+   * Each rect is intersected HORIZONTALLY with every span it shares a line with, and the
+   * covered pieces are kept. Clipping vertically too would shrink the band to the glyph
+   * box and make highlights look cramped, so the rect's own height is preserved.
+   *
+   * Splitting one rect into per-span pieces is not a problem: `mergeLineRects` runs
+   * afterwards and rejoins anything separated only by a word gap, while a real column
+   * gutter stays open.
+   *
+   * Rects are the DOMRect subset {left, top, width, height}, matching what
+   * `getClientRects()` hands back and what `clientRectsToPdfRects` expects next.
+   */
+  function clipRectsToSpans(rects, spanRects) {
+    // No spans to check against is not a reason to throw the selection away.
+    if (!spanRects || !spanRects.length) return (rects || []).slice();
+
+    var out = [];
+    for (var i = 0; i < rects.length; i++) {
+      var r = rects[i];
+      for (var j = 0; j < spanRects.length; j++) {
+        var s = spanRects[j];
+        var overlap = Math.min(r.top + r.height, s.top + s.height) - Math.max(r.top, s.top);
+        if (overlap <= 0.5 * Math.min(r.height, s.height)) continue;
+
+        var left = Math.max(r.left, s.left);
+        var right = Math.min(r.left + r.width, s.left + s.width);
+        if (right - left <= 0.01) continue;
+
+        out.push({ left: left, top: r.top, width: right - left, height: r.height });
+      }
+    }
+    return out;
+  }
+
+  /**
    * Convert a run of viewport-relative DOMRects (what `range.getClientRects()` returns)
    * into PDF user-space rects.
    *
@@ -235,6 +279,7 @@ export function createGeometry() {
     rectFromCorners: rectFromCorners,
     roundRect: roundRect,
     isVisibleRect: isVisibleRect,
+    clipRectsToSpans: clipRectsToSpans,
     clientRectsToPdfRects: clientRectsToPdfRects,
     pdfRectToViewportRect: pdfRectToViewportRect,
     mergeLineRects: mergeLineRects,
@@ -251,6 +296,7 @@ export const clientRectToLocal = geometry.clientRectToLocal;
 export const rectFromCorners = geometry.rectFromCorners;
 export const roundRect = geometry.roundRect;
 export const isVisibleRect = geometry.isVisibleRect;
+export const clipRectsToSpans = geometry.clipRectsToSpans;
 export const clientRectsToPdfRects = geometry.clientRectsToPdfRects;
 export const pdfRectToViewportRect = geometry.pdfRectToViewportRect;
 export const mergeLineRects = geometry.mergeLineRects;

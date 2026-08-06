@@ -357,10 +357,24 @@ export function viewerMain() {
       return midY >= containerRect.top && midY <= containerRect.bottom;
     });
 
+    // A selection rect can be wider than the text under it - a span padded with trailing
+    // whitespace from the PDF's content stream, or a line-break element caught by the
+    // range - which paints a band running past the end of the sentence. Clip to the
+    // spans that actually back it.
+    var spanRects = [];
+    var spans = layer.querySelectorAll("span");
+    for (var i = 0; i < spans.length; i++) {
+      spanRects.push(spans[i].getBoundingClientRect());
+    }
+
     var rects = geom.mergeLineRects(
-      geom.clientRectsToPdfRects(onPage, containerRect, function (x, y) {
-        return viewport.convertToPdfPoint(x, y);
-      })
+      geom.clientRectsToPdfRects(
+        geom.clipRectsToSpans(onPage, spanRects),
+        containerRect,
+        function (x, y) {
+          return viewport.convertToPdfPoint(x, y);
+        }
+      )
     );
     if (!rects.length) return setPending(null);
 

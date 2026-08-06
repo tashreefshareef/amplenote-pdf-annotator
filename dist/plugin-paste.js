@@ -422,6 +422,23 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     function isVisibleRect2(rect) {
       return rect.width > 0.01 && rect.height > 0.01;
     }
+    function clipRectsToSpans2(rects, spanRects) {
+      if (!spanRects || !spanRects.length) return (rects || []).slice();
+      var out = [];
+      for (var i = 0; i < rects.length; i++) {
+        var r = rects[i];
+        for (var j = 0; j < spanRects.length; j++) {
+          var s = spanRects[j];
+          var overlap = Math.min(r.top + r.height, s.top + s.height) - Math.max(r.top, s.top);
+          if (overlap <= 0.5 * Math.min(r.height, s.height)) continue;
+          var left = Math.max(r.left, s.left);
+          var right = Math.min(r.left + r.width, s.left + s.width);
+          if (right - left <= 0.01) continue;
+          out.push({ left, top: r.top, width: right - left, height: r.height });
+        }
+      }
+      return out;
+    }
     function clientRectsToPdfRects2(clientRects, containerRect, convertToPdfPoint) {
       var out = [];
       for (var i = 0; i < clientRects.length; i++) {
@@ -515,6 +532,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       rectFromCorners: rectFromCorners2,
       roundRect: roundRect2,
       isVisibleRect: isVisibleRect2,
+      clipRectsToSpans: clipRectsToSpans2,
       clientRectsToPdfRects: clientRectsToPdfRects2,
       pdfRectToViewportRect: pdfRectToViewportRect2,
       mergeLineRects: mergeLineRects2,
@@ -528,6 +546,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   var rectFromCorners = geometry.rectFromCorners;
   var roundRect = geometry.roundRect;
   var isVisibleRect = geometry.isVisibleRect;
+  var clipRectsToSpans = geometry.clipRectsToSpans;
   var clientRectsToPdfRects = geometry.clientRectsToPdfRects;
   var pdfRectToViewportRect = geometry.pdfRectToViewportRect;
   var mergeLineRects = geometry.mergeLineRects;
@@ -775,10 +794,19 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         var midY = r.top + r.height / 2;
         return midY >= containerRect.top && midY <= containerRect.bottom;
       });
+      var spanRects = [];
+      var spans = layer.querySelectorAll("span");
+      for (var i = 0; i < spans.length; i++) {
+        spanRects.push(spans[i].getBoundingClientRect());
+      }
       var rects = geom.mergeLineRects(
-        geom.clientRectsToPdfRects(onPage, containerRect, function(x, y) {
-          return viewport.convertToPdfPoint(x, y);
-        })
+        geom.clientRectsToPdfRects(
+          geom.clipRectsToSpans(onPage, spanRects),
+          containerRect,
+          function(x, y) {
+            return viewport.convertToPdfPoint(x, y);
+          }
+        )
       );
       if (!rects.length) return setPending(null);
       setPending({
