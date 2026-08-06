@@ -587,10 +587,98 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   var hitTestHighlights = geometry.hitTestHighlights;
   var normalizeQuoteText = geometry.normalizeQuoteText;
 
+  // src/annotations.js
+  function createAnnotationWriter() {
+    var FALLBACK_RGB = [0.957, 0.871, 0.424];
+    function buildHighlightAnnotation2(PDFLib, pdfDoc, highlight, rgbTriple) {
+      var rects = highlight.rects;
+      var quadPoints = [];
+      var minX = rects[0].x, minY = rects[0].y;
+      var maxX = rects[0].x + rects[0].width, maxY = rects[0].y + rects[0].height;
+      for (var i = 0; i < rects.length; i++) {
+        var r = rects[i];
+        var x1 = r.x, x2 = r.x + r.width, y1 = r.y, y2 = r.y + r.height;
+        quadPoints.push(x1, y2, x2, y2, x1, y1, x2, y1);
+        minX = Math.min(minX, x1);
+        minY = Math.min(minY, y1);
+        maxX = Math.max(maxX, x2);
+        maxY = Math.max(maxY, y2);
+      }
+      var dict = pdfDoc.context.obj({
+        Type: PDFLib.PDFName.of("Annot"),
+        Subtype: PDFLib.PDFName.of("Highlight"),
+        // /Rect is the bounding box of every quad, not the quads themselves.
+        Rect: pdfDoc.context.obj([minX, minY, maxX, maxY]),
+        QuadPoints: pdfDoc.context.obj(quadPoints),
+        C: pdfDoc.context.obj(rgbTriple),
+        // Printable, and what makes the annotation show up in a reader's comment panel.
+        F: PDFLib.PDFNumber.of(4),
+        T: PDFLib.PDFString.of("PDF Annotator"),
+        M: PDFLib.PDFString.of((/* @__PURE__ */ new Date()).toISOString()),
+        // Opacity, so the underlying text stays readable - verified at this value
+        // against all four spec colors in the spike.
+        CA: PDFLib.PDFNumber.of(0.4)
+      });
+      if (highlight.note) {
+        dict.set(PDFLib.PDFName.of("Contents"), PDFLib.PDFString.of(highlight.note));
+      }
+      var highlightRef = pdfDoc.context.register(dict);
+      var refs = [highlightRef];
+      if (highlight.note) {
+        var popupRef = pdfDoc.context.register(
+          pdfDoc.context.obj({
+            Type: PDFLib.PDFName.of("Annot"),
+            Subtype: PDFLib.PDFName.of("Popup"),
+            // Sits to the right of the highlight; only shown when a reader opens it.
+            Rect: pdfDoc.context.obj([maxX + 8, minY - 60, maxX + 208, minY + 12]),
+            Parent: highlightRef,
+            Open: false
+          })
+        );
+        dict.set(PDFLib.PDFName.of("Popup"), popupRef);
+        refs.push(popupRef);
+      }
+      return refs;
+    }
+    function appendAnnotationRefs2(PDFLib, page, refs) {
+      var existing = page.node.get(PDFLib.PDFName.of("Annots"));
+      if (existing instanceof PDFLib.PDFArray) {
+        for (var i = 0; i < refs.length; i++) existing.push(refs[i]);
+      } else {
+        page.node.set(PDFLib.PDFName.of("Annots"), page.doc.context.obj(refs));
+      }
+    }
+    async function writeHighlightsIntoPdf2(PDFLib, pdfBytes, highlights, colorRgbTable) {
+      var pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
+      var pages = pdfDoc.getPages();
+      var list = highlights || [];
+      for (var i = 0; i < list.length; i++) {
+        var h = list[i];
+        if (!h || !h.rects || !h.rects.length) continue;
+        var page = pages[h.page - 1];
+        if (!page) continue;
+        var rgbTriple = colorRgbTable && colorRgbTable[h.color] || FALLBACK_RGB;
+        var refs = buildHighlightAnnotation2(PDFLib, pdfDoc, h, rgbTriple);
+        appendAnnotationRefs2(PDFLib, page, refs);
+      }
+      return pdfDoc.save();
+    }
+    return {
+      writeHighlightsIntoPdf: writeHighlightsIntoPdf2,
+      buildHighlightAnnotation: buildHighlightAnnotation2,
+      appendAnnotationRefs: appendAnnotationRefs2
+    };
+  }
+  var annotationWriter = createAnnotationWriter();
+  var writeHighlightsIntoPdf = annotationWriter.writeHighlightsIntoPdf;
+  var buildHighlightAnnotation = annotationWriter.buildHighlightAnnotation;
+  var appendAnnotationRefs = annotationWriter.appendAnnotationRefs;
+
   // src/embed/viewer.js
   function viewerMain() {
     var cfg = window.__PDFA_CONFIG || {};
     var geom = window.__PDFA_GEOM || {};
+    var annotations = window.__PDFA_ANNOTATIONS || {};
     var els = {
       root: document.getElementById("pdfa-root"),
       pages: document.getElementById("pdfa-pages"),
@@ -602,7 +690,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       popover: document.getElementById("pdfa-popover"),
       panel: document.getElementById("pdfa-panel"),
       listToggle: document.getElementById("pdfa-list-toggle"),
-      count: document.getElementById("pdfa-count")
+      count: document.getElementById("pdfa-count"),
+      download: document.getElementById("pdfa-download")
     };
     var state = {
       doc: null,
@@ -615,6 +704,13 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       // only thing allowed to convert between PDF space and screen pixels.
       viewports: {},
       highlights: [],
+      // The SOURCE pdf's own bytes, kept for Download. A deliberately SEPARATE copy from
+      // whatever gets handed to pdf.js's getDocument(): some versions transfer ownership
+      // of the ArrayBuffer to their worker for performance, which would leave this one
+      // detached (byteLength 0) if it were the same object. Cloning once, up front, costs
+      // little next to a multi-megabyte PDF and removes the need to know which versions do.
+      pdfBytes: null,
+      attachmentName: "",
       activeColorId: cfg.defaultColorId || ((cfg.colors || [{}])[0] || {}).id,
       // The last text selection made inside a text layer, already converted to PDF space.
       // Held because clicking a toolbar button collapses the DOM selection before the
@@ -1229,6 +1325,67 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         document.head.appendChild(tag);
       });
     }
+    function loadPdfLib() {
+      return new Promise(function(resolve, reject) {
+        if (window.PDFLib) return resolve(window.PDFLib);
+        var tag = document.createElement("script");
+        tag.src = cfg.pdfLibSrc;
+        tag.onload = function() {
+          if (window.PDFLib) resolve(window.PDFLib);
+          else reject(new Error("pdf-lib loaded but did not register itself."));
+        };
+        tag.onerror = function() {
+          reject(new Error("Could not load pdf-lib from the CDN."));
+        };
+        document.head.appendChild(tag);
+      });
+    }
+    function colorRgbTable() {
+      var table = {};
+      var list = colorList();
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].rgb) table[list[i].id] = list[i].rgb;
+      }
+      return table;
+    }
+    function downloadFilename() {
+      var base = (state.attachmentName || "annotated").replace(/\.pdf$/i, "");
+      return base + "-annotated.pdf";
+    }
+    function downloadAnnotatedPdf() {
+      if (!state.pdfBytes) return;
+      var btn = els.download;
+      var originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Preparing...";
+      loadPdfLib().then(function(PDFLib) {
+        return annotations.writeHighlightsIntoPdf(
+          PDFLib,
+          state.pdfBytes,
+          state.highlights,
+          colorRgbTable()
+        );
+      }).then(function(bytes) {
+        var blob = new Blob([bytes], { type: "application/pdf" });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = downloadFilename();
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function() {
+          URL.revokeObjectURL(url);
+        }, 4e3);
+        status("");
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }).catch(function(err) {
+        status("Could not prepare the download: " + (err.message || err), true);
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      });
+    }
     function loadHighlights2() {
       return callPlugin({ action: "loadHighlights", attachmentUUID: cfg.attachmentUUID }).then(function(result) {
         if (!result || result.error) {
@@ -1250,6 +1407,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
           throw new Error(result && result.error || "Could not resolve the PDF URL");
         }
         if (result.name) {
+          state.attachmentName = result.name;
           document.querySelector(".pdfa-name").textContent = result.name;
         }
         return fetch(result.url);
@@ -1257,6 +1415,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         if (!response.ok) throw new Error("Download failed (HTTP " + response.status + ")");
         return response.arrayBuffer();
       }).then(function(bytes) {
+        state.pdfBytes = bytes.slice(0);
         return window.pdfjsLib.getDocument({ data: bytes }).promise;
       }).then(function(doc) {
         state.doc = doc;
@@ -1289,6 +1448,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       els.listToggle.onclick = function() {
         togglePanel();
       };
+      els.download.onclick = downloadAnnotatedPdf;
       scroller().addEventListener("scroll", trackScroll);
       els.pages.addEventListener("mouseup", captureSelection);
       els.pages.addEventListener("click", onPagesClick);
@@ -1321,6 +1481,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   .pdfa-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--pdfa-border); background: var(--pdfa-toolbar); flex: 0 0 auto; flex-wrap: wrap; }
   .pdfa-toolbar button { font: inherit; padding: 4px 9px; border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit; border-radius: 5px; cursor: pointer; line-height: 1.2; }
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
+  .pdfa-toolbar button:disabled { opacity: .5; cursor: default; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
   .pdfa-sep { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 0 4px; }
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
@@ -1465,9 +1626,14 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       highlightId,
       pdfJsSrc: CDN.pdfJs,
       workerSrc: CDN.pdfJsWorker,
-      // Only what the embed needs to draw and label a swatch. cycleIndex and rgb stay on
-      // the plugin side - they belong to export (Phase 5) and pdf-lib (Phase 4).
-      colors: HIGHLIGHT_COLORS.map((c) => ({ id: c.id, label: c.label, hex: c.hex })),
+      // Loaded lazily, only when Download is clicked - see viewer.js's loadPdfLib.
+      pdfLibSrc: CDN.pdfLib,
+      // rgb now travels to the embed too: Phase 4's Download button writes native
+      // annotations CLIENT-SIDE, reusing the PDF bytes already fetched for rendering
+      // rather than round-tripping a whole file through the plugin bridge (which only
+      // reliably carries strings - see docs/api-notes.md). cycleIndex stays plugin-side;
+      // it is still purely a Phase 5 export concern with nothing to do here.
+      colors: HIGHLIGHT_COLORS.map((c) => ({ id: c.id, label: c.label, hex: c.hex, rgb: c.rgb })),
       defaultColorId: DEFAULT_COLOR_ID
     };
     return `<link rel="stylesheet" href="${CDN.pdfViewerCss}">
@@ -1494,6 +1660,14 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     <span class="pdfa-hint" id="pdfa-hint"></span>
     <span class="pdfa-sep"></span>
     <button id="pdfa-list-toggle" title="Show highlights and notes">Notes (<span id="pdfa-count">0</span>)</button>
+    <span class="pdfa-sep"></span>
+    <!-- Bakes every highlight and note into the PDF as native annotations (verified
+         against a real pdf-lib reload in the spike) and downloads the result. Spec
+         section 4's "export/download the PDF with annotations baked in" - uploading it
+         back to the note was the spec's own suggestion, not the requirement, and
+         attachNoteMedia rejects PDFs outright (see docs/api-notes.md), so download is
+         the whole feature, not a fallback. -->
+    <button id="pdfa-download" title="Download this PDF with every highlight and note baked in as a native annotation">Download</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName2)}</span>
   </div>
@@ -1507,7 +1681,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   <div class="pdfa-popover" id="pdfa-popover"></div>
 </div>
 <script>window.__PDFA_CONFIG = ${safeJson(config)};
-window.__PDFA_GEOM = (${createGeometry.toString()})();<\/script>
+window.__PDFA_GEOM = (${createGeometry.toString()})();
+window.__PDFA_ANNOTATIONS = (${createAnnotationWriter.toString()})();<\/script>
 <script>(${viewerMain.toString()})();<\/script>`;
   }
 

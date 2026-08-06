@@ -91,6 +91,7 @@ describe("buildEmbedHtml", () => {
       "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
       "pdfa-colors", "pdfa-hint", "pdfa-popover", "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
+      "pdfa-download",
     ]) {
       expect(out).toContain(`id="${id}"`);
     }
@@ -115,13 +116,17 @@ describe("buildEmbedHtml", () => {
     expect(toolbar).toContain('id="pdfa-colors"');
   });
 
-  // Scenario: cycleIndex and rgb belong to export (Phase 5) and pdf-lib (Phase 4), both
-  // of which run plugin-side. Shipping them into the embed would invite the viewer to
-  // start making export decisions it cannot be tested on.
-  test("does not leak export-only color metadata into the embed", () => {
+  // Scenario: rgb now DOES reach the embed - Phase 4's Download button writes native
+  // annotations client-side, reusing the PDF bytes already fetched for rendering rather
+  // than round-tripping a whole file through the plugin bridge (string-only - see
+  // docs/api-notes.md). cycleIndex stays plugin-side; it is purely a Phase 5 export
+  // concern with nothing to do inside the embed.
+  test("sends rgb to the embed for pdf-lib but withholds export-only cycleIndex", () => {
     const out = html();
     expect(out).not.toContain("cycleIndex");
-    expect(out).not.toContain('"rgb"');
+    for (const color of HIGHLIGHT_COLORS) {
+      expect(out).toContain(`"rgb":[${color.rgb.join(",")}]`);
+    }
   });
 
   // Scenario: the overlay must sit ABOVE the rendered page but BELOW the text layer, or
@@ -238,6 +243,17 @@ describe("buildEmbedHtml", () => {
     expect(html()).toContain("Could not load PDF.js from the CDN");
   });
 
+  // Scenario: Phase 4's Download button needs pdf-lib, loaded the same lazy way as
+  // PDF.js and for the identical reason - a plain <script src> would still be
+  // downloading when Amplenote re-executes the embed's inline scripts. Unlike PDF.js,
+  // pdf-lib is loaded only when Download is first clicked, not on boot.
+  test("passes pdf-lib's CDN url in config rather than a script src tag", () => {
+    const out = html();
+    expect(out).not.toMatch(/<script[^>]+src=/);
+    expect(out).toContain(`"pdfLibSrc":"${CDN.pdfLib}"`);
+    expect(out).toContain("Could not load pdf-lib from the CDN");
+  });
+
   // Scenario: two script blocks — config and the viewer — each properly opened and
   // closed. An unbalanced pair makes the browser swallow the rest of the embed as
   // script text and render nothing.
@@ -275,6 +291,20 @@ describe("buildEmbedHtml", () => {
       expect(out).toContain(fn);
     }
     // The config block runs from the start of the document to where the viewer begins.
+    const configBlock = out.slice(0, out.indexOf("__PDFA_CONFIG || {}"));
+    expect((configBlock.match(/<\/script>/g) || []).length).toBe(1);
+  });
+
+  // Scenario: the same hazard for the third serialized function. The pdf-lib annotation
+  // writer's source is injected alongside config and geometry so Download runs the code
+  // the Jest suite exercises against the real pdf-lib package, not an untested
+  // transcription of the spike.
+  test("injects the tested annotation writer, with a script-safe source", () => {
+    const out = html();
+    expect(out).toContain("window.__PDFA_ANNOTATIONS");
+    expect(out).toContain("writeHighlightsIntoPdf");
+    // Still inside the SAME first script block as config and geometry - no new
+    // <script> tag, or "emits two balanced script blocks" above would catch it.
     const configBlock = out.slice(0, out.indexOf("__PDFA_CONFIG || {}"));
     expect((configBlock.match(/<\/script>/g) || []).length).toBe(1);
   });

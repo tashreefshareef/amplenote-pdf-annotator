@@ -303,7 +303,7 @@ Practical workarounds when pasting/typing code in:
 | ~~Embed CSP / CDN loading~~ | — | ✅ Resolved: cdnjs works. |
 | ~~Reading attachment bytes~~ | — | ✅ Resolved: go through `plugins.amplenote.com/cors-proxy`. |
 | ~~PDF.js worker loading~~ | — | ✅ Resolved: worker loads; a 7-page document parsed. |
-| **Writing the annotated PDF back** | `attachNoteMedia` rejects PDFs. Blob download satisfies §4, but confirm that's acceptable. | Ask Lucian, or accept download-only. |
+| ~~Writing the annotated PDF back~~ | — | ✅ Resolved as download-only: `attachNoteMedia` rejects PDFs, and §4's actual requirement is "offer a way to export/download" - upload-back was the spec's own suggestion, not the requirement. Implemented via `URL.createObjectURL` + a throwaway `<a download>`, client-side in the embed. Not yet clicked through in live Amplenote (verified in the dev harness against a real pdf-lib CDN load and a re-parsed, correctly-annotated PDF) - still needs a real-app pass to confirm the download dialog itself behaves the same inside Amplenote's iframe. |
 | **Cycle-color indices 12/14/15/18** | A wrong index means every exported link is the wrong color — a visible acceptance failure. | Check doc 4 before Phase 5. |
 | **"Double-quoted block" markdown** | The export format must match the requirements note exactly. | Check doc 4 before Phase 5. |
 | **`prompt` radio input shape** | Needed for the "which PDF?" picker. | Check doc 2's `inputs` array detail. |

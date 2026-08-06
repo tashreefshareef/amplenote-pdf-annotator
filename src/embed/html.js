@@ -5,12 +5,15 @@
  * they must not be a dropdown or a sidebar - and the viewer mounts them from the color
  * table in constants.js so there is one source of truth per color.
  *
- * TWO SCRIPTS ARE INJECTED, both by serializing a function's source:
+ * THREE FUNCTIONS ARE INJECTED, each by serializing its source:
  *   - `createGeometry()` from src/geometry.js, so the embed runs the SAME rect
  *     arithmetic the Jest suite covers instead of an untested transcription of it
- *   - `viewerMain()`, the DOM and PDF.js wiring
- * Neither can import anything, and neither may contain a literal closing script tag
- * anywhere in its source - comments included. There are tests for both.
+ *   - `createAnnotationWriter()` from src/annotations.js, so Download writes native
+ *     PDF annotations with the SAME code Jest exercises against the real pdf-lib
+ *     package, not an untested transcription of the pdf-lib spike
+ *   - `viewerMain()`, the DOM, PDF.js and pdf-lib wiring
+ * None can import anything, and none may contain a literal closing script tag anywhere
+ * in its source - comments included. There are tests for all three.
  *
  * SCRIPT LOADING - two live failures are baked into the shape of this file:
  *
@@ -26,6 +29,7 @@
  */
 import { CDN, HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "../constants.js";
 import { createGeometry } from "../geometry.js";
+import { createAnnotationWriter } from "../annotations.js";
 import { viewerMain } from "./viewer.js";
 
 /** Escape a value being interpolated into HTML text or an attribute. */
@@ -60,6 +64,7 @@ const STYLES = `
   .pdfa-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--pdfa-border); background: var(--pdfa-toolbar); flex: 0 0 auto; flex-wrap: wrap; }
   .pdfa-toolbar button { font: inherit; padding: 4px 9px; border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit; border-radius: 5px; cursor: pointer; line-height: 1.2; }
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
+  .pdfa-toolbar button:disabled { opacity: .5; cursor: default; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
   .pdfa-sep { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 0 4px; }
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
@@ -217,9 +222,14 @@ export function buildEmbedHtml({
     highlightId,
     pdfJsSrc: CDN.pdfJs,
     workerSrc: CDN.pdfJsWorker,
-    // Only what the embed needs to draw and label a swatch. cycleIndex and rgb stay on
-    // the plugin side - they belong to export (Phase 5) and pdf-lib (Phase 4).
-    colors: HIGHLIGHT_COLORS.map((c) => ({ id: c.id, label: c.label, hex: c.hex })),
+    // Loaded lazily, only when Download is clicked - see viewer.js's loadPdfLib.
+    pdfLibSrc: CDN.pdfLib,
+    // rgb now travels to the embed too: Phase 4's Download button writes native
+    // annotations CLIENT-SIDE, reusing the PDF bytes already fetched for rendering
+    // rather than round-tripping a whole file through the plugin bridge (which only
+    // reliably carries strings - see docs/api-notes.md). cycleIndex stays plugin-side;
+    // it is still purely a Phase 5 export concern with nothing to do here.
+    colors: HIGHLIGHT_COLORS.map((c) => ({ id: c.id, label: c.label, hex: c.hex, rgb: c.rgb })),
     defaultColorId: DEFAULT_COLOR_ID,
   };
 
@@ -249,6 +259,14 @@ export function buildEmbedHtml({
     <span class="pdfa-hint" id="pdfa-hint"></span>
     <span class="pdfa-sep"></span>
     <button id="pdfa-list-toggle" title="Show highlights and notes">Notes (<span id="pdfa-count">0</span>)</button>
+    <span class="pdfa-sep"></span>
+    <!-- Bakes every highlight and note into the PDF as native annotations (verified
+         against a real pdf-lib reload in the spike) and downloads the result. Spec
+         section 4's "export/download the PDF with annotations baked in" - uploading it
+         back to the note was the spec's own suggestion, not the requirement, and
+         attachNoteMedia rejects PDFs outright (see docs/api-notes.md), so download is
+         the whole feature, not a fallback. -->
+    <button id="pdfa-download" title="Download this PDF with every highlight and note baked in as a native annotation">Download</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
   </div>
@@ -262,6 +280,7 @@ export function buildEmbedHtml({
   <div class="pdfa-popover" id="pdfa-popover"></div>
 </div>
 <script>window.__PDFA_CONFIG = ${safeJson(config)};
-window.__PDFA_GEOM = (${createGeometry.toString()})();<\/script>
+window.__PDFA_GEOM = (${createGeometry.toString()})();
+window.__PDFA_ANNOTATIONS = (${createAnnotationWriter.toString()})();<\/script>
 <script>(${viewerMain.toString()})();<\/script>`;
 }

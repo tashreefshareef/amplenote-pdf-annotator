@@ -6,13 +6,16 @@
  *   - configuration arrives on `window.__PDFA_CONFIG`
  *   - the pure rect arithmetic arrives on `window.__PDFA_GEOM` (src/geometry.js,
  *     injected the same way) rather than being reimplemented here
+ *   - the pdf-lib annotation writer arrives on `window.__PDFA_ANNOTATIONS`
+ *     (src/annotations.js, injected the same way), for the same reason
  *   - it cannot be unit tested (it needs a real iframe, PDF.js, and a live plugin
  *     bridge), which is exactly why everything decidable lives in src/ modules instead.
- *     Keep this file about DOM and PDF.js wiring only. See spec section 8.
+ *     Keep this file about DOM, PDF.js and pdf-lib wiring only. See spec section 8.
  *
  * Scope: render every page with a real text layer, zoom and page navigation, the full
- * highlight loop (create, recolor, remove), one plain-text note per highlight, and a
- * panel listing everything.
+ * highlight loop (create, recolor, remove), one plain-text note per highlight, a panel
+ * listing everything, and downloading the PDF with every highlight and note baked in as
+ * a native annotation.
  *
  * THE POPOVER IS THE CENTRE OF THE UI. One element, four contexts:
  *   - a fresh text selection -> the four colors, so highlighting never requires a trip
@@ -32,6 +35,7 @@
 export function viewerMain() {
   var cfg = window.__PDFA_CONFIG || {};
   var geom = window.__PDFA_GEOM || {};
+  var annotations = window.__PDFA_ANNOTATIONS || {};
   var els = {
     root: document.getElementById("pdfa-root"),
     pages: document.getElementById("pdfa-pages"),
@@ -44,6 +48,7 @@ export function viewerMain() {
     panel: document.getElementById("pdfa-panel"),
     listToggle: document.getElementById("pdfa-list-toggle"),
     count: document.getElementById("pdfa-count"),
+    download: document.getElementById("pdfa-download"),
   };
 
   var state = {
@@ -57,6 +62,13 @@ export function viewerMain() {
     // only thing allowed to convert between PDF space and screen pixels.
     viewports: {},
     highlights: [],
+    // The SOURCE pdf's own bytes, kept for Download. A deliberately SEPARATE copy from
+    // whatever gets handed to pdf.js's getDocument(): some versions transfer ownership
+    // of the ArrayBuffer to their worker for performance, which would leave this one
+    // detached (byteLength 0) if it were the same object. Cloning once, up front, costs
+    // little next to a multi-megabyte PDF and removes the need to know which versions do.
+    pdfBytes: null,
+    attachmentName: "",
     activeColorId: cfg.defaultColorId || ((cfg.colors || [{}])[0] || {}).id,
     // The last text selection made inside a text layer, already converted to PDF space.
     // Held because clicking a toolbar button collapses the DOM selection before the
@@ -960,6 +972,91 @@ export function viewerMain() {
   }
 
   /**
+   * Load pdf-lib the same way loadPdfJs loads PDF.js - Amplenote re-executes inline
+   * scripts immediately, so a plain <script src> would still be downloading when the
+   * viewer runs. Loaded lazily, only when Download is first clicked: most sessions
+   * never use it, and pdf-lib is a separate CDN request nothing else here needs.
+   */
+  function loadPdfLib() {
+    return new Promise(function (resolve, reject) {
+      if (window.PDFLib) return resolve(window.PDFLib);
+      var tag = document.createElement("script");
+      tag.src = cfg.pdfLibSrc;
+      tag.onload = function () {
+        if (window.PDFLib) resolve(window.PDFLib);
+        else reject(new Error("pdf-lib loaded but did not register itself."));
+      };
+      tag.onerror = function () {
+        reject(new Error("Could not load pdf-lib from the CDN."));
+      };
+      document.head.appendChild(tag);
+    });
+  }
+
+  /** { [colorId]: [r,g,b] } from config, for annotations.writeHighlightsIntoPdf. */
+  function colorRgbTable() {
+    var table = {};
+    var list = colorList();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].rgb) table[list[i].id] = list[i].rgb;
+    }
+    return table;
+  }
+
+  function downloadFilename() {
+    var base = (state.attachmentName || "annotated").replace(/\.pdf$/i, "");
+    return base + "-annotated.pdf";
+  }
+
+  /**
+   * Write every highlight into the SOURCE bytes as native annotations (see
+   * annotations.js - the pdf-lib spike turned into production code) and hand the
+   * result to the browser's own download flow via a throwaway <a download> link.
+   *
+   * Upload-back via attachNoteMedia is not attempted: verified dead in the live app
+   * (it rejects PDFs outright - see docs/api-notes.md). Download is the whole feature
+   * the spec asks for here, not a fallback for a blocked upload.
+   */
+  function downloadAnnotatedPdf() {
+    if (!state.pdfBytes) return;
+    var btn = els.download;
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Preparing...";
+
+    loadPdfLib()
+      .then(function (PDFLib) {
+        return annotations.writeHighlightsIntoPdf(
+          PDFLib,
+          state.pdfBytes,
+          state.highlights,
+          colorRgbTable()
+        );
+      })
+      .then(function (bytes) {
+        var blob = new Blob([bytes], { type: "application/pdf" });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = downloadFilename();
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        // Not revoked immediately - some browsers start the download asynchronously,
+        // and an immediate revoke can race that start.
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        status("");
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      })
+      .catch(function (err) {
+        status("Could not prepare the download: " + (err.message || err), true);
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      });
+  }
+
+  /**
    * Stored highlights are not worth failing the whole viewer over - a PDF that renders
    * without its highlights is still usable, and the error says which half broke.
    */
@@ -990,6 +1087,7 @@ export function viewerMain() {
           throw new Error((result && result.error) || "Could not resolve the PDF URL");
         }
         if (result.name) {
+          state.attachmentName = result.name;
           document.querySelector(".pdfa-name").textContent = result.name;
         }
         return fetch(result.url);
@@ -999,6 +1097,8 @@ export function viewerMain() {
         return response.arrayBuffer();
       })
       .then(function (bytes) {
+        // Two independent copies from here on - see the state.pdfBytes comment above.
+        state.pdfBytes = bytes.slice(0);
         return window.pdfjsLib.getDocument({ data: bytes }).promise;
       })
       .then(function (doc) {
@@ -1032,6 +1132,7 @@ export function viewerMain() {
     document.getElementById("pdfa-zoom-in").onclick = function () { setZoom(state.scale + 0.25); };
     document.getElementById("pdfa-zoom-out").onclick = function () { setZoom(state.scale - 0.25); };
     els.listToggle.onclick = function () { togglePanel(); };
+    els.download.onclick = downloadAnnotatedPdf;
     scroller().addEventListener("scroll", trackScroll);
 
     // Scoped to the page area on purpose. On `document` it would also fire when the user
