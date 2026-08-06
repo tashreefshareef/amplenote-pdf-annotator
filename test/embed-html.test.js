@@ -71,6 +71,22 @@ describe("buildEmbedHtml", () => {
     expect(html()).toContain('id="pdfa-colors"');
   });
 
+  // Scenario: Amplenote renders its OWN PDF preview for an attachment, and both can
+  // appear in the same note looking broadly alike. Without a label there is no
+  // reliable way — for a user or for testing — to tell which viewer is on screen.
+  test("labels itself so it cannot be confused with Amplenote's built-in PDF preview", () => {
+    const out = html();
+    expect(out).toContain("pdfa-brand");
+    expect(out).toContain(">PDF Annotator<");
+  });
+
+  // Scenario: the brand colour has to exist in both palettes, or the label is
+  // invisible in one of them.
+  test("defines an accent colour in both themes", () => {
+    expect(html({ lightDarkMode: "light" })).toContain("--pdfa-accent:");
+    expect(html({ lightDarkMode: "dark" })).toContain("--pdfa-accent:");
+  });
+
   // Scenario: THE bug that silently broke the first live run. The viewer source is
   // full of double quotes; putting it in an onload="..." attribute truncates it at the
   // first one and it never executes. The symptom is indistinguishable from a hang —

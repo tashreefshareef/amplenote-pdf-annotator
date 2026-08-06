@@ -50,6 +50,8 @@ const STYLES = `
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
   .pdfa-sep { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 0 4px; }
+  .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
+    white-space: nowrap; padding-right: 2px; }
   .pdfa-spacer { flex: 1 1 auto; }
   .pdfa-name { opacity: .7; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pdfa-scroll { flex: 1 1 auto; overflow: auto; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -72,8 +74,8 @@ const STYLES = `
 
 /** Light and dark palettes, driven by `app.context.lightDarkMode`. */
 const THEMES = {
-  light: `--pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0; --pdfa-btn:#fff; --pdfa-btn-hover:#eceef1; --pdfa-error:#b3261e;`,
-  dark: `--pdfa-bg:#1e2126; --pdfa-fg:#e6e8ea; --pdfa-toolbar:#252930; --pdfa-border:#3a3f47; --pdfa-btn:#2d323a; --pdfa-btn-hover:#3a4049; --pdfa-error:#f2b8b5;`,
+  light: `--pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0; --pdfa-btn:#fff; --pdfa-btn-hover:#eceef1; --pdfa-error:#b3261e; --pdfa-accent:#1a6fb5;`,
+  dark: `--pdfa-bg:#1e2126; --pdfa-fg:#e6e8ea; --pdfa-toolbar:#252930; --pdfa-border:#3a3f47; --pdfa-btn:#2d323a; --pdfa-btn-hover:#3a4049; --pdfa-error:#f2b8b5; --pdfa-accent:#79b8ef;`,
 };
 
 /**
@@ -97,6 +99,11 @@ export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = nul
   return `<style>:root{${theme}}${STYLES}</style>
 <div id="pdfa-root">
   <div class="pdfa-toolbar">
+    <!-- Identifies this viewer at a glance. Amplenote renders its OWN PDF preview for
+         an attachment, and both can sit in the same note looking broadly similar; a
+         reader had no reliable way to tell which one they were interacting with. -->
+    <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
+    <span class="pdfa-sep"></span>
     <button id="pdfa-prev" title="Previous page">&#8249;</button>
     <span class="pdfa-label" id="pdfa-page-label">– / –</span>
     <button id="pdfa-next" title="Next page">&#8250;</button>
