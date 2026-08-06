@@ -108,20 +108,62 @@ PDFLIB OK
   string, not structured args. **This is the mechanism for the Phase 5 deep-link** (§7.3),
   so design the link format around a query string.
 
-### ❌ BLOCKER: cross-origin fetch of Amplenote-hosted media fails
+### ✅ Attachment object shape (confirmed against a real PDF)
 
-Fetching `https://images.amplenote.com/...` returned **"Failed to fetch"** from BOTH the
-embed context and the plugin action context.
+```json
+[{ "name": "Suzuki Access Insurance 2025-2026.pdf",
+   "type": "application/pdf",
+   "uuid": "6dc9f8b0-28c3-4891-b435-694620b303cc" }]
+```
 
-**Caveat — this is a proxy test, not the real one.** It used a media URL from
-`attachNoteMedia`, not a URL from `getAttachmentURL`. Attachment URLs are temporary and
-may well carry permissive CORS headers precisely because plugins are meant to read them.
-**Must be re-tested against a genuine PDF attachment before treating it as fatal.**
+Exactly three fields: `name | type | uuid`. `type` is the MIME type, so filtering the
+picker to PDFs is `type === "application/pdf"`, and `name` is what the picker shows.
 
-If it does hold for real attachments, the fallbacks are: read the bytes in the plugin
-context and pass base64 to the embed via `renderEmbed` args or `onEmbedCall` (only viable
-if the plugin context can fetch), or fall back to a user-supplied file input inside the
-embed.
+### ✅ `callAmplenotePlugin` → `onEmbedCall` round-trip works
+
+The embed called `window.callAmplenotePlugin("geturl")`, the plugin ran
+`getNoteAttachments` + `getAttachmentURL` using `app.context.noteUUID`, and the embed
+received the URL back. Confirms `app.context.noteUUID` is populated inside `onEmbedCall`.
+
+### ❌❌ BLOCKER: attachment bytes cannot be fetched from either context
+
+`getAttachmentURL` returns a **presigned AWS S3 URL**:
+
+```
+https://ample-attachments.s3.us-west-2.amazonaws.com/<noteUUID>/<attachmentUUID>.pdf
+  ?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...
+  &X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=...
+```
+
+`X-Amz-Expires=3600` — the URL is valid for one hour, so it must be re-fetched per
+session and never persisted.
+
+**`fetch()` on that URL fails with "Failed to fetch" from BOTH contexts** — the embed
+(`plugins.amplenote.com`) and the plugin action sandbox. Tested against a real attached
+PDF, so this is no longer a proxy result.
+
+**Why this is severe:** PDF.js loads a document via `fetch`/XHR. If neither context can
+read the bytes, the standard render path does not work at all.
+
+**It is not a blanket network block** — cdnjs scripts load fine in the same embed. So it
+is specifically an XHR-class restriction: either S3 returns no
+`Access-Control-Allow-Origin` for these presigned URLs, or the plugin sandbox CSP
+restricts `connect-src`. The two have different owners (S3 bucket policy vs. Amplenote's
+CSP) but both require an Amplenote-side change. Could not distinguish them from here —
+the embed is a cross-origin iframe, so its console (where a CSP violation would name the
+directive) isn't reachable from the parent page.
+
+**Options, roughly in order of preference:**
+1. **Ask Lucian.** This is precisely the kind of blocker the spec says to escalate. If
+   plugins are intended to read note attachments at all, either the bucket needs a CORS
+   rule or there's an undocumented accessor. Worth asking before engineering around it.
+2. **Check how existing plugins read attachments** — if any published plugin does, its
+   source shows the supported route.
+3. **`<iframe src=presignedURL>`** renders the PDF via the browser's built-in viewer with
+   no CORS involved, but gives no access to the text layer. Fails the core requirement
+   (real text selection), so viable only as a degraded fallback.
+4. **File input inside the embed** — the user re-picks the PDF from disk. Works, but the
+   UX is poor and it ignores the attachment entirely.
 
 ### ❌ `attachNoteMedia` rejects PDFs
 
@@ -168,10 +210,10 @@ Practical workarounds when pasting/typing code in:
 
 | Question | Why it matters | How to resolve |
 |---|---|---|
-| **Attachment object shape** | Need a uuid for `getAttachmentURL`, plus a name/mime type to filter for PDFs and populate the picker. | **Blocked:** needs a real PDF attachment on a test note. `attachNoteMedia` can't create one and file upload is sandboxed off, so a human must attach it. |
-| **CORS on `getAttachmentURL`** | **THE Phase 1 blocker.** A proxy test against `images.amplenote.com` failed from both contexts; unknown whether real attachment URLs behave the same. | Same blocker as above — re-run the probe once a PDF is attached. |
-| ~~Embed CSP / CDN loading~~ | — | ✅ Resolved above: cdnjs works. |
-| **PDF.js worker loading** | The worker is a separate cross-origin script; it can fail even when the main library loads. | Test alongside the attachment probe. Fallback is `disableWorker`, at a performance cost. |
+| ~~Attachment object shape~~ | — | ✅ Resolved: `{ name, type, uuid }`. |
+| ~~Embed CSP / CDN loading~~ | — | ✅ Resolved: cdnjs works. |
+| **Reading attachment bytes** | ❌ **HARD BLOCKER — Phase 1 cannot proceed past this.** See above. | Ask Lucian; inspect published plugins that read attachments. |
+| **PDF.js worker loading** | The worker is a separate cross-origin script; it can fail even when the main library loads. | Test once the bytes problem is solved. Fallback is `disableWorker`, at a performance cost. |
 | **Cycle-color indices 12/14/15/18** | A wrong index means every exported link is the wrong color — a visible acceptance failure. | Check doc 4 before Phase 5. |
 | **"Double-quoted block" markdown** | The export format must match the requirements note exactly. | Check doc 4 before Phase 5. |
 | **`prompt` radio input shape** | Needed for the "which PDF?" picker. | Check doc 2's `inputs` array detail. |
