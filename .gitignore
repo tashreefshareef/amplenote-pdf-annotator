@@ -1,6 +1,10 @@
 node_modules/
 spike/out/
 coverage/
+
+# Generated spike output copied to the root for convenient opening — regenerate with
+# `npm run spike:annotations`, don't commit it.
+/annotated-sample.pdf
 .DS_Store
 *.log
 
