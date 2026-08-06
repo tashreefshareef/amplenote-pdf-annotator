@@ -29,10 +29,14 @@
  *    selectable and their color is editable through the reader's own UI — not
  *    possible with drawn content.
  *
- * 2. An explicit /Popup child is REQUIRED for notes, not optional.
- *    A/B tested: /Contents alone renders a hover note in Chrome (which synthesizes
- *    the missing popup) but shows NOTHING in PDF Gear. Every note-carrying highlight
- *    must get a /Popup with a bidirectional /Parent link.
+ * 2. Always give a note-carrying highlight an explicit /Popup child.
+ *    With a /Popup, the note shows on hover in both Chrome and PDF Gear — confirmed
+ *    for both the single-line and multi-line cases. The A/B against /Contents-only
+ *    was suggestive rather than conclusive (the control appeared to show no note in
+ *    PDF Gear, but that reading wasn't re-confirmed). Since a popup costs one extra
+ *    object and removes the question entirely, always include one, with a
+ *    bidirectional /Parent link. Do not "optimize" it away on the strength of Chrome
+ *    working without it — Chrome synthesizes the missing popup and hides the risk.
  *
  * 3. Multiple quad sets in ONE annotation render as multiple bands. This is how a
  *    selection wrapping across lines stays a single highlight the user can delete or
