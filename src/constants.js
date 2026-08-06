@@ -26,10 +26,33 @@ export const STORAGE_SECTION_HEADING = "PDF Annotator data";
 
 /**
  * Pinned CDN versions (spec §3 requires recording these for reproducibility).
- * Not yet load-tested against the embed's CSP — that is a Phase 1 milestone.
+ *
+ * VERIFIED LOADING inside a live Amplenote embed on 2026-08-06 — these exact URLs
+ * parsed a real 7-page PDF, worker and text layer included. Do not bump casually.
+ *
+ * PDF.js is deliberately held at 3.x: 4.x ships as `.mjs` ES modules, which a plain
+ * `<script>` tag in the embed cannot load without a different bootstrap. 3.11.174 is
+ * the UMD build and is the combination that is known to work here.
  */
 export const CDN = {
-  pdfJs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs",
-  pdfJsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs",
+  pdfJs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+  pdfJsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
   pdfLib: "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js",
 };
+
+/**
+ * Amplenote's CORS proxy — the ONLY way to read attachment bytes.
+ *
+ * `getAttachmentURL` hands back a presigned S3 URL that carries no CORS headers, so a
+ * direct fetch fails from both the embed and the plugin sandbox. This proxy is not in
+ * the API docs; it comes from the official amplenote-embed-starter. See
+ * docs/api-notes.md before changing anything here.
+ */
+export const CORS_PROXY = "https://plugins.amplenote.com/cors-proxy";
+
+/** Build a fetchable URL for an attachment URL returned by `getAttachmentURL`. */
+export function proxiedURL(attachmentURL) {
+  const url = new URL(CORS_PROXY);
+  url.searchParams.set("apiurl", attachmentURL);
+  return url.toString();
+}

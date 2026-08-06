@@ -125,7 +125,58 @@ The embed called `window.callAmplenotePlugin("geturl")`, the plugin ran
 `getNoteAttachments` + `getAttachmentURL` using `app.context.noteUUID`, and the embed
 received the URL back. Confirms `app.context.noteUUID` is populated inside `onEmbedCall`.
 
-### ❌❌ BLOCKER: attachment bytes cannot be fetched from either context
+### ✅ RESOLVED: reading attachment bytes — use Amplenote's CORS proxy
+
+**Direct `fetch()` of the attachment URL fails. Route it through the official proxy:**
+
+```js
+const url = await app.getAttachmentURL(attachmentUUID);
+const proxyURL = new URL("https://plugins.amplenote.com/cors-proxy");
+proxyURL.searchParams.set("apiurl", url);
+const response = await fetch(proxyURL);
+const bytes = await response.arrayBuffer();   // .text() in the starter; PDFs need bytes
+```
+
+Source: [alloy-org/amplenote-embed-starter](https://github.com/alloy-org/amplenote-embed-starter/blob/main/assets/note.md).
+Undocumented in the API reference — found only by reading the official starter repo.
+
+**Verified end-to-end in a live embed against a real 1.2 MB attached PDF:**
+
+```
+gotS3Url=true
+proxyStatus=200
+bytes=1231189
+numPages=7
+textItems=95
+sample=<real text extracted from page 1>
+```
+
+That single run proves the entire Phase 1 render path:
+- the proxy returns **binary** intact (`arrayBuffer`, not just text)
+- **PDF.js parses the document** — 7 pages
+- **the PDF.js worker loads** from cdnjs (page rendering would fail without it)
+- **the text layer works** — 95 text items with real strings, which is what highlight
+  selection depends on
+
+**Pinned working versions:** PDF.js **3.11.174** (`pdf.min.js` + `pdf.worker.min.js`,
+UMD). Note 4.x ships as `.mjs` ES modules, which need different loading in a plain
+`<script>` embed — 3.11.174 is the tested-good combination, so don't bump casually.
+
+#### The original failure, for the record
+
+`getAttachmentURL` returns a presigned AWS S3 URL:
+
+```
+https://ample-attachments.s3.us-west-2.amazonaws.com/<noteUUID>/<attachmentUUID>.pdf
+  ?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Expires=3600&X-Amz-Signature=...
+```
+
+`X-Amz-Expires=3600` — valid one hour. Fetch it fresh per session; never persist it.
+
+Direct `fetch()` fails with "Failed to fetch" from **both** the embed
+(`plugins.amplenote.com`) and the plugin action sandbox, because the S3 response carries
+no `Access-Control-Allow-Origin`. Not a blanket network block — cdnjs scripts load fine.
+**Always go through the proxy.**
 
 `getAttachmentURL` returns a **presigned AWS S3 URL**:
 
@@ -212,8 +263,9 @@ Practical workarounds when pasting/typing code in:
 |---|---|---|
 | ~~Attachment object shape~~ | — | ✅ Resolved: `{ name, type, uuid }`. |
 | ~~Embed CSP / CDN loading~~ | — | ✅ Resolved: cdnjs works. |
-| **Reading attachment bytes** | ❌ **HARD BLOCKER — Phase 1 cannot proceed past this.** See above. | Ask Lucian; inspect published plugins that read attachments. |
-| **PDF.js worker loading** | The worker is a separate cross-origin script; it can fail even when the main library loads. | Test once the bytes problem is solved. Fallback is `disableWorker`, at a performance cost. |
+| ~~Reading attachment bytes~~ | — | ✅ Resolved: go through `plugins.amplenote.com/cors-proxy`. |
+| ~~PDF.js worker loading~~ | — | ✅ Resolved: worker loads; a 7-page document parsed. |
+| **Writing the annotated PDF back** | `attachNoteMedia` rejects PDFs. Blob download satisfies §4, but confirm that's acceptable. | Ask Lucian, or accept download-only. |
 | **Cycle-color indices 12/14/15/18** | A wrong index means every exported link is the wrong color — a visible acceptance failure. | Check doc 4 before Phase 5. |
 | **"Double-quoted block" markdown** | The export format must match the requirements note exactly. | Check doc 4 before Phase 5. |
 | **`prompt` radio input shape** | Needed for the "which PDF?" picker. | Check doc 2's `inputs` array detail. |
