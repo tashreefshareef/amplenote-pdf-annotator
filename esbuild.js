@@ -16,7 +16,10 @@ import * as esbuild from "esbuild";
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 
 const OUT_DIR = "dist";
-const OUT_FILE = `${OUT_DIR}/plugin.js`;
+/** Sync target for Amplenote Plugin Builder — see the format contract below. */
+const SYNC_FILE = `${OUT_DIR}/plugin.js`;
+/** Manual clipboard-paste fallback. */
+const PASTE_FILE = `${OUT_DIR}/plugin-paste.js`;
 
 const result = await esbuild.build({
   entryPoints: ["src/plugin.js"],
@@ -35,14 +38,29 @@ const result = await esbuild.build({
 const bundled = result.outputFiles[0].text;
 const version = JSON.parse(readFileSync("package.json", "utf8")).version;
 
-const output = `// Amplenote PDF Annotator - v${version}
-// GENERATED FILE - do not edit. Edit src/ and run \`npm run build\`.
-// Paste the entire contents of this file into the plugin note's code block.
-(() => {
+/**
+ * Two artifacts from one bundle, because they have different consumers.
+ *
+ * dist/plugin.js is the sync target for Amplenote Plugin Builder, whose format contract
+ * is strict and undocumented (read from its source, lib/plugin-import-inliner.js):
+ *   - the FIRST line must contain "(() => {" — so comments go inside, not above
+ *   - the content must END with "})();"
+ *   - Plugin Builder rewrites that trailing "})();" into "return plugin;\n})()", so a
+ *     variable literally named `plugin` must exist at the IIFE's top level
+ * Miss any of these and it silently falls back to its own import-inliner, which mangles
+ * an already-bundled file.
+ *
+ * dist/plugin-paste.js is the same code with the return already applied, for pasting
+ * into the code block by hand when sync isn't set up.
+ */
+const body = `(() => {
+  // Amplenote PDF Annotator - v${version}
+  // GENERATED FILE - do not edit. Edit src/ and run \`npm run build\`.
 ${bundled}
-  return __pluginModule.default;
-})()
-`;
+  var plugin = __pluginModule.default;`;
+
+const syncOutput = `${body}\n})();\n`;
+const pasteOutput = `${body}\n  return plugin;\n})()\n`;
 
 /**
  * The output must be pure ASCII.
@@ -53,7 +71,7 @@ ${bundled}
  * the usual culprit is a comment. Fail the build rather than ship mojibake into
  * someone's plugin note.
  */
-const nonAscii = [...output].filter((ch) => ch.charCodeAt(0) > 127);
+const nonAscii = [...pasteOutput].filter((ch) => ch.charCodeAt(0) > 127);
 if (nonAscii.length) {
   const unique = [...new Set(nonAscii)].join(" ");
   console.error(`Build failed: ${nonAscii.length} non-ASCII character(s) in output: ${unique}`);
@@ -61,8 +79,31 @@ if (nonAscii.length) {
   process.exit(1);
 }
 
-mkdirSync(OUT_DIR, { recursive: true });
-writeFileSync(OUT_FILE, output, "utf8");
+// Assert the Plugin Builder contract at build time. A violation here is invisible until
+// a sync silently produces a corrupted code block in the live plugin note.
+const trimmed = syncOutput.trim();
+const problems = [];
+if (!trimmed.split("\n")[0].includes("(() => {")) problems.push("first line must contain '(() => {'");
+if (!/\}\)\(\);$/.test(trimmed)) problems.push("output must end with '})();'");
+if (!/^\s*var plugin =/m.test(syncOutput)) problems.push("a top-level `var plugin =` must exist");
+if (problems.length) {
+  console.error("Build failed: dist/plugin.js breaks the Plugin Builder contract:");
+  for (const p of problems) console.error(`  - ${p}`);
+  process.exit(1);
+}
 
-const kb = (Buffer.byteLength(output, "utf8") / 1024).toFixed(1);
-console.log(`Built ${OUT_FILE} (${kb} kB)`);
+// Amplenote rejects note content over 100k characters, and Plugin Builder checks the
+// same limit before writing.
+const MAX_NOTE_CHARS = 100_000;
+if (pasteOutput.length > MAX_NOTE_CHARS) {
+  console.error(`Build failed: output is ${pasteOutput.length} chars, over Amplenote's ${MAX_NOTE_CHARS} limit.`);
+  process.exit(1);
+}
+
+mkdirSync(OUT_DIR, { recursive: true });
+writeFileSync(SYNC_FILE, syncOutput, "utf8");
+writeFileSync(PASTE_FILE, pasteOutput, "utf8");
+
+const kb = (Buffer.byteLength(pasteOutput, "utf8") / 1024).toFixed(1);
+const headroom = Math.round((1 - pasteOutput.length / MAX_NOTE_CHARS) * 100);
+console.log(`Built ${SYNC_FILE} + ${PASTE_FILE} (${kb} kB, ${headroom}% under the note limit)`);

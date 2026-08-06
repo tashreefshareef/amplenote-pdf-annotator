@@ -35,14 +35,40 @@ Then:
 npm run build
 ```
 
-Copy the entire contents of `dist/plugin.js` into the plugin note's code block in
-Amplenote.
+## Installing into Amplenote
+
+### Recommended: sync from GitHub
+
+Install the [Plugin Builder](https://github.com/alloy-org/plugin-builder) plugin, then
+in this plugin's note add a line pointing at this repo and an H1 heading named exactly
+`Code block` above the code block:
+
+```
+repo: <owner>/<repo>/dist/plugin.js
+```
+
+Run **Plugin Builder: Refresh** from the note's ⋯ menu and it pulls the latest build
+straight from GitHub.
+
+`dist/plugin.js` is shaped to satisfy Plugin Builder's format contract — first line
+containing `(() => {`, ending in `})();`, with a top-level `var plugin`. The build
+asserts all three, because breaking them makes Plugin Builder silently fall back to its
+own import-inliner and write a corrupted code block.
+
+### Fallback: paste by hand
+
+Copy the entire contents of **`dist/plugin-paste.js`** (not `plugin.js` — that one omits
+the final `return plugin` that Plugin Builder adds for you) into the note's code block.
+
+Click **inside** the code block first, press Ctrl+A, and **confirm the selection covers
+only the block** before pasting. Clicking slightly outside it makes Ctrl+A select the
+whole note, and pasting then destroys the metadata table.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `npm run build` | Bundle `src/` → `dist/plugin.js` (the file you paste into Amplenote) |
+| `npm run build` | Bundle `src/` → `dist/plugin.js` (GitHub sync target) and `dist/plugin-paste.js` (manual paste) |
 | `npm test` | Run the Jest suite |
 | `npm run test:watch` | Jest in watch mode |
 | `npm run spike:annotations` | Generate `spike/out/annotated-sample.pdf` to verify native PDF annotations in external readers |

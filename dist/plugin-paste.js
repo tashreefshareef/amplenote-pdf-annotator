@@ -497,4 +497,5 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
 })();
 
   var plugin = __pluginModule.default;
-})();
+  return plugin;
+})()
