@@ -52,7 +52,7 @@ function createHighlightAnnotation(pdfDoc, { x, y, width, height, color, content
     x2, y1, // bottom-right
   ];
 
-  const dict = {
+  const dict = pdfDoc.context.obj({
     Type: PDFName.of("Annot"),
     Subtype: PDFName.of("Highlight"),
     Rect: pdfDoc.context.obj([x1, y1, x2, y2]),
@@ -63,20 +63,57 @@ function createHighlightAnnotation(pdfDoc, { x, y, width, height, color, content
     T: PDFString.of("PDF Annotator"),
     M: PDFString.of(new Date().toISOString()),
     CA: PDFNumber.of(0.4), // opacity, so underlying text stays readable
-  };
+  });
 
   // /Contents is what a reader shows as the annotation's note/popup body.
-  if (contents) dict.Contents = PDFString.of(contents);
+  if (contents) dict.set(PDFName.of("Contents"), PDFString.of(contents));
 
-  return pdfDoc.context.register(pdfDoc.context.obj(dict));
+  const highlightRef = pdfDoc.context.register(dict);
+  const refs = [highlightRef];
+
+  /**
+   * An EXPLICIT /Popup child annotation for the note.
+   *
+   * NOT strictly required: /Contents alone already works in Chrome, which synthesizes
+   * a popup and shows it on hover (verified). This is declared anyway for two reasons:
+   *   1. Acrobat and Preview populate their comment panels from the annotation tree,
+   *      and an explicit popup is the standards-correct structure for a markup
+   *      annotation that carries text. Don't rely on every reader synthesizing one.
+   *   2. It lets us control the popup's rect and its default open state instead of
+   *      inheriting whatever each reader picks.
+   *
+   * The link is bidirectional: highlight./Popup → popup, popup./Parent → highlight.
+   * Readers that only follow one direction will otherwise ignore the note.
+   *
+   * If this turns out to REGRESS the hover behavior that already works, drop it —
+   * /Contents alone is the proven-good fallback.
+   */
+  if (contents) {
+    const popupRef = pdfDoc.context.register(
+      pdfDoc.context.obj({
+        Type: PDFName.of("Annot"),
+        Subtype: PDFName.of("Popup"),
+        // Sits to the right of the highlight; only shown when opened.
+        Rect: pdfDoc.context.obj([x2 + 8, y1 - 60, x2 + 208, y1 + 12]),
+        Parent: highlightRef,
+        Open: false,
+      })
+    );
+    dict.set(PDFName.of("Popup"), popupRef);
+    refs.push(popupRef);
+  }
+
+  return refs;
 }
 
-function appendAnnotation(page, annotationRef) {
+/** Accepts a single ref or an array (a highlight plus its popup). */
+function appendAnnotation(page, annotationRefs) {
+  const refs = Array.isArray(annotationRefs) ? annotationRefs : [annotationRefs];
   const existing = page.node.get(PDFName.of("Annots"));
   if (existing instanceof PDFArray) {
-    existing.push(annotationRef);
+    for (const ref of refs) existing.push(ref);
   } else {
-    page.node.set(PDFName.of("Annots"), page.doc.context.obj([annotationRef]));
+    page.node.set(PDFName.of("Annots"), page.doc.context.obj(refs));
   }
 }
 
@@ -102,7 +139,7 @@ async function main() {
 
   for (const line of lines) {
     const textWidth = font.widthOfTextAtSize(line.text, 10);
-    const ref = createHighlightAnnotation(pdfDoc, {
+    const refs = createHighlightAnnotation(pdfDoc, {
       x: 50,
       y: line.y - 3,
       width: textWidth,
@@ -112,7 +149,7 @@ async function main() {
       // per highlight, optional" rule.
       contents: line.color.label === "Yellow" ? "This is the user's note." : null,
     });
-    appendAnnotation(page, ref);
+    appendAnnotation(page, refs);
   }
 
   // Multi-line highlight: one annotation spanning two lines via multiple quad sets is
@@ -129,6 +166,10 @@ async function main() {
     50, 431, 360, 431, 50, 417, 360, 417,
     50, 411, 260, 411, 50, 397, 260, 397,
   ];
+  // CONTROL CASE: this one deliberately uses /Contents with NO explicit /Popup, so it
+  // A/Bs against the yellow highlight above (which has one). Compare the two in each
+  // reader — if they behave identically, the explicit popup is unnecessary ceremony
+  // and Phase 4 can skip it.
   const multiRef = pdfDoc.context.register(
     pdfDoc.context.obj({
       Type: PDFName.of("Annot"),
@@ -155,11 +196,16 @@ async function main() {
   const annots = reloaded.getPage(0).node.get(PDFName.of("Annots"));
   const count = annots instanceof PDFArray ? annots.size() : 0;
 
+  // 4 single-line highlights + 1 popup (yellow's note) + 1 multi-line highlight.
+  const EXPECTED = 6;
   console.log(`Wrote spike/out/annotated-sample.pdf (${(bytes.length / 1024).toFixed(1)} kB)`);
-  console.log(`Annotations present after reload: ${count} (expected 5)`);
-  console.log("\nNow open it in Acrobat, Preview, and Chrome and confirm the checklist");
-  console.log("at the top of this file — especially that these are real annotations,");
-  console.log("not drawn rectangles.");
+  console.log(`Annotations present after reload: ${count} (expected ${EXPECTED})`);
+  if (count !== EXPECTED) console.log("!! Count mismatch — annotations did not survive serialization.");
+  console.log("\nA/B to check in each reader:");
+  console.log("  Yellow highlight     — note via explicit /Popup (Open false)");
+  console.log("  Blue multi-line      — note via /Contents only, reader synthesizes");
+  console.log("Both should show their note on hover/click and appear in the reader's");
+  console.log("comment panel. If they behave the same, Phase 4 can drop the explicit popup.");
 }
 
 main().catch((err) => {
