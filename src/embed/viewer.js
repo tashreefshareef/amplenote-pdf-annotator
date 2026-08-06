@@ -10,10 +10,19 @@
  *     bridge), which is exactly why everything decidable lives in src/ modules instead.
  *     Keep this file about DOM and PDF.js wiring only. See spec section 8.
  *
- * Scope: render every page to canvas with a real text layer over it, zoom and page
- * navigation, and the full highlight loop - capture a selection, apply one of the four
- * colors from the toolbar, draw the overlay, persist through the plugin, and remove or
- * recolor an existing highlight by clicking it.
+ * Scope: render every page with a real text layer, zoom and page navigation, the full
+ * highlight loop (create, recolor, remove), one plain-text note per highlight, and a
+ * panel listing everything.
+ *
+ * THE POPOVER IS THE CENTRE OF THE UI. One element, four contexts:
+ *   - a fresh text selection -> the four colors, so highlighting never requires a trip
+ *     to the toolbar
+ *   - straight after creating a highlight -> "Add note", because the spec requires that
+ *     offer to appear immediately
+ *   - an existing highlight -> recolor, add/edit note, remove
+ *   - the note editor itself
+ * The toolbar colors keep working independently: the spec requires them as top-level
+ * single-click buttons, and the popover is a shortcut to them, not a replacement.
  *
  * COORDINATES. Highlights are stored in PDF user space (origin bottom-left) so they
  * survive zoom, per spec section 3. The conversion in BOTH directions is PDF.js's own
@@ -32,6 +41,9 @@ export function viewerMain() {
     colors: document.getElementById("pdfa-colors"),
     hint: document.getElementById("pdfa-hint"),
     popover: document.getElementById("pdfa-popover"),
+    panel: document.getElementById("pdfa-panel"),
+    listToggle: document.getElementById("pdfa-list-toggle"),
+    count: document.getElementById("pdfa-count"),
   };
 
   var state = {
@@ -50,6 +62,10 @@ export function viewerMain() {
     // Held because clicking a toolbar button collapses the DOM selection before the
     // click handler runs - by then window.getSelection() is empty.
     pendingSelection: null,
+    // Id of the highlight whose note is being edited, or null. While this is set the
+    // popover refuses to close on scroll or an outside click, so a half-typed note
+    // cannot be lost by a stray gesture.
+    noteEditing: null,
   };
 
   function status(message, isError) {
@@ -90,7 +106,7 @@ export function viewerMain() {
     });
   }
 
-  // ---- colors --------------------------------------------------------------
+  // ---- small helpers -------------------------------------------------------
 
   function colorList() {
     return cfg.colors || [];
@@ -104,7 +120,25 @@ export function viewerMain() {
     return list.length ? list[0].hex : "#F4DE6C";
   }
 
-  /** A round swatch button. Shared by the toolbar and the per-highlight popover. */
+  function findHighlight(id) {
+    for (var i = 0; i < state.highlights.length; i++) {
+      if (state.highlights[i].id === id) return state.highlights[i];
+    }
+    return null;
+  }
+
+  function button(label, className, onClick) {
+    var el = document.createElement("button");
+    el.className = "pdfa-btn" + (className ? " " + className : "");
+    el.textContent = label;
+    el.onclick = function (event) {
+      event.stopPropagation();
+      onClick();
+    };
+    return el;
+  }
+
+  /** A round color swatch. Shared by the toolbar and every popover context. */
   function makeSwatch(color, pressed, onPick, titlePrefix) {
     var btn = document.createElement("button");
     btn.className = "pdfa-color";
@@ -119,6 +153,8 @@ export function viewerMain() {
     };
     return btn;
   }
+
+  // ---- toolbar colors ------------------------------------------------------
 
   /**
    * Mount the four color buttons.
@@ -223,7 +259,7 @@ export function viewerMain() {
   function renderAll() {
     if (state.rendering) return Promise.resolve();
     state.rendering = true;
-    closePopover();
+    closePopover(true);
     els.pages.innerHTML = "";
     state.viewports = {};
     state.textSpans = 0;
@@ -301,6 +337,100 @@ export function viewerMain() {
     }
   }
 
+  /** Everything that has to follow a change to the highlight list. */
+  function syncHighlights() {
+    drawHighlights();
+    renderPanel();
+    els.count.textContent = String(state.highlights.length);
+  }
+
+  // ---- highlights panel ----------------------------------------------------
+
+  /**
+   * Sorted the way a reader moves through the document - down the pages, then down each
+   * page. Storage order is creation order, which is not what anyone wants to read.
+   */
+  function sortedHighlights() {
+    return state.highlights.slice().sort(function (a, b) {
+      if (a.page !== b.page) return a.page - b.page;
+      // PDF Y increases upward, so higher y is nearer the top of the page.
+      return (b.rects[0] ? b.rects[0].y : 0) - (a.rects[0] ? a.rects[0].y : 0);
+    });
+  }
+
+  function renderPanel() {
+    els.panel.innerHTML = "";
+
+    var title = document.createElement("div");
+    title.className = "pdfa-panel-title";
+    var label = document.createElement("span");
+    label.textContent = "Highlights";
+    title.appendChild(label);
+    title.appendChild(button("Close", "", function () { togglePanel(false); }));
+    els.panel.appendChild(title);
+
+    var list = sortedHighlights();
+    if (!list.length) {
+      var empty = document.createElement("div");
+      empty.className = "pdfa-panel-empty";
+      empty.textContent =
+        "No highlights yet. Select some text in the PDF and pick a color.";
+      els.panel.appendChild(empty);
+      return;
+    }
+
+    for (var i = 0; i < list.length; i++) {
+      els.panel.appendChild(panelRow(list[i]));
+    }
+  }
+
+  function panelRow(highlight) {
+    var row = document.createElement("div");
+    row.className = "pdfa-hl-row";
+    row.dataset.id = highlight.id || "";
+    row.title = "Jump to this highlight";
+
+    var chip = document.createElement("span");
+    chip.className = "pdfa-chip";
+    chip.style.background = colorHex(highlight.color);
+    row.appendChild(chip);
+
+    var body = document.createElement("div");
+
+    var page = document.createElement("div");
+    page.className = "pdfa-hl-page";
+    page.textContent = "Page " + highlight.page;
+    body.appendChild(page);
+
+    var quote = document.createElement("div");
+    quote.className = "pdfa-hl-quote";
+    quote.textContent =
+      highlight.quoteText.length > 160
+        ? highlight.quoteText.slice(0, 160) + "..."
+        : highlight.quoteText;
+    body.appendChild(quote);
+
+    if (highlight.note) {
+      var note = document.createElement("div");
+      note.className = "pdfa-hl-note";
+      note.textContent = highlight.note;
+      body.appendChild(note);
+    }
+
+    row.appendChild(body);
+    row.onclick = function () {
+      goToHighlight(highlight);
+    };
+    return row;
+  }
+
+  function togglePanel(open) {
+    var next = open === undefined ? !els.panel.classList.contains("pdfa-open") : open;
+    els.panel.classList.toggle("pdfa-open", next);
+    els.listToggle.setAttribute("aria-pressed", String(next));
+    if (next) renderPanel();
+  }
+
   // ---- capturing a selection -----------------------------------------------
 
   /** Walk up from a selection node to the text layer it belongs to, if any. */
@@ -327,7 +457,7 @@ export function viewerMain() {
   }
 
   /**
-   * Turn the live DOM selection into PDF-space geometry, ready for a color button.
+   * Turn the live DOM selection into PDF-space geometry, ready for a color.
    *
    * A selection dragged across a page break also reports rects on the following page.
    * Highlights are per-page - that is how PDF annotations work too, and the spec's
@@ -335,9 +465,16 @@ export function viewerMain() {
    * confusing - so rects are kept for the page the selection STARTED on, and the hint
    * says which page that is rather than silently dropping the rest.
    */
-  function captureSelection() {
+  function captureSelection(event) {
+    // Never let a stray mouseup interrupt someone typing a note.
+    if (state.noteEditing) return;
+
     var sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return setPending(null);
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      setPending(null);
+      closePopover();
+      return;
+    }
 
     var range = sel.getRangeAt(0);
     var layer = textLayerOf(range.startContainer);
@@ -378,12 +515,22 @@ export function viewerMain() {
     );
     if (!rects.length) return setPending(null);
 
-    setPending({
+    // Anchor the popover where the gesture ended. Falling back to the last rect keeps
+    // keyboard selection (shift-arrow, ctrl-A) working, which has no pointer position.
+    var lastRect = onPage.length ? onPage[onPage.length - 1] : containerRect;
+    var anchorX = event && event.clientX ? event.clientX : lastRect.left + lastRect.width / 2;
+    var anchorY = event && event.clientY ? event.clientY : lastRect.top + lastRect.height;
+
+    var selection = {
       page: pageNum,
       rects: rects,
       quoteText: geom.normalizeQuoteText(sel.toString()),
       spilled: onPage.length !== all.length,
-    });
+      anchorX: anchorX,
+      anchorY: anchorY,
+    };
+    setPending(selection);
+    openSelectionPopover(selection);
   }
 
   // ---- mutating highlights -------------------------------------------------
@@ -397,11 +544,13 @@ export function viewerMain() {
    * the real ids and may include changes made elsewhere. If the write fails the local
    * change is rolled back: the note is the source of truth, and leaving a highlight on
    * screen that was never saved is worse than losing it visibly.
+   *
+   * @returns {Promise<boolean>} whether the change actually stuck.
    */
   function applyChange(optimistic, request) {
     var previous = state.highlights;
     state.highlights = optimistic;
-    drawHighlights();
+    syncHighlights();
 
     return callPlugin(request)
       .then(function (result) {
@@ -409,13 +558,15 @@ export function viewerMain() {
           throw new Error((result && result.error) || "The plugin did not confirm the change.");
         }
         state.highlights = result.highlights || optimistic;
-        drawHighlights();
+        syncHighlights();
         status("");
+        return true;
       })
       .catch(function (err) {
         state.highlights = previous;
-        drawHighlights();
+        syncHighlights();
         status(err.message || String(err), true);
+        return false;
       });
   }
 
@@ -430,8 +581,11 @@ export function viewerMain() {
       quoteText: selection.quoteText,
       note: null,
     };
+    var anchorX = selection.anchorX;
+    var anchorY = selection.anchorY;
 
     setPending(null);
+    closePopover(true);
     var sel = window.getSelection();
     if (sel && sel.removeAllRanges) sel.removeAllRanges();
 
@@ -439,11 +593,17 @@ export function viewerMain() {
       action: "addHighlight",
       attachmentUUID: cfg.attachmentUUID,
       highlight: draft,
+    }).then(function (ok) {
+      if (!ok) return;
+      // Spec section 4: the offer to add a note must appear IMMEDIATELY after creating a
+      // highlight. The plugin appends, so the new highlight is the last one back.
+      var created = state.highlights[state.highlights.length - 1];
+      if (created && created.id) openHighlightPopover(created, anchorX, anchorY, true);
     });
   }
 
   function recolorHighlight(id, colorId) {
-    closePopover();
+    closePopover(true);
     applyChange(
       state.highlights.map(function (h) {
         return h.id === id ? Object.assign({}, h, { color: colorId }) : h;
@@ -453,7 +613,7 @@ export function viewerMain() {
   }
 
   function removeHighlightById(id) {
-    closePopover();
+    closePopover(true);
     applyChange(
       state.highlights.filter(function (h) {
         return h.id !== id;
@@ -462,29 +622,31 @@ export function viewerMain() {
     );
   }
 
-  // ---- per-highlight actions popover ---------------------------------------
+  function saveNote(id, text) {
+    var trimmed = String(text == null ? "" : text).trim();
+    state.noteEditing = null;
+    closePopover(true);
+    applyChange(
+      state.highlights.map(function (h) {
+        return h.id === id ? Object.assign({}, h, { note: trimmed || null }) : h;
+      }),
+      { action: "setHighlightNote", attachmentUUID: cfg.attachmentUUID, id: id, note: trimmed }
+    );
+  }
 
-  function openPopover(highlight, clientX, clientY) {
+  // ---- the popover ---------------------------------------------------------
+
+  /**
+   * Show the popover at a point, in fixed client coordinates.
+   *
+   * Fixed positioning works because the embed is its own iframe: a click's client
+   * coordinates are already relative to this element's containing block, and the whole
+   * frame moves as one unit when the surrounding note scrolls.
+   */
+  function showPopover(children, clientX, clientY, editing) {
     els.popover.innerHTML = "";
-
-    var list = colorList();
-    for (var i = 0; i < list.length; i++) {
-      els.popover.appendChild(
-        makeSwatch(list[i], list[i].id === highlight.color, function (colorId) {
-          recolorHighlight(highlight.id, colorId);
-        }, "Change to")
-      );
-    }
-
-    var remove = document.createElement("button");
-    remove.className = "pdfa-remove";
-    remove.textContent = "Remove";
-    remove.title = "Remove this highlight";
-    remove.onclick = function (event) {
-      event.stopPropagation();
-      removeHighlightById(highlight.id);
-    };
-    els.popover.appendChild(remove);
+    els.popover.classList.toggle("pdfa-editing", !!editing);
+    for (var i = 0; i < children.length; i++) els.popover.appendChild(children[i]);
 
     // Must be visible before measuring - a display:none element has no size.
     els.popover.classList.add("pdfa-open");
@@ -498,9 +660,127 @@ export function viewerMain() {
     els.popover.style.top = top + "px";
   }
 
-  function closePopover() {
-    els.popover.classList.remove("pdfa-open");
+  /**
+   * @param {boolean} force close even while a note is being edited. Everything that is
+   * a deliberate dismissal passes true; incidental events (a scroll, a click on blank
+   * page) pass nothing, so half-typed text survives them.
+   */
+  function closePopover(force) {
+    if (state.noteEditing && !force) return;
+    state.noteEditing = null;
+    els.popover.classList.remove("pdfa-open", "pdfa-editing");
     els.popover.innerHTML = "";
+  }
+
+  /** Context 1: a fresh selection. Colors only - one click from selection to highlight. */
+  function openSelectionPopover(selection) {
+    var list = colorList();
+    var children = [];
+    for (var i = 0; i < list.length; i++) {
+      children.push(
+        makeSwatch(list[i], list[i].id === state.activeColorId, function (colorId) {
+          state.activeColorId = colorId;
+          updateColorButtons();
+          applyHighlight(selection, colorId);
+        }, "Highlight")
+      );
+    }
+    showPopover(children, selection.anchorX, selection.anchorY);
+  }
+
+  /** Contexts 2 and 3: an existing highlight, either just created or clicked. */
+  function openHighlightPopover(highlight, clientX, clientY, justCreated) {
+    var list = colorList();
+    var children = [];
+    for (var i = 0; i < list.length; i++) {
+      children.push(
+        makeSwatch(list[i], list[i].id === highlight.color, function (colorId) {
+          recolorHighlight(highlight.id, colorId);
+        }, "Change to")
+      );
+    }
+
+    // A highlight has at most one note (spec section 4), so this is one button whose
+    // label reflects which of the two operations it is.
+    var hasNote = !!highlight.note;
+    children.push(
+      button(hasNote ? "Edit note" : "Add note", justCreated && !hasNote ? "pdfa-btn-primary" : "", function () {
+        openNoteEditor(highlight, clientX, clientY);
+      })
+    );
+    children.push(
+      button("Remove", "pdfa-remove", function () {
+        removeHighlightById(highlight.id);
+      })
+    );
+
+    showPopover(children, clientX, clientY);
+  }
+
+  /** Context 4: the note editor. One plain-text note, per spec section 4. */
+  function openNoteEditor(highlight, clientX, clientY) {
+    state.noteEditing = highlight.id;
+
+    var input = document.createElement("textarea");
+    input.className = "pdfa-note-input";
+    input.rows = 3;
+    input.value = highlight.note || "";
+    input.placeholder = "Note for this highlight";
+
+    var actions = document.createElement("div");
+    actions.className = "pdfa-note-actions";
+
+    // Clearing the box and saving also removes the note, but an explicit control is
+    // what the spec asks for and it is far more discoverable.
+    if (highlight.note) {
+      actions.appendChild(
+        button("Delete note", "", function () {
+          saveNote(highlight.id, "");
+        })
+      );
+    }
+    var spacer = document.createElement("span");
+    spacer.className = "pdfa-spacer";
+    actions.appendChild(spacer);
+    actions.appendChild(
+      button("Cancel", "", function () {
+        cancelNoteEditing(highlight, clientX, clientY);
+      })
+    );
+    actions.appendChild(
+      button("Save", "pdfa-btn-primary", function () {
+        saveNote(highlight.id, input.value);
+      })
+    );
+
+    input.onkeydown = function (event) {
+      // Enter alone has to insert a newline - notes are plain text and may be several
+      // lines - so the save shortcut needs a modifier.
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        saveNote(highlight.id, input.value);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        // Must not reach the document handler. Cancelling clears state.noteEditing and
+        // reopens the highlight's actions; the document handler, seeing no edit in
+        // progress by the time the event bubbles up, would then close what was just
+        // reopened - so Escape appeared to dismiss the popover entirely.
+        event.stopPropagation();
+        cancelNoteEditing(highlight, clientX, clientY);
+      }
+    };
+
+    showPopover([input, actions], clientX, clientY, true);
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  /** Back out of the editor to the highlight's own actions, not to nothing. */
+  function cancelNoteEditing(highlight, clientX, clientY) {
+    state.noteEditing = null;
+    var current = findHighlight(highlight.id) || highlight;
+    openHighlightPopover(current, clientX, clientY);
   }
 
   /**
@@ -511,9 +791,11 @@ export function viewerMain() {
    * which is exactly where a user wants to re-highlight or extend a selection.
    */
   function onPagesClick(event) {
+    if (state.noteEditing) return;
+
     var sel = window.getSelection();
     // A drag that selected text ends in a click too; that is a selection, not a tap on
-    // a highlight.
+    // a highlight, and captureSelection has already handled it.
     if (sel && !sel.isCollapsed) return;
 
     var node = event.target;
@@ -536,8 +818,8 @@ export function viewerMain() {
     var hit = geom.hitTestHighlights(state.highlights, pageNum, point[0], point[1], 1);
 
     // A highlight still waiting on its first save has no id yet, so there is nothing to
-    // remove or recolor. Ignore it for the moment rather than opening a broken popover.
-    if (hit && hit.id) openPopover(hit, event.clientX, event.clientY);
+    // act on. Ignore it for the moment rather than opening a broken popover.
+    if (hit && hit.id) openHighlightPopover(hit, event.clientX, event.clientY);
     else closePopover();
   }
 
@@ -548,11 +830,37 @@ export function viewerMain() {
     els.zoomLabel.textContent = Math.round(state.scale * 100) + "%";
   }
 
+  function scroller() {
+    return els.root.querySelector(".pdfa-scroll");
+  }
+
   function goToPage(pageNum) {
     var target = Math.min(Math.max(1, pageNum), state.pageCount);
     var el = els.pages.querySelector('[data-page="' + target + '"]');
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     state.current = target;
+    updateLabels();
+  }
+
+  /**
+   * Scroll a specific highlight into view.
+   *
+   * Measured through getBoundingClientRect rather than offsetTop: none of the ancestors
+   * between a page and the scroller is positioned, so offsetParent is not the element
+   * you would assume. This is also the primitive Phase 5's deep-links need.
+   */
+  function goToHighlight(highlight) {
+    var wrap = els.pages.querySelector('.pdfa-page[data-page="' + highlight.page + '"]');
+    var viewport = state.viewports[highlight.page];
+    if (!wrap || !viewport || !highlight.rects || !highlight.rects.length) return;
+
+    var vr = geom.pdfRectToViewportRect(highlight.rects[0], toViewportPoint(viewport));
+    var box = scroller();
+    var targetTop = wrap.getBoundingClientRect().top + vr.y;
+    // A third of the way down reads better than flush to the top edge.
+    box.scrollTop += targetTop - box.getBoundingClientRect().top - box.clientHeight / 3;
+
+    state.current = highlight.page;
     updateLabels();
   }
 
@@ -564,7 +872,8 @@ export function viewerMain() {
   // Keep the page indicator honest as the user scrolls.
   function trackScroll() {
     // The popover is positioned in fixed client coordinates, so it would hang in place
-    // over unrelated content once the page moves under it.
+    // over unrelated content once the page moves under it. Not while a note is being
+    // typed, though - see closePopover.
     closePopover();
     var pages = els.pages.querySelectorAll(".pdfa-page");
     var best = state.current;
@@ -663,9 +972,12 @@ export function viewerMain() {
         return renderAll();
       })
       .then(function () {
-        // Deep-link target from the embed args (spec section 7.3). Phase 5 exports links
-        // carrying page + coordinates; jumping to the page is the half that works now.
-        if (cfg.page) goToPage(cfg.page);
+        syncHighlights();
+        // Deep-link target from the embed args (spec section 7.3). A highlight id is
+        // more precise than a page, so it wins when both are present.
+        var target = cfg.highlightId ? findHighlight(cfg.highlightId) : null;
+        if (target) goToHighlight(target);
+        else if (cfg.page) goToPage(cfg.page);
       })
       .catch(function (err) {
         status(err.message || String(err), true);
@@ -680,7 +992,8 @@ export function viewerMain() {
     document.getElementById("pdfa-next").onclick = function () { goToPage(state.current + 1); };
     document.getElementById("pdfa-zoom-in").onclick = function () { setZoom(state.scale + 0.25); };
     document.getElementById("pdfa-zoom-out").onclick = function () { setZoom(state.scale - 0.25); };
-    els.root.querySelector(".pdfa-scroll").addEventListener("scroll", trackScroll);
+    els.listToggle.onclick = function () { togglePanel(); };
+    scroller().addEventListener("scroll", trackScroll);
 
     // Scoped to the page area on purpose. On `document` it would also fire when the user
     // releases the mouse on a toolbar button - and by then the browser has collapsed the
@@ -688,10 +1001,12 @@ export function viewerMain() {
     els.pages.addEventListener("mouseup", captureSelection);
     els.pages.addEventListener("click", onPagesClick);
     document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") closePopover();
+      // The editor handles its own Escape, so this only reaches the other contexts.
+      if (event.key === "Escape" && !state.noteEditing) closePopover();
     });
 
     mountColorButtons();
+    renderPanel();
     boot();
   } catch (err) {
     status("Viewer failed to start: " + (err && err.message ? err.message : err), true);

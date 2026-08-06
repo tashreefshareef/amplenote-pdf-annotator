@@ -53,6 +53,10 @@ const STYLES = `
   * { box-sizing: border-box; }
   body { margin: 0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg); }
+  /* Holds the page scroller and the highlights panel. Positioned so the panel can
+     overlay the pages without the toolbar, and without reflowing the PDF - the embed is
+     often barely wider than a page, so a panel that stole width would squeeze it. */
+  .pdfa-body { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
   .pdfa-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--pdfa-border); background: var(--pdfa-toolbar); flex: 0 0 auto; flex-wrap: wrap; }
   .pdfa-toolbar button { font: inherit; padding: 4px 9px; border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit; border-radius: 5px; cursor: pointer; line-height: 1.2; }
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
@@ -121,10 +125,41 @@ const STYLES = `
     z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg);
     border: 1px solid var(--pdfa-border); border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,.3); }
   .pdfa-popover.pdfa-open { display: flex; }
-  .pdfa-popover .pdfa-remove { font: inherit; font-size: 12px; padding: 3px 8px; line-height: 1.2;
+  /* The note editor turns the popover into a small column form. */
+  .pdfa-popover.pdfa-editing { flex-direction: column; align-items: stretch; width: 274px; }
+  .pdfa-note-input { font: inherit; font-size: 12px; width: 100%; resize: vertical; padding: 6px;
+    border: 1px solid var(--pdfa-border); border-radius: 5px;
+    background: var(--pdfa-bg); color: inherit; }
+  .pdfa-note-actions { display: flex; gap: 5px; margin-top: 6px; align-items: center; }
+  .pdfa-note-actions .pdfa-spacer { flex: 1 1 auto; }
+
+  .pdfa-btn { font: inherit; font-size: 12px; padding: 3px 9px; line-height: 1.25;
     border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit;
-    border-radius: 5px; cursor: pointer; }
-  .pdfa-popover .pdfa-remove:hover { background: var(--pdfa-btn-hover); }
+    border-radius: 5px; cursor: pointer; white-space: nowrap; }
+  .pdfa-btn:hover { background: var(--pdfa-btn-hover); }
+  /* Marks the "add a note" offer that the spec requires to appear as soon as a
+     highlight is created, so it reads as the suggested next step. */
+  .pdfa-btn-primary { border-color: var(--pdfa-accent); color: var(--pdfa-accent); }
+
+  /* HIGHLIGHTS PANEL - the list of every highlight and its note. Groundwork for the
+     Phase 5 color filter, which needs somewhere to filter. */
+  .pdfa-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 292px; max-width: 85%;
+    background: var(--pdfa-toolbar); border-left: 1px solid var(--pdfa-border);
+    overflow: auto; padding: 8px; display: none; z-index: 15; }
+  .pdfa-panel.pdfa-open { display: block; }
+  .pdfa-panel-title { display: flex; justify-content: space-between; align-items: center;
+    font-weight: 600; padding: 2px 4px 8px; }
+  .pdfa-panel-empty { opacity: .7; padding: 6px 4px; font-size: 12px; line-height: 1.4; }
+  .pdfa-hl-row { display: flex; gap: 8px; padding: 7px 6px; border-radius: 6px;
+    cursor: pointer; align-items: flex-start; }
+  .pdfa-hl-row:hover { background: var(--pdfa-btn-hover); }
+  .pdfa-chip { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; margin-top: 3px; }
+  .pdfa-hl-page { font-size: 11px; opacity: .6; margin-bottom: 2px; }
+  .pdfa-hl-quote { font-size: 12px; line-height: 1.35; }
+  /* Italic and indented so a note is never mistaken for the quoted text - the spec is
+     explicit that the two must be clearly distinguishable. */
+  .pdfa-hl-note { font-size: 12px; line-height: 1.35; opacity: .85; font-style: italic;
+    margin-top: 4px; padding-left: 7px; border-left: 2px solid var(--pdfa-border); }
 `;
 
 /** Light and dark palettes, driven by `app.context.lightDarkMode`. */
@@ -138,15 +173,26 @@ const THEMES = {
  * @param {string} options.attachmentUUID  Which PDF to load.
  * @param {string} options.attachmentName  Shown in the toolbar.
  * @param {number|null} options.page       Deep-link target page, if any.
+ * @param {string|null} options.highlightId Deep-link target highlight, if any.
  * @param {string} options.lightDarkMode   "light" | "dark"
  */
-export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = null, lightDarkMode = "light" } = {}) {
+export function buildEmbedHtml({
+  attachmentUUID,
+  attachmentName = "",
+  page = null,
+  highlightId = null,
+  lightDarkMode = "light",
+} = {}) {
   const theme = THEMES[lightDarkMode] || THEMES.light;
   // The library URL travels in the config because the viewer loads PDF.js itself -
   // see the ordering note above.
   const config = {
     attachmentUUID,
     page,
+    // Phase 5's exported links carry a highlight id. Scrolling to it is the same
+    // primitive the panel already uses, so it costs nothing to honour now - and spec
+    // section 7.3 warns that retrofitting the deep-link path later is the expensive way.
+    highlightId,
     pdfJsSrc: CDN.pdfJs,
     workerSrc: CDN.pdfJsWorker,
     // Only what the embed needs to draw and label a swatch. cycleIndex and rgb stay on
@@ -179,12 +225,18 @@ export function buildEmbedHtml({ attachmentUUID, attachmentName = "", page = nul
          requirement (section 4), which is why the slot is here and not in a panel. -->
     <span id="pdfa-colors"></span>
     <span class="pdfa-hint" id="pdfa-hint"></span>
+    <span class="pdfa-sep"></span>
+    <button id="pdfa-list-toggle" title="Show highlights and notes">Notes (<span id="pdfa-count">0</span>)</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
-  <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
-  <!-- Remove / recolor actions, filled in and positioned when a highlight is clicked. -->
+  <div class="pdfa-body">
+    <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
+    <div class="pdfa-panel" id="pdfa-panel"></div>
+  </div>
+  <!-- Colors on a fresh selection; recolor / note / remove on an existing highlight;
+       the note editor itself. One element, filled in per context by the viewer. -->
   <div class="pdfa-popover" id="pdfa-popover"></div>
 </div>
 <script>window.__PDFA_CONFIG = ${safeJson(config)};

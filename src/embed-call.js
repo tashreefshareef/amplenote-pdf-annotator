@@ -11,7 +11,13 @@
  */
 import { fetchableAttachmentURL } from "./attachments.js";
 import { loadHighlights, saveHighlights } from "./storage.js";
-import { createHighlight, removeHighlight, updateHighlight, withColor } from "./highlights.js";
+import {
+  createHighlight,
+  removeHighlight,
+  updateHighlight,
+  withColor,
+  withNote,
+} from "./highlights.js";
 
 /**
  * Look up an attachment's display name from the note the embed lives in.
@@ -128,6 +134,20 @@ export async function handleEmbedCall(app, payload) {
         );
       } catch (err) {
         return { error: `Could not change the highlight color: ${err.message}` };
+      }
+    }
+
+    case "setHighlightNote": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      try {
+        // One code path for add, edit and remove. `withNote` trims and turns blank text
+        // into null, so clearing the box IS removing the note - there is no second
+        // "deleteNote" action that could disagree with this one about what empty means.
+        return await mutateHighlights(app, request.attachmentUUID, (list) =>
+          updateHighlight(list, request.id, (h) => withNote(h, request.note))
+        );
+      } catch (err) {
+        return { error: `Could not save the note: ${err.message}` };
       }
     }
 

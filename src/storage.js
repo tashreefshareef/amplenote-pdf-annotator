@@ -13,9 +13,19 @@ import { createHighlight } from "./highlights.js";
 
 const FENCE_LANG = "json";
 
-/** Wrap the payload in a fenced code block so it round-trips through markdown untouched. */
+/**
+ * Wrap the payload in a fenced code block so it round-trips through markdown untouched.
+ *
+ * Backticks are escaped to their JSON \u escape. This is not cosmetic: user note text is
+ * stored inside this fence, and a note containing a triple backtick would close the
+ * fence early. The reader's non-greedy match would then stop at that inner fence, parse
+ * a truncated string, fail, and treat the whole section as corrupt - silently discarding
+ * every highlight on the note. `JSON.parse` turns ` back into a backtick on the way
+ * in, so nothing downstream needs to know this happened.
+ */
 function serialize(payload) {
-  return "```" + FENCE_LANG + "\n" + JSON.stringify(payload, null, 0) + "\n```";
+  const json = JSON.stringify(payload, null, 0).replace(/`/g, "\\u0060");
+  return "```" + FENCE_LANG + "\n" + json + "\n```";
 }
 
 /**

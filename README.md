@@ -8,11 +8,14 @@ page and position.
 
 Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty_plugins).
 
-> **Status: Phase 2.** The PDF renders in the note with a working text layer, zoom and
-> page navigation (Phase 1), and highlights now work end to end: select text, click one
-> of four toolbar colors, and the highlight is drawn and saved into the note. Click an
-> existing highlight to recolor or remove it. Notes on highlights are Phase 3. See
-> [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan.
+> **Status: Phase 3.** The PDF renders in the note with a working text layer, zoom and
+> page navigation (Phase 1). Highlights work end to end — select text and pick one of
+> four colors, either from the toolbar or from the popover that appears at the selection;
+> recolor or remove an existing highlight by clicking it (Phase 2). Each highlight takes
+> one plain-text note, offered as soon as it's created, and a panel lists every highlight
+> and note with click-to-jump (Phase 3). Native PDF annotations and export are Phases 4
+> and 5. See [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the
+> full plan.
 
 ## Why there's a build step
 

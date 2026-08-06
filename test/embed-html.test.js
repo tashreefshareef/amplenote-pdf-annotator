@@ -51,6 +51,38 @@ describe("buildEmbedHtml", () => {
     expect(html({ page: 7 })).toContain('"page":7');
   });
 
+  // Scenario: Phase 5's exported links carry a highlight id, which is more precise than
+  // a page. Spec §7.3 warns that retrofitting the deep-link path later is the expensive
+  // route, so the id has to reach the viewer now.
+  test("passes a deep-link highlight id through to the viewer config", () => {
+    expect(html({ highlightId: "hl-abc123" })).toContain('"highlightId":"hl-abc123"');
+    expect(html()).toContain('"highlightId":null');
+  });
+
+  // Scenario: the panel overlays the pages rather than taking width from them. The
+  // embed is often barely wider than a page, so a panel that reflowed the layout would
+  // squeeze the PDF every time it opened.
+  test("overlays the highlights panel instead of reflowing the pages", () => {
+    const out = html();
+    const panel = out.match(/\.pdfa-panel\s*\{[^}]*\}/)[0];
+    expect(panel).toMatch(/position:\s*absolute/);
+    // Its containing block must be the body wrapper, not the whole root, or it would
+    // cover the toolbar.
+    expect(out).toMatch(/\.pdfa-body\s*\{[^}]*position:\s*relative/);
+    expect(out).toContain('<div class="pdfa-body">');
+  });
+
+  // Scenario: spec §4 requires the highlighted text and the user's note to be clearly
+  // distinguishable. In the panel that separation is visual, so it is pinned here.
+  test("styles a highlight's note distinctly from its quoted text", () => {
+    const out = html();
+    const note = out.match(/\.pdfa-hl-note\s*\{[^}]*\}/)[0];
+    const quote = out.match(/\.pdfa-hl-quote\s*\{[^}]*\}/)[0];
+    expect(note).toMatch(/font-style:\s*italic/);
+    expect(note).toMatch(/border-left/);
+    expect(quote).not.toMatch(/font-style:\s*italic/);
+  });
+
   // Scenario: the elements the viewer wires up by id must exist, or it throws on boot
   // and the embed renders blank.
   test("contains every element the viewer script binds to", () => {
@@ -58,7 +90,7 @@ describe("buildEmbedHtml", () => {
     for (const id of [
       "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
-      "pdfa-colors", "pdfa-hint", "pdfa-popover",
+      "pdfa-colors", "pdfa-hint", "pdfa-popover", "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
     ]) {
       expect(out).toContain(`id="${id}"`);
     }

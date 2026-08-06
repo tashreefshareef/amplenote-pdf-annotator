@@ -270,6 +270,142 @@ describe("recolorHighlight", () => {
   });
 });
 
+describe("setHighlightNote", () => {
+  /** Create one highlight and hand back its id. */
+  const seed = async (app, overrides) => {
+    const added = await call(app, {
+      action: "addHighlight",
+      attachmentUUID: ATT,
+      highlight: draft(overrides),
+    });
+    return added.highlights[added.highlights.length - 1].id;
+  };
+
+  // Scenario: the core Phase 3 flow - attach a plain-text note to an existing highlight.
+  test("adds a note to a highlight and persists it", async () => {
+    const app = appWithNote();
+    const id = await seed(app);
+
+    const result = await call(app, {
+      action: "setHighlightNote",
+      attachmentUUID: ATT,
+      id,
+      note: "check this clause against the renewal quote",
+    });
+
+    expect(result.highlights[0].note).toBe("check this clause against the renewal quote");
+    expect((await loadHighlights(app, NOTE, ATT))[0].note).toBe(
+      "check this clause against the renewal quote"
+    );
+  });
+
+  // Scenario: editing an existing note replaces it. A highlight has AT MOST ONE note
+  // (spec section 4), so a second write must overwrite rather than accumulate.
+  test("editing replaces the note instead of adding a second one", async () => {
+    const app = appWithNote();
+    const id = await seed(app);
+
+    await call(app, { action: "setHighlightNote", attachmentUUID: ATT, id, note: "first" });
+    const result = await call(app, {
+      action: "setHighlightNote",
+      attachmentUUID: ATT,
+      id,
+      note: "second",
+    });
+
+    expect(result.highlights[0].note).toBe("second");
+    // The record still has exactly one note field, not a list.
+    expect(Object.keys(result.highlights[0]).filter((k) => k.startsWith("note"))).toEqual(["note"]);
+  });
+
+  // Scenario: removing a note. Clearing the editor and saving is the same operation as
+  // pressing "Delete note" - both arrive here as empty text, and both must store null
+  // rather than an empty string, so "has a note" stays a single unambiguous check.
+  test("clears the note when given empty or whitespace-only text", async () => {
+    const app = appWithNote();
+    const id = await seed(app);
+    await call(app, { action: "setHighlightNote", attachmentUUID: ATT, id, note: "temporary" });
+
+    for (const empty of ["", "   ", null]) {
+      const result = await call(app, {
+        action: "setHighlightNote",
+        attachmentUUID: ATT,
+        id,
+        note: empty,
+      });
+      expect(result.highlights[0].note).toBeNull();
+    }
+  });
+
+  // Scenario: notes are trimmed, so trailing whitespace from a paste does not turn an
+  // effectively-empty note into a real one.
+  test("trims surrounding whitespace", async () => {
+    const app = appWithNote();
+    const id = await seed(app);
+    const result = await call(app, {
+      action: "setHighlightNote",
+      attachmentUUID: ATT,
+      id,
+      note: "   padded   ",
+    });
+    expect(result.highlights[0].note).toBe("padded");
+  });
+
+  // Scenario: a note must not disturb the highlight it belongs to, or any other. The
+  // rects and quote are what Phase 4's annotations and Phase 5's export are built from.
+  test("touches only the target highlight, leaving geometry intact", async () => {
+    const app = appWithNote();
+    const first = await seed(app);
+    await seed(app, { page: 4, color: "blue", quoteText: "other" });
+    const before = (await loadHighlights(app, NOTE, ATT))[0];
+
+    const result = await call(app, {
+      action: "setHighlightNote",
+      attachmentUUID: ATT,
+      id: first,
+      note: "mine",
+    });
+
+    expect(result.highlights[0]).toEqual({ ...before, note: "mine" });
+    expect(result.highlights[1].note).toBeNull();
+    expect(result.highlights[1].color).toBe("blue");
+  });
+
+  // Scenario: markdown and quote characters in a note must survive the round-trip
+  // without corrupting the stored JSON - called out explicitly by the spec's Phase 3
+  // test list, and a real hazard since the payload lives inside a fenced code block.
+  test("survives markdown, quotes and code fences in the note text", async () => {
+    const app = appWithNote();
+    const id = await seed(app);
+    const awkward = '# heading\n> quote "double" \'single\'\n```js\nconst x = 1;\n```\n- item \\ end';
+
+    await call(app, { action: "setHighlightNote", attachmentUUID: ATT, id, note: awkward });
+
+    // Read back through storage, not from the action's own return value.
+    const [stored] = await loadHighlights(app, NOTE, ATT);
+    expect(stored.note).toBe(awkward);
+    expect(stored.quoteText).toBe("the quick brown fox");
+  });
+
+  // Scenario: a stale embed acting on a highlight someone already deleted. Nothing to
+  // change means nothing to write.
+  test("is a no-op for an unknown id and does not rewrite the note", async () => {
+    const app = appWithNote();
+    await seed(app);
+    const writesBefore = app.replaceNoteContent.mock.calls.length;
+
+    const result = await call(app, {
+      action: "setHighlightNote",
+      attachmentUUID: ATT,
+      id: "hl-gone",
+      note: "orphan",
+    });
+
+    expect(result.highlights[0].note).toBeNull();
+    expect(app.replaceNoteContent.mock.calls.length).toBe(writesBefore);
+  });
+});
+
 describe("removeHighlight", () => {
   // Scenario: removing a highlight - an explicit spec requirement (section 4).
   test("deletes only the targeted highlight", async () => {
@@ -353,7 +489,14 @@ describe("unknown and failing requests", () => {
   // it, writing would silently key the data under "undefined".
   test("every highlight action refuses to run without an attachment", async () => {
     const app = appWithNote();
-    for (const action of ["loadHighlights", "addHighlight", "recolorHighlight", "removeHighlight"]) {
+    const actions = [
+      "loadHighlights",
+      "addHighlight",
+      "recolorHighlight",
+      "removeHighlight",
+      "setHighlightNote",
+    ];
+    for (const action of actions) {
       const result = await call(app, { action, highlight: draft(), id: "x", color: "blue" });
       expect(result.error).toMatch(/no attachment/i);
     }

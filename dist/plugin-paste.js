@@ -203,6 +203,10 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       note: note ? String(note) : null
     };
   }
+  function withNote(highlight, noteText) {
+    const trimmed = noteText == null ? null : String(noteText).trim();
+    return { ...highlight, note: trimmed || null };
+  }
   function withColor(highlight, color) {
     const resolved = findColor(color);
     if (!resolved) throw new Error(`withColor: unknown color "${color}"`);
@@ -224,7 +228,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   // src/storage.js
   var FENCE_LANG = "json";
   function serialize(payload) {
-    return "```" + FENCE_LANG + "\n" + JSON.stringify(payload, null, 0) + "\n```";
+    const json = JSON.stringify(payload, null, 0).replace(/`/g, "\\u0060");
+    return "```" + FENCE_LANG + "\n" + json + "\n```";
   }
   function deserialize(sectionContent) {
     if (!sectionContent) return null;
@@ -373,6 +378,18 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
           );
         } catch (err) {
           return { error: `Could not change the highlight color: ${err.message}` };
+        }
+      }
+      case "setHighlightNote": {
+        if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+        try {
+          return await mutateHighlights(
+            app,
+            request.attachmentUUID,
+            (list) => updateHighlight(list, request.id, (h) => withNote(h, request.note))
+          );
+        } catch (err) {
+          return { error: `Could not save the note: ${err.message}` };
         }
       }
       case "removeHighlight": {
@@ -566,7 +583,10 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       zoomLabel: document.getElementById("pdfa-zoom-label"),
       colors: document.getElementById("pdfa-colors"),
       hint: document.getElementById("pdfa-hint"),
-      popover: document.getElementById("pdfa-popover")
+      popover: document.getElementById("pdfa-popover"),
+      panel: document.getElementById("pdfa-panel"),
+      listToggle: document.getElementById("pdfa-list-toggle"),
+      count: document.getElementById("pdfa-count")
     };
     var state = {
       doc: null,
@@ -583,7 +603,11 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       // The last text selection made inside a text layer, already converted to PDF space.
       // Held because clicking a toolbar button collapses the DOM selection before the
       // click handler runs - by then window.getSelection() is empty.
-      pendingSelection: null
+      pendingSelection: null,
+      // Id of the highlight whose note is being edited, or null. While this is set the
+      // popover refuses to close on scroll or an outside click, so a half-typed note
+      // cannot be lost by a stray gesture.
+      noteEditing: null
     };
     function status(message, isError) {
       els.status.textContent = message || "";
@@ -619,6 +643,22 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         if (list[i].id === id) return list[i].hex;
       }
       return list.length ? list[0].hex : "#F4DE6C";
+    }
+    function findHighlight(id) {
+      for (var i = 0; i < state.highlights.length; i++) {
+        if (state.highlights[i].id === id) return state.highlights[i];
+      }
+      return null;
+    }
+    function button(label, className, onClick) {
+      var el = document.createElement("button");
+      el.className = "pdfa-btn" + (className ? " " + className : "");
+      el.textContent = label;
+      el.onclick = function(event) {
+        event.stopPropagation();
+        onClick();
+      };
+      return el;
     }
     function makeSwatch(color, pressed, onPick, titlePrefix) {
       var btn = document.createElement("button");
@@ -697,7 +737,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     function renderAll() {
       if (state.rendering) return Promise.resolve();
       state.rendering = true;
-      closePopover();
+      closePopover(true);
       els.pages.innerHTML = "";
       state.viewports = {};
       state.textSpans = 0;
@@ -759,6 +799,76 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         }
       }
     }
+    function syncHighlights() {
+      drawHighlights();
+      renderPanel();
+      els.count.textContent = String(state.highlights.length);
+    }
+    function sortedHighlights() {
+      return state.highlights.slice().sort(function(a, b) {
+        if (a.page !== b.page) return a.page - b.page;
+        return (b.rects[0] ? b.rects[0].y : 0) - (a.rects[0] ? a.rects[0].y : 0);
+      });
+    }
+    function renderPanel() {
+      els.panel.innerHTML = "";
+      var title = document.createElement("div");
+      title.className = "pdfa-panel-title";
+      var label = document.createElement("span");
+      label.textContent = "Highlights";
+      title.appendChild(label);
+      title.appendChild(button("Close", "", function() {
+        togglePanel(false);
+      }));
+      els.panel.appendChild(title);
+      var list = sortedHighlights();
+      if (!list.length) {
+        var empty = document.createElement("div");
+        empty.className = "pdfa-panel-empty";
+        empty.textContent = "No highlights yet. Select some text in the PDF and pick a color.";
+        els.panel.appendChild(empty);
+        return;
+      }
+      for (var i = 0; i < list.length; i++) {
+        els.panel.appendChild(panelRow(list[i]));
+      }
+    }
+    function panelRow(highlight) {
+      var row = document.createElement("div");
+      row.className = "pdfa-hl-row";
+      row.dataset.id = highlight.id || "";
+      row.title = "Jump to this highlight";
+      var chip = document.createElement("span");
+      chip.className = "pdfa-chip";
+      chip.style.background = colorHex(highlight.color);
+      row.appendChild(chip);
+      var body = document.createElement("div");
+      var page = document.createElement("div");
+      page.className = "pdfa-hl-page";
+      page.textContent = "Page " + highlight.page;
+      body.appendChild(page);
+      var quote = document.createElement("div");
+      quote.className = "pdfa-hl-quote";
+      quote.textContent = highlight.quoteText.length > 160 ? highlight.quoteText.slice(0, 160) + "..." : highlight.quoteText;
+      body.appendChild(quote);
+      if (highlight.note) {
+        var note = document.createElement("div");
+        note.className = "pdfa-hl-note";
+        note.textContent = highlight.note;
+        body.appendChild(note);
+      }
+      row.appendChild(body);
+      row.onclick = function() {
+        goToHighlight(highlight);
+      };
+      return row;
+    }
+    function togglePanel(open) {
+      var next = open === void 0 ? !els.panel.classList.contains("pdfa-open") : open;
+      els.panel.classList.toggle("pdfa-open", next);
+      els.listToggle.setAttribute("aria-pressed", String(next));
+      if (next) renderPanel();
+    }
     function textLayerOf(node) {
       var el = node && node.nodeType === 1 ? node : node && node.parentElement;
       while (el) {
@@ -777,9 +887,14 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       els.hint.textContent = selection.spilled ? "Pick a color (page " + selection.page + " only)" : "Pick a color";
       els.hint.style.display = "inline";
     }
-    function captureSelection() {
+    function captureSelection(event) {
+      if (state.noteEditing) return;
       var sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return setPending(null);
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        setPending(null);
+        closePopover();
+        return;
+      }
       var range = sel.getRangeAt(0);
       var layer = textLayerOf(range.startContainer);
       if (!layer) return setPending(null);
@@ -809,28 +924,37 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         )
       );
       if (!rects.length) return setPending(null);
-      setPending({
+      var lastRect = onPage.length ? onPage[onPage.length - 1] : containerRect;
+      var anchorX = event && event.clientX ? event.clientX : lastRect.left + lastRect.width / 2;
+      var anchorY = event && event.clientY ? event.clientY : lastRect.top + lastRect.height;
+      var selection = {
         page: pageNum,
         rects,
         quoteText: geom.normalizeQuoteText(sel.toString()),
-        spilled: onPage.length !== all.length
-      });
+        spilled: onPage.length !== all.length,
+        anchorX,
+        anchorY
+      };
+      setPending(selection);
+      openSelectionPopover(selection);
     }
     function applyChange(optimistic, request) {
       var previous = state.highlights;
       state.highlights = optimistic;
-      drawHighlights();
+      syncHighlights();
       return callPlugin(request).then(function(result) {
         if (!result || result.error) {
           throw new Error(result && result.error || "The plugin did not confirm the change.");
         }
         state.highlights = result.highlights || optimistic;
-        drawHighlights();
+        syncHighlights();
         status("");
+        return true;
       }).catch(function(err) {
         state.highlights = previous;
-        drawHighlights();
+        syncHighlights();
         status(err.message || String(err), true);
+        return false;
       });
     }
     function applyHighlight(selection, colorId) {
@@ -842,17 +966,24 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         quoteText: selection.quoteText,
         note: null
       };
+      var anchorX = selection.anchorX;
+      var anchorY = selection.anchorY;
       setPending(null);
+      closePopover(true);
       var sel = window.getSelection();
       if (sel && sel.removeAllRanges) sel.removeAllRanges();
       applyChange(state.highlights.concat([draft]), {
         action: "addHighlight",
         attachmentUUID: cfg.attachmentUUID,
         highlight: draft
+      }).then(function(ok) {
+        if (!ok) return;
+        var created = state.highlights[state.highlights.length - 1];
+        if (created && created.id) openHighlightPopover(created, anchorX, anchorY, true);
       });
     }
     function recolorHighlight(id, colorId) {
-      closePopover();
+      closePopover(true);
       applyChange(
         state.highlights.map(function(h) {
           return h.id === id ? Object.assign({}, h, { color: colorId }) : h;
@@ -861,7 +992,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       );
     }
     function removeHighlightById(id) {
-      closePopover();
+      closePopover(true);
       applyChange(
         state.highlights.filter(function(h) {
           return h.id !== id;
@@ -869,25 +1000,21 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         { action: "removeHighlight", attachmentUUID: cfg.attachmentUUID, id }
       );
     }
-    function openPopover(highlight, clientX, clientY) {
+    function saveNote(id, text) {
+      var trimmed = String(text == null ? "" : text).trim();
+      state.noteEditing = null;
+      closePopover(true);
+      applyChange(
+        state.highlights.map(function(h) {
+          return h.id === id ? Object.assign({}, h, { note: trimmed || null }) : h;
+        }),
+        { action: "setHighlightNote", attachmentUUID: cfg.attachmentUUID, id, note: trimmed }
+      );
+    }
+    function showPopover(children, clientX, clientY, editing) {
       els.popover.innerHTML = "";
-      var list = colorList();
-      for (var i = 0; i < list.length; i++) {
-        els.popover.appendChild(
-          makeSwatch(list[i], list[i].id === highlight.color, function(colorId) {
-            recolorHighlight(highlight.id, colorId);
-          }, "Change to")
-        );
-      }
-      var remove = document.createElement("button");
-      remove.className = "pdfa-remove";
-      remove.textContent = "Remove";
-      remove.title = "Remove this highlight";
-      remove.onclick = function(event) {
-        event.stopPropagation();
-        removeHighlightById(highlight.id);
-      };
-      els.popover.appendChild(remove);
+      els.popover.classList.toggle("pdfa-editing", !!editing);
+      for (var i = 0; i < children.length; i++) els.popover.appendChild(children[i]);
       els.popover.classList.add("pdfa-open");
       var width = els.popover.offsetWidth;
       var height = els.popover.offsetHeight;
@@ -897,11 +1024,100 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       els.popover.style.left = left + "px";
       els.popover.style.top = top + "px";
     }
-    function closePopover() {
-      els.popover.classList.remove("pdfa-open");
+    function closePopover(force) {
+      if (state.noteEditing && !force) return;
+      state.noteEditing = null;
+      els.popover.classList.remove("pdfa-open", "pdfa-editing");
       els.popover.innerHTML = "";
     }
+    function openSelectionPopover(selection) {
+      var list = colorList();
+      var children = [];
+      for (var i = 0; i < list.length; i++) {
+        children.push(
+          makeSwatch(list[i], list[i].id === state.activeColorId, function(colorId) {
+            state.activeColorId = colorId;
+            updateColorButtons();
+            applyHighlight(selection, colorId);
+          }, "Highlight")
+        );
+      }
+      showPopover(children, selection.anchorX, selection.anchorY);
+    }
+    function openHighlightPopover(highlight, clientX, clientY, justCreated) {
+      var list = colorList();
+      var children = [];
+      for (var i = 0; i < list.length; i++) {
+        children.push(
+          makeSwatch(list[i], list[i].id === highlight.color, function(colorId) {
+            recolorHighlight(highlight.id, colorId);
+          }, "Change to")
+        );
+      }
+      var hasNote = !!highlight.note;
+      children.push(
+        button(hasNote ? "Edit note" : "Add note", justCreated && !hasNote ? "pdfa-btn-primary" : "", function() {
+          openNoteEditor(highlight, clientX, clientY);
+        })
+      );
+      children.push(
+        button("Remove", "pdfa-remove", function() {
+          removeHighlightById(highlight.id);
+        })
+      );
+      showPopover(children, clientX, clientY);
+    }
+    function openNoteEditor(highlight, clientX, clientY) {
+      state.noteEditing = highlight.id;
+      var input = document.createElement("textarea");
+      input.className = "pdfa-note-input";
+      input.rows = 3;
+      input.value = highlight.note || "";
+      input.placeholder = "Note for this highlight";
+      var actions = document.createElement("div");
+      actions.className = "pdfa-note-actions";
+      if (highlight.note) {
+        actions.appendChild(
+          button("Delete note", "", function() {
+            saveNote(highlight.id, "");
+          })
+        );
+      }
+      var spacer = document.createElement("span");
+      spacer.className = "pdfa-spacer";
+      actions.appendChild(spacer);
+      actions.appendChild(
+        button("Cancel", "", function() {
+          cancelNoteEditing(highlight, clientX, clientY);
+        })
+      );
+      actions.appendChild(
+        button("Save", "pdfa-btn-primary", function() {
+          saveNote(highlight.id, input.value);
+        })
+      );
+      input.onkeydown = function(event) {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault();
+          event.stopPropagation();
+          saveNote(highlight.id, input.value);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          cancelNoteEditing(highlight, clientX, clientY);
+        }
+      };
+      showPopover([input, actions], clientX, clientY, true);
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+    function cancelNoteEditing(highlight, clientX, clientY) {
+      state.noteEditing = null;
+      var current = findHighlight(highlight.id) || highlight;
+      openHighlightPopover(current, clientX, clientY);
+    }
     function onPagesClick(event) {
+      if (state.noteEditing) return;
       var sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
       var node = event.target;
@@ -920,18 +1136,32 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       var rect = wrap.getBoundingClientRect();
       var point = viewport.convertToPdfPoint(event.clientX - rect.left, event.clientY - rect.top);
       var hit = geom.hitTestHighlights(state.highlights, pageNum, point[0], point[1], 1);
-      if (hit && hit.id) openPopover(hit, event.clientX, event.clientY);
+      if (hit && hit.id) openHighlightPopover(hit, event.clientX, event.clientY);
       else closePopover();
     }
     function updateLabels() {
       els.pageLabel.textContent = state.current + " / " + state.pageCount;
       els.zoomLabel.textContent = Math.round(state.scale * 100) + "%";
     }
+    function scroller() {
+      return els.root.querySelector(".pdfa-scroll");
+    }
     function goToPage(pageNum) {
       var target = Math.min(Math.max(1, pageNum), state.pageCount);
       var el = els.pages.querySelector('[data-page="' + target + '"]');
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
       state.current = target;
+      updateLabels();
+    }
+    function goToHighlight(highlight) {
+      var wrap = els.pages.querySelector('.pdfa-page[data-page="' + highlight.page + '"]');
+      var viewport = state.viewports[highlight.page];
+      if (!wrap || !viewport || !highlight.rects || !highlight.rects.length) return;
+      var vr = geom.pdfRectToViewportRect(highlight.rects[0], toViewportPoint(viewport));
+      var box = scroller();
+      var targetTop = wrap.getBoundingClientRect().top + vr.y;
+      box.scrollTop += targetTop - box.getBoundingClientRect().top - box.clientHeight / 3;
+      state.current = highlight.page;
       updateLabels();
     }
     function setZoom(scale) {
@@ -1006,7 +1236,10 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       }).then(function() {
         return renderAll();
       }).then(function() {
-        if (cfg.page) goToPage(cfg.page);
+        syncHighlights();
+        var target = cfg.highlightId ? findHighlight(cfg.highlightId) : null;
+        if (target) goToHighlight(target);
+        else if (cfg.page) goToPage(cfg.page);
       }).catch(function(err) {
         status(err.message || String(err), true);
       });
@@ -1024,13 +1257,17 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       document.getElementById("pdfa-zoom-out").onclick = function() {
         setZoom(state.scale - 0.25);
       };
-      els.root.querySelector(".pdfa-scroll").addEventListener("scroll", trackScroll);
+      els.listToggle.onclick = function() {
+        togglePanel();
+      };
+      scroller().addEventListener("scroll", trackScroll);
       els.pages.addEventListener("mouseup", captureSelection);
       els.pages.addEventListener("click", onPagesClick);
       document.addEventListener("keydown", function(event) {
-        if (event.key === "Escape") closePopover();
+        if (event.key === "Escape" && !state.noteEditing) closePopover();
       });
       mountColorButtons();
+      renderPanel();
       boot();
     } catch (err) {
       status("Viewer failed to start: " + (err && err.message ? err.message : err), true);
@@ -1048,6 +1285,10 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   * { box-sizing: border-box; }
   body { margin: 0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg); }
+  /* Holds the page scroller and the highlights panel. Positioned so the panel can
+     overlay the pages without the toolbar, and without reflowing the PDF - the embed is
+     often barely wider than a page, so a panel that stole width would squeeze it. */
+  .pdfa-body { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
   .pdfa-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--pdfa-border); background: var(--pdfa-toolbar); flex: 0 0 auto; flex-wrap: wrap; }
   .pdfa-toolbar button { font: inherit; padding: 4px 9px; border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit; border-radius: 5px; cursor: pointer; line-height: 1.2; }
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
@@ -1116,20 +1357,61 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg);
     border: 1px solid var(--pdfa-border); border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,.3); }
   .pdfa-popover.pdfa-open { display: flex; }
-  .pdfa-popover .pdfa-remove { font: inherit; font-size: 12px; padding: 3px 8px; line-height: 1.2;
+  /* The note editor turns the popover into a small column form. */
+  .pdfa-popover.pdfa-editing { flex-direction: column; align-items: stretch; width: 274px; }
+  .pdfa-note-input { font: inherit; font-size: 12px; width: 100%; resize: vertical; padding: 6px;
+    border: 1px solid var(--pdfa-border); border-radius: 5px;
+    background: var(--pdfa-bg); color: inherit; }
+  .pdfa-note-actions { display: flex; gap: 5px; margin-top: 6px; align-items: center; }
+  .pdfa-note-actions .pdfa-spacer { flex: 1 1 auto; }
+
+  .pdfa-btn { font: inherit; font-size: 12px; padding: 3px 9px; line-height: 1.25;
     border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit;
-    border-radius: 5px; cursor: pointer; }
-  .pdfa-popover .pdfa-remove:hover { background: var(--pdfa-btn-hover); }
+    border-radius: 5px; cursor: pointer; white-space: nowrap; }
+  .pdfa-btn:hover { background: var(--pdfa-btn-hover); }
+  /* Marks the "add a note" offer that the spec requires to appear as soon as a
+     highlight is created, so it reads as the suggested next step. */
+  .pdfa-btn-primary { border-color: var(--pdfa-accent); color: var(--pdfa-accent); }
+
+  /* HIGHLIGHTS PANEL - the list of every highlight and its note. Groundwork for the
+     Phase 5 color filter, which needs somewhere to filter. */
+  .pdfa-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 292px; max-width: 85%;
+    background: var(--pdfa-toolbar); border-left: 1px solid var(--pdfa-border);
+    overflow: auto; padding: 8px; display: none; z-index: 15; }
+  .pdfa-panel.pdfa-open { display: block; }
+  .pdfa-panel-title { display: flex; justify-content: space-between; align-items: center;
+    font-weight: 600; padding: 2px 4px 8px; }
+  .pdfa-panel-empty { opacity: .7; padding: 6px 4px; font-size: 12px; line-height: 1.4; }
+  .pdfa-hl-row { display: flex; gap: 8px; padding: 7px 6px; border-radius: 6px;
+    cursor: pointer; align-items: flex-start; }
+  .pdfa-hl-row:hover { background: var(--pdfa-btn-hover); }
+  .pdfa-chip { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; margin-top: 3px; }
+  .pdfa-hl-page { font-size: 11px; opacity: .6; margin-bottom: 2px; }
+  .pdfa-hl-quote { font-size: 12px; line-height: 1.35; }
+  /* Italic and indented so a note is never mistaken for the quoted text - the spec is
+     explicit that the two must be clearly distinguishable. */
+  .pdfa-hl-note { font-size: 12px; line-height: 1.35; opacity: .85; font-style: italic;
+    margin-top: 4px; padding-left: 7px; border-left: 2px solid var(--pdfa-border); }
 `;
   var THEMES = {
     light: `--pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0; --pdfa-btn:#fff; --pdfa-btn-hover:#eceef1; --pdfa-error:#b3261e; --pdfa-accent:#1a6fb5;`,
     dark: `--pdfa-bg:#1e2126; --pdfa-fg:#e6e8ea; --pdfa-toolbar:#252930; --pdfa-border:#3a3f47; --pdfa-btn:#2d323a; --pdfa-btn-hover:#3a4049; --pdfa-error:#f2b8b5; --pdfa-accent:#79b8ef;`
   };
-  function buildEmbedHtml({ attachmentUUID, attachmentName: attachmentName2 = "", page = null, lightDarkMode = "light" } = {}) {
+  function buildEmbedHtml({
+    attachmentUUID,
+    attachmentName: attachmentName2 = "",
+    page = null,
+    highlightId = null,
+    lightDarkMode = "light"
+  } = {}) {
     const theme = THEMES[lightDarkMode] || THEMES.light;
     const config = {
       attachmentUUID,
       page,
+      // Phase 5's exported links carry a highlight id. Scrolling to it is the same
+      // primitive the panel already uses, so it costs nothing to honour now - and spec
+      // section 7.3 warns that retrofitting the deep-link path later is the expensive way.
+      highlightId,
       pdfJsSrc: CDN.pdfJs,
       workerSrc: CDN.pdfJsWorker,
       // Only what the embed needs to draw and label a swatch. cycleIndex and rgb stay on
@@ -1159,12 +1441,18 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
          requirement (section 4), which is why the slot is here and not in a panel. -->
     <span id="pdfa-colors"></span>
     <span class="pdfa-hint" id="pdfa-hint"></span>
+    <span class="pdfa-sep"></span>
+    <button id="pdfa-list-toggle" title="Show highlights and notes">Notes (<span id="pdfa-count">0</span>)</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName2)}</span>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
-  <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
-  <!-- Remove / recolor actions, filled in and positioned when a highlight is clicked. -->
+  <div class="pdfa-body">
+    <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
+    <div class="pdfa-panel" id="pdfa-panel"></div>
+  </div>
+  <!-- Colors on a fresh selection; recolor / note / remove on an existing highlight;
+       the note editor itself. One element, filled in per context by the viewer. -->
   <div class="pdfa-popover" id="pdfa-popover"></div>
 </div>
 <script>window.__PDFA_CONFIG = ${safeJson(config)};
@@ -1183,7 +1471,7 @@ window.__PDFA_GEOM = (${createGeometry.toString()})();<\/script>
      * Amplenote passes embed parameters as a single query string, e.g. "att=abc&page=3".
      */
     renderEmbed: function(app, ...args) {
-      const { attachmentUUID, page } = parseEmbedArgs(args[0]);
+      const { attachmentUUID, page, highlightId } = parseEmbedArgs(args[0]);
       if (!attachmentUUID) {
         return `<p style="font:13px sans-serif;padding:12px">
         This viewer isn't linked to a PDF. Re-run <b>Annotate PDF</b> from the note menu.
@@ -1192,6 +1480,7 @@ window.__PDFA_GEOM = (${createGeometry.toString()})();<\/script>
       return buildEmbedHtml({
         attachmentUUID,
         page,
+        highlightId,
         lightDarkMode: app.context.lightDarkMode
       });
     },

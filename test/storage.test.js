@@ -124,6 +124,43 @@ describe("saveHighlights", () => {
     expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([]);
   });
 
+  // Scenario: THE data-loss bug. Notes are user-typed free text stored inside a fenced
+  // code block. A note containing a triple backtick would close that fence early; the
+  // reader's non-greedy match would stop at the inner fence, fail to parse, and treat
+  // the whole section as corrupt - silently discarding EVERY highlight on the note, not
+  // just the one with the awkward note. Backticks are escaped for exactly this reason.
+  test("survives a note containing a markdown code fence", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    const tricky = sampleHighlight({
+      id: "hl-fence",
+      note: "run ```npm test``` first",
+      quoteText: "quote with ` backtick",
+    });
+    const plain = sampleHighlight({ id: "hl-plain" });
+
+    await saveHighlights(app, NOTE, ATT_A, [tricky, plain]);
+    const loaded = await loadHighlights(app, NOTE, ATT_A);
+
+    // Both highlights survive, and the note text comes back byte-identical.
+    expect(loaded).toHaveLength(2);
+    expect(loaded[0].note).toBe("run ```npm test``` first");
+    expect(loaded[0].quoteText).toBe("quote with ` backtick");
+    // No raw backtick is left inside the stored block to break the fence.
+    const stored = app._notes.get(NOTE).content;
+    const fenceBody = stored.match(/```json\n([\s\S]*?)\n```/)[1];
+    expect(fenceBody).not.toContain("`");
+  });
+
+  // Scenario: the other characters a user will realistically type into a note. JSON
+  // handles these, but a regression to a hand-rolled serializer would not.
+  test("round-trips notes containing quotes, backslashes and newlines", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    const note = 'He said "no" \\ then\nleft — 100% sure';
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight({ id: "hl-x", note })]);
+
+    expect((await loadHighlights(app, NOTE, ATT_A))[0].note).toBe(note);
+  });
+
   // Scenario: content the user wrote AFTER the managed section (spec section 7.4's
   // "don't let manual edits corrupt it") must survive a save.
   test("does not disturb note content that follows the managed section", async () => {

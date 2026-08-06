@@ -27,7 +27,7 @@ const plugin = {
    * Amplenote passes embed parameters as a single query string, e.g. "att=abc&page=3".
    */
   renderEmbed: function (app, ...args) {
-    const { attachmentUUID, page } = parseEmbedArgs(args[0]);
+    const { attachmentUUID, page, highlightId } = parseEmbedArgs(args[0]);
 
     if (!attachmentUUID) {
       return `<p style="font:13px sans-serif;padding:12px">
@@ -38,6 +38,7 @@ const plugin = {
     return buildEmbedHtml({
       attachmentUUID,
       page,
+      highlightId,
       lightDarkMode: app.context.lightDarkMode,
     });
   },
