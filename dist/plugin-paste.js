@@ -1673,12 +1673,23 @@ ${COMMENT_CLOSE}`;
         status(err.message || String(err), true);
       });
     }
+    function openRemoveViewerPopover(clientX, clientY) {
+      var hint = document.createElement("div");
+      hint.className = "pdfa-export-hint";
+      hint.textContent = "Remove this viewer and all its highlights from this note? This cannot be undone.";
+      var actions = document.createElement("div");
+      actions.className = "pdfa-note-actions";
+      actions.appendChild(button("Cancel", "", function() {
+        closePopover(true);
+      }));
+      var spacer = document.createElement("span");
+      spacer.className = "pdfa-spacer";
+      actions.appendChild(spacer);
+      actions.appendChild(button("Remove", "pdfa-remove", removeThisViewer));
+      showPopover([hint, actions], clientX, clientY, "exporting");
+    }
     function removeThisViewer() {
-      if (!window.confirm(
-        "Remove this PDF Annotator viewer and all its highlights from this note? This cannot be undone."
-      )) {
-        return;
-      }
+      closePopover(true);
       els.removeViewer.disabled = true;
       status("Removing this viewer...");
       callPlugin({ action: "removeViewer", attachmentUUID: cfg.attachmentUUID, pluginUUID: cfg.pluginUUID }).then(function(result) {
@@ -1791,7 +1802,9 @@ ${COMMENT_CLOSE}`;
       els.exportAll.onclick = function(event) {
         openExportPopover(event.clientX, event.clientY);
       };
-      els.removeViewer.onclick = removeThisViewer;
+      els.removeViewer.onclick = function(event) {
+        openRemoveViewerPopover(event.clientX, event.clientY);
+      };
       scroller().addEventListener("scroll", trackScroll);
       els.pages.addEventListener("mouseup", captureSelection);
       els.pages.addEventListener("click", onPagesClick);
@@ -1826,10 +1839,13 @@ ${COMMENT_CLOSE}`;
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
   .pdfa-toolbar button:disabled { opacity: .5; cursor: default; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
-  /* Destructive and deliberately quiet at rest - only turns clearly "warning" colored on
-     hover, so it doesn't compete for attention with the toolbar's everyday actions. */
-  .pdfa-remove { color: var(--pdfa-error); border-color: var(--pdfa-error); opacity: .7; }
-  .pdfa-remove:hover { opacity: 1; background: var(--pdfa-error); color: #fff; }
+  /* Named separately from the popover's own per-highlight ".pdfa-remove" button (below) -
+     they used to share a class, which meant styling one silently restyled the other too.
+     Full opacity at rest on purpose: a dimmed/low-opacity destructive button reads as
+     disabled, not "use with care", and this one must look as clickable as any other
+     toolbar button - only its color signals what it does. */
+  .pdfa-remove-viewer { color: var(--pdfa-error); border-color: var(--pdfa-error); }
+  .pdfa-remove-viewer:hover { background: var(--pdfa-error); color: #fff; }
   .pdfa-sep { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 0 4px; }
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
@@ -2049,7 +2065,7 @@ ${COMMENT_CLOSE}`;
          removed" event to react to, and re-attaching a same-named PDF gets a brand new
          uuid, not the old one - so a dead or unwanted viewer only ever goes away when
          asked to. -->
-    <button id="pdfa-remove-viewer" class="pdfa-remove" title="Remove this viewer and its highlights from this note">Remove</button>
+    <button id="pdfa-remove-viewer" class="pdfa-remove-viewer" title="Remove this viewer and its highlights from this note">Remove</button>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-body">

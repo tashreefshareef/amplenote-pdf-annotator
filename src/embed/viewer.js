@@ -1232,21 +1232,43 @@ export function viewerMain() {
   }
 
   /**
+   * Confirms detaching this viewer via the SAME in-page popover every other destructive
+   * or editing action here uses (recolor, note editor, export filter), rather than a
+   * native confirm().
+   *
+   * confirm()/alert()/prompt() are unreliable inside Amplenote's own cross-origin embed
+   * iframe - live testing showed clicking Remove did nothing at all, no dialog and no
+   * error, because the call was silently suppressed rather than throwing. Same class of
+   * restriction already worked around once in this file for the Clipboard API (see
+   * copyToClipboard's execCommand fallback) - the fix here is the same idea: don't rely
+   * on a browser-native modal from inside this iframe at all. A plain DOM popover has no
+   * such dependency.
+   */
+  function openRemoveViewerPopover(clientX, clientY) {
+    var hint = document.createElement("div");
+    hint.className = "pdfa-export-hint";
+    hint.textContent =
+      "Remove this viewer and all its highlights from this note? This cannot be undone.";
+
+    var actions = document.createElement("div");
+    actions.className = "pdfa-note-actions";
+    actions.appendChild(button("Cancel", "", function () { closePopover(true); }));
+    var spacer = document.createElement("span");
+    spacer.className = "pdfa-spacer";
+    actions.appendChild(spacer);
+    actions.appendChild(button("Remove", "pdfa-remove", removeThisViewer));
+
+    showPopover([hint, actions], clientX, clientY, "exporting");
+  }
+
+  /**
    * Detach this viewer entirely: delete its own <object> line from the note and its
    * highlights entry from the managed section (embed-call.js's removeViewer action).
-   *
-   * Nothing does this automatically - see the toolbar comment in html.js for why. A
-   * native confirm() gates it since there is no undo: this is the one action here that
-   * can make a whole highlight set disappear in a single click.
+   * Only ever called from the confirm popover above - never directly from the toolbar
+   * button - so reaching here already means the user confirmed.
    */
   function removeThisViewer() {
-    if (
-      !window.confirm(
-        "Remove this PDF Annotator viewer and all its highlights from this note? This cannot be undone."
-      )
-    ) {
-      return;
-    }
+    closePopover(true);
     els.removeViewer.disabled = true;
     status("Removing this viewer...");
     callPlugin({ action: "removeViewer", attachmentUUID: cfg.attachmentUUID, pluginUUID: cfg.pluginUUID })
@@ -1395,7 +1417,9 @@ export function viewerMain() {
     els.exportAll.onclick = function (event) {
       openExportPopover(event.clientX, event.clientY);
     };
-    els.removeViewer.onclick = removeThisViewer;
+    els.removeViewer.onclick = function (event) {
+      openRemoveViewerPopover(event.clientX, event.clientY);
+    };
     scroller().addEventListener("scroll", trackScroll);
 
     // Scoped to the page area on purpose. On `document` it would also fire when the user
