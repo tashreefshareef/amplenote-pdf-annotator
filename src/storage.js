@@ -11,32 +11,57 @@
 import { STORAGE_SECTION_HEADING } from "./constants.js";
 import { createHighlight } from "./highlights.js";
 
-const FENCE_LANG = "json";
+// A one-line, visible label so the heading doesn't read as an empty/broken section once
+// the payload itself is hidden below it - see the comment on serialize().
+const SECTION_INTRO =
+  "*Managed automatically by the PDF Annotator plugin - safe to ignore, don't edit.*";
+const COMMENT_OPEN = "<!-- PDFA-DATA";
+const COMMENT_CLOSE = "-->";
+// Matches one complete JSON string token (key or value), escapes included, so the
+// hyphen-escaping in serialize() can be scoped to string content only. Never applied to
+// the surrounding JSON syntax, which is where a bare "-" legitimately means a negative
+// number (PDF-space coordinates can be negative).
+const JSON_STRING_TOKEN = /"(?:[^"\\]|\\.)*"/g;
 
 /**
- * Wrap the payload in a fenced code block so it round-trips through markdown untouched.
+ * Wrap the payload in an HTML comment instead of a visible fenced code block, so it
+ * doesn't render as a wall of raw JSON in the middle of the user's note. Amplenote
+ * strips HTML comments from rendered output - already relied on for the exact same
+ * behaviour in src/export.js's cycle-color trick (`==text<!-- {...} -->==`), confirmed
+ * there against the live app. Worth the same live sanity check here, since this is a new
+ * placement for the same trick (directly under a heading, not nested in a `==...==`
+ * span) - not yet separately confirmed.
  *
- * Backticks are escaped to their JSON \u escape. This is not cosmetic: user note text is
- * stored inside this fence, and a note containing a triple backtick would close the
- * fence early. The reader's non-greedy match would then stop at that inner fence, parse
- * a truncated string, fail, and treat the whole section as corrupt - silently discarding
- * every highlight on the note. `JSON.parse` turns ` back into a backtick on the way
- * in, so nothing downstream needs to know this happened.
+ * Every hyphen inside a JSON STRING is escaped to its \u002d form first - scoped via
+ * JSON_STRING_TOKEN so JSON's own negative-number syntax is never touched. This is the
+ * same hazard, and the same fix, as the backtick-in-a-fenced-block bug this format
+ * replaces (docs/bugs-found.md): user note text is stored inside this wrapper, and a
+ * note containing "-->" would close the comment early, corrupting every highlight on the
+ * note, not just the one with the awkward note. `JSON.parse` turns \u002d back into a
+ * literal "-" automatically, so nothing downstream needs to know this happened.
  */
 function serialize(payload) {
-  const json = JSON.stringify(payload, null, 0).replace(/`/g, "\\u0060");
-  return "```" + FENCE_LANG + "\n" + json + "\n```";
+  const json = JSON.stringify(payload).replace(JSON_STRING_TOKEN, (token) =>
+    token.replace(/-/g, "\\u002d")
+  );
+  return `${SECTION_INTRO}\n${COMMENT_OPEN}\n${json}\n${COMMENT_CLOSE}`;
 }
 
 /**
  * Pull the JSON payload out of the section's rendered content.
- * Amplenote may hand back the fenced block, the bare JSON, or (on a fresh section)
- * empty content - all three are handled rather than assumed.
+ *
+ * Tries the hidden-comment format first (current). Falls back to the older visible
+ * fenced-code-block format - everything this plugin ever saved before the hidden format
+ * existed - so a note saved by an earlier version keeps loading correctly; the very next
+ * save upgrades it to the hidden format automatically. Bare JSON with neither wrapper
+ * (a fresh, empty section) is handled too, same as before.
  */
 function deserialize(sectionContent) {
   if (!sectionContent) return null;
-  const fenced = sectionContent.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  const raw = (fenced ? fenced[1] : sectionContent).trim();
+
+  const hidden = sectionContent.match(/<!--\s*PDFA-DATA\s*\n?([\s\S]*?)-->/);
+  const fenced = !hidden && sectionContent.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  const raw = (hidden ? hidden[1] : fenced ? fenced[1] : sectionContent).trim();
   if (!raw) return null;
   try {
     return JSON.parse(raw);
