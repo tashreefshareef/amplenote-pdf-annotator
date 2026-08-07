@@ -74,8 +74,16 @@ const STYLES = `
     white-space: nowrap; padding-right: 2px; }
   .pdfa-spacer { flex: 1 1 auto; }
   .pdfa-name { opacity: .7; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pdfa-scroll { flex: 1 1 auto; overflow: auto; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-  .pdfa-page { position: relative; box-shadow: 0 1px 6px rgba(0,0,0,.28); background: #fff; flex: 0 0 auto; }
+  /* No align-items: center here on purpose - see the .pdfa-page comment below. */
+  .pdfa-scroll { flex: 1 1 auto; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  /* Centered via its own auto margins rather than the scroller's align-items: center.
+     align-items: center is "unsafe" alignment by spec default - once a page is wider
+     than the scroller (past ~100% zoom on a narrow embed), it centers the overflow
+     symmetrically, pushing half of it into negative scroll territory that no scrollbar
+     can ever reach. Auto margins clamp at zero instead of going negative, so an
+     oversized page just left-aligns and stays fully reachable by scrolling, while
+     still centering normally whenever it fits. */
+  .pdfa-page { position: relative; box-shadow: 0 1px 6px rgba(0,0,0,.28); background: #fff; flex: 0 0 auto; margin: 0 auto; }
   .pdfa-page canvas { display: block; }
   .pdfa-status { padding: 10px 12px; text-align: center; opacity: .8; }
   .pdfa-error { color: var(--pdfa-error); opacity: 1; white-space: pre-wrap; }
