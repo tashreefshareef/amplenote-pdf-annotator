@@ -404,6 +404,30 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
           return { error: `Could not remove the highlight: ${err.message}` };
         }
       }
+      case "sendToNote": {
+        if (!request.content) return { error: "Nothing to send." };
+        try {
+          await app.insertNoteContent(
+            { uuid: app.context.noteUUID },
+            "\n" + request.content + "\n",
+            { atEnd: true }
+          );
+          return { ok: true };
+        } catch (err) {
+          return { error: `Could not add this to the note: ${err.message}` };
+        }
+      }
+      case "exportAll": {
+        if (!request.noteName) return { error: "Missing destination note name." };
+        try {
+          const existing = await app.findNote({ name: request.noteName });
+          const noteUUID = existing ? existing.uuid : await app.createNote(request.noteName);
+          await app.replaceNoteContent({ uuid: noteUUID }, request.content || "");
+          return { ok: true, noteUUID };
+        } catch (err) {
+          return { error: `Could not export highlights: ${err.message}` };
+        }
+      }
       case "ping":
         return { ok: true };
       default:
@@ -718,11 +742,65 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   var buildHighlightAnnotation = annotationWriter.buildHighlightAnnotation;
   var appendAnnotationRefs = annotationWriter.appendAnnotationRefs;
 
+  // src/export.js
+  function createExportBuilder() {
+    function escapeLinkText(text) {
+      return String(text == null ? "" : text).replace(/\]/g, "\\]");
+    }
+    function buildDeepLink2(pluginUUID, attachmentUUID, page, highlightId) {
+      var params = new URLSearchParams();
+      if (attachmentUUID) params.set("att", attachmentUUID);
+      if (Number.isFinite(page) && page >= 1) params.set("page", String(Math.floor(page)));
+      if (highlightId) params.set("hl", highlightId);
+      var query = params.toString();
+      return "plugin://" + pluginUUID + (query ? "?" + query : "");
+    }
+    function buildHighlightBlock2(pdfName, pluginUUID, attachmentUUID, highlight, cycleIndex) {
+      var url = buildDeepLink2(pluginUUID, attachmentUUID, highlight.page, highlight.id);
+      var linkText = escapeLinkText(pdfName || "PDF");
+      var heading = "==[" + linkText + "](" + url + ')<!-- {"cycleColor":"' + cycleIndex + '"} -->==';
+      var quote = '> "' + (highlight.quoteText || "") + '"';
+      var lines = [heading, quote];
+      if (highlight.note) lines.push(highlight.note);
+      return lines.join("\n");
+    }
+    function sortForReading(highlights) {
+      return highlights.slice().sort(function(a, b) {
+        if (a.page !== b.page) return a.page - b.page;
+        var ay = a.rects && a.rects[0] ? a.rects[0].y : 0;
+        var by = b.rects && b.rects[0] ? b.rects[0].y : 0;
+        return by - ay;
+      });
+    }
+    function buildExportAllContent2(pdfName, pluginUUID, attachmentUUID, highlights, colorCycleIndexTable, colorFilter) {
+      var filterSet = colorFilter && colorFilter.length ? colorFilter : null;
+      var filtered = (highlights || []).filter(function(h) {
+        return h && (!filterSet || filterSet.indexOf(h.color) !== -1);
+      });
+      var sorted = sortForReading(filtered);
+      var blocks = sorted.map(function(h) {
+        var cycleIndex = colorCycleIndexTable ? colorCycleIndexTable[h.color] : void 0;
+        return buildHighlightBlock2(pdfName, pluginUUID, attachmentUUID, h, cycleIndex);
+      });
+      return blocks.join("\n\n");
+    }
+    return {
+      buildDeepLink: buildDeepLink2,
+      buildHighlightBlock: buildHighlightBlock2,
+      buildExportAllContent: buildExportAllContent2
+    };
+  }
+  var exportBuilder = createExportBuilder();
+  var buildDeepLink = exportBuilder.buildDeepLink;
+  var buildHighlightBlock = exportBuilder.buildHighlightBlock;
+  var buildExportAllContent = exportBuilder.buildExportAllContent;
+
   // src/embed/viewer.js
   function viewerMain() {
     var cfg = window.__PDFA_CONFIG || {};
     var geom = window.__PDFA_GEOM || {};
     var annotations = window.__PDFA_ANNOTATIONS || {};
+    var exportBuilder2 = window.__PDFA_EXPORT || {};
     var els = {
       root: document.getElementById("pdfa-root"),
       pages: document.getElementById("pdfa-pages"),
@@ -735,7 +813,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       panel: document.getElementById("pdfa-panel"),
       listToggle: document.getElementById("pdfa-list-toggle"),
       count: document.getElementById("pdfa-count"),
-      download: document.getElementById("pdfa-download")
+      download: document.getElementById("pdfa-download"),
+      exportAll: document.getElementById("pdfa-export")
     };
     var state = {
       doc: null,
@@ -1200,9 +1279,10 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         { action: "setHighlightNote", attachmentUUID: cfg.attachmentUUID, id, note: trimmed }
       );
     }
-    function showPopover(children, clientX, clientY, editing) {
+    function showPopover(children, clientX, clientY, mode) {
       els.popover.innerHTML = "";
-      els.popover.classList.toggle("pdfa-editing", !!editing);
+      els.popover.classList.toggle("pdfa-editing", mode === "editing");
+      els.popover.classList.toggle("pdfa-exporting", mode === "exporting");
       for (var i = 0; i < children.length; i++) els.popover.appendChild(children[i]);
       els.popover.classList.add("pdfa-open");
       var width = els.popover.offsetWidth;
@@ -1216,7 +1296,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     function closePopover(force) {
       if (state.noteEditing && !force) return;
       state.noteEditing = null;
-      els.popover.classList.remove("pdfa-open", "pdfa-editing");
+      els.popover.classList.remove("pdfa-open", "pdfa-editing", "pdfa-exporting");
       els.popover.innerHTML = "";
     }
     function openSelectionPopover(selection) {
@@ -1249,12 +1329,49 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
           openNoteEditor(highlight, clientX, clientY);
         })
       );
+      children.push(button("Copy", "", function() {
+        copyHighlight(highlight);
+      }));
+      children.push(button("Send to note", "", function() {
+        sendHighlightToNote(highlight);
+      }));
       children.push(
         button("Remove", "pdfa-remove", function() {
           removeHighlightById(highlight.id);
         })
       );
       showPopover(children, clientX, clientY);
+    }
+    function openExportPopover(clientX, clientY) {
+      var list = colorList();
+      var active = {};
+      for (var i = 0; i < list.length; i++) active[list[i].id] = true;
+      var hint = document.createElement("div");
+      hint.className = "pdfa-export-hint";
+      hint.textContent = "Export highlights to a note";
+      var swatchRow = document.createElement("div");
+      swatchRow.className = "pdfa-export-colors";
+      for (var j = 0; j < list.length; j++) {
+        (function(color) {
+          var sw = makeSwatch(color, true, function(colorId) {
+            active[colorId] = !active[colorId];
+            sw.setAttribute("aria-pressed", String(active[colorId]));
+          }, "Toggle");
+          swatchRow.appendChild(sw);
+        })(list[j]);
+      }
+      var actions = document.createElement("div");
+      actions.className = "pdfa-note-actions";
+      actions.appendChild(
+        button("Create / update note", "pdfa-btn-primary", function() {
+          var included = [];
+          for (var k = 0; k < list.length; k++) {
+            if (active[list[k].id]) included.push(list[k].id);
+          }
+          exportAllHighlights(included.length === list.length ? null : included);
+        })
+      );
+      showPopover([hint, swatchRow, actions], clientX, clientY, "exporting");
     }
     function openNoteEditor(highlight, clientX, clientY) {
       state.noteEditing = highlight.id;
@@ -1296,7 +1413,7 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
           cancelNoteEditing(highlight, clientX, clientY);
         }
       };
-      showPopover([input, actions], clientX, clientY, true);
+      showPopover([input, actions], clientX, clientY, "editing");
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
     }
@@ -1416,6 +1533,92 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       var base = (state.attachmentName || "annotated").replace(/\.pdf$/i, "");
       return base + "-annotated.pdf";
     }
+    function colorCycleIndexTable() {
+      var table = {};
+      var list = colorList();
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].cycleIndex !== void 0) table[list[i].id] = list[i].cycleIndex;
+      }
+      return table;
+    }
+    function destinationNoteName() {
+      var base = (state.attachmentName || "PDF").replace(/\.pdf$/i, "");
+      return base + " - Highlights";
+    }
+    function exportBlockFor(highlight) {
+      return exportBuilder2.buildHighlightBlock(
+        state.attachmentName,
+        cfg.pluginUUID,
+        cfg.attachmentUUID,
+        highlight,
+        colorCycleIndexTable()[highlight.color]
+      );
+    }
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+      }
+      return new Promise(function(resolve, reject) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        var ok = false;
+        try {
+          ok = document.execCommand("copy");
+        } catch (err) {
+          ok = false;
+        }
+        document.body.removeChild(ta);
+        if (ok) resolve();
+        else reject(new Error("Clipboard access is unavailable here."));
+      });
+    }
+    function copyHighlight(highlight) {
+      closePopover(true);
+      copyToClipboard(exportBlockFor(highlight)).then(function() {
+        status("Highlight copied - paste it into any note.");
+      }).catch(function(err) {
+        status("Could not copy: " + (err.message || err), true);
+      });
+    }
+    function sendHighlightToNote(highlight) {
+      closePopover(true);
+      callPlugin({ action: "sendToNote", content: exportBlockFor(highlight) }).then(function(result) {
+        if (!result || result.error) {
+          throw new Error(result && result.error || "Could not send this to the note.");
+        }
+        status("Sent to the bottom of this note.");
+      }).catch(function(err) {
+        status(err.message || String(err), true);
+      });
+    }
+    function exportAllHighlights(colorFilter) {
+      closePopover(true);
+      var content = exportBuilder2.buildExportAllContent(
+        state.attachmentName,
+        cfg.pluginUUID,
+        cfg.attachmentUUID,
+        state.highlights,
+        colorCycleIndexTable(),
+        colorFilter
+      );
+      if (!content) {
+        status(colorFilter ? "No highlights match those colors." : "No highlights to export yet.", true);
+        return;
+      }
+      callPlugin({ action: "exportAll", noteName: destinationNoteName(), content }).then(function(result) {
+        if (!result || result.error) {
+          throw new Error(result && result.error || "Could not export highlights.");
+        }
+        status('Exported to "' + destinationNoteName() + '".');
+      }).catch(function(err) {
+        status(err.message || String(err), true);
+      });
+    }
     function downloadAnnotatedPdf() {
       if (!state.pdfBytes) return;
       var btn = els.download;
@@ -1513,6 +1716,9 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
         togglePanel();
       };
       els.download.onclick = downloadAnnotatedPdf;
+      els.exportAll.onclick = function(event) {
+        openExportPopover(event.clientX, event.clientY);
+      };
       scroller().addEventListener("scroll", trackScroll);
       els.pages.addEventListener("mouseup", captureSelection);
       els.pages.addEventListener("click", onPagesClick);
@@ -1630,11 +1836,17 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
      embed is its own iframe, so a click's client coordinates are already relative to
      this element's containing block - no scroll-offset arithmetic to get wrong. */
   .pdfa-popover { position: fixed; display: none; gap: 5px; align-items: center; padding: 6px 8px;
-    z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg);
+    z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg); max-width: 320px; flex-wrap: wrap;
     border: 1px solid var(--pdfa-border); border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,.3); }
   .pdfa-popover.pdfa-open { display: flex; }
   /* The note editor turns the popover into a small column form. */
   .pdfa-popover.pdfa-editing { flex-direction: column; align-items: stretch; width: 274px; }
+  /* Export all's color filter: independently-toggled swatches, not the single-select
+     behaviour the same .pdfa-color class has everywhere else - the filter is "any
+     combination of colors", not "one active color". */
+  .pdfa-popover.pdfa-exporting { flex-direction: column; align-items: stretch; width: 220px; }
+  .pdfa-export-colors { display: flex; gap: 6px; padding: 2px 0 8px; }
+  .pdfa-export-hint { font-size: 12px; opacity: .75; padding-bottom: 6px; }
   .pdfa-note-input { font: inherit; font-size: 12px; width: 100%; resize: vertical; padding: 6px;
     border: 1px solid var(--pdfa-border); border-radius: 5px;
     background: var(--pdfa-bg); color: inherit; }
@@ -1678,7 +1890,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
     attachmentName: attachmentName2 = "",
     page = null,
     highlightId = null,
-    lightDarkMode = "light"
+    lightDarkMode = "light",
+    pluginUUID = null
   } = {}) {
     const theme = THEMES[lightDarkMode] || THEMES.light;
     const config = {
@@ -1688,16 +1901,22 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
       // primitive the panel already uses, so it costs nothing to honour now - and spec
       // section 7.3 warns that retrofitting the deep-link path later is the expensive way.
       highlightId,
+      pluginUUID,
       pdfJsSrc: CDN.pdfJs,
       workerSrc: CDN.pdfJsWorker,
       // Loaded lazily, only when Download is clicked - see viewer.js's loadPdfLib.
       pdfLibSrc: CDN.pdfLib,
-      // rgb now travels to the embed too: Phase 4's Download button writes native
-      // annotations CLIENT-SIDE, reusing the PDF bytes already fetched for rendering
-      // rather than round-tripping a whole file through the plugin bridge (which only
-      // reliably carries strings - see docs/api-notes.md). cycleIndex stays plugin-side;
-      // it is still purely a Phase 5 export concern with nothing to do here.
-      colors: HIGHLIGHT_COLORS.map((c) => ({ id: c.id, label: c.label, hex: c.hex, rgb: c.rgb })),
+      // rgb (Phase 4) and cycleIndex (Phase 5) both now travel to the embed: Download
+      // writes native annotations and Copy/Send/Export-all build export markdown, all
+      // CLIENT-SIDE, reusing data already loaded rather than round-tripping through the
+      // plugin bridge (which only reliably carries strings - see docs/api-notes.md).
+      colors: HIGHLIGHT_COLORS.map((c) => ({
+        id: c.id,
+        label: c.label,
+        hex: c.hex,
+        rgb: c.rgb,
+        cycleIndex: c.cycleIndex
+      })),
       defaultColorId: DEFAULT_COLOR_ID
     };
     return `<link rel="stylesheet" href="${CDN.pdfViewerCss}">
@@ -1732,6 +1951,11 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
          attachNoteMedia rejects PDFs outright (see docs/api-notes.md), so download is
          the whole feature, not a fallback. -->
     <button id="pdfa-download" title="Download this PDF with every highlight and note baked in as a native annotation">Download</button>
+    <span class="pdfa-sep"></span>
+    <!-- Auto-creates (or updates) a destination note holding every highlight, with a
+         color filter - spec section 4's "export all highlights into an auto-created
+         destination note, with the ability to filter by highlight color". -->
+    <button id="pdfa-export" title="Export highlights to a note, optionally filtered by color">Export</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName2)}</span>
   </div>
@@ -1746,7 +1970,8 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
 </div>
 <script>window.__PDFA_CONFIG = ${safeJson(config)};
 window.__PDFA_GEOM = (${createGeometry.toString()})();
-window.__PDFA_ANNOTATIONS = (${createAnnotationWriter.toString()})();<\/script>
+window.__PDFA_ANNOTATIONS = (${createAnnotationWriter.toString()})();
+window.__PDFA_EXPORT = (${createExportBuilder.toString()})();<\/script>
 <script>(${viewerMain.toString()})();<\/script>`;
   }
 
@@ -1771,7 +1996,10 @@ window.__PDFA_ANNOTATIONS = (${createAnnotationWriter.toString()})();<\/script>
         attachmentUUID,
         page,
         highlightId,
-        lightDarkMode: app.context.lightDarkMode
+        lightDarkMode: app.context.lightDarkMode,
+        // Needed to build the `plugin://` deep link in an exported highlight - see
+        // src/export.js. Available here the same way annotate-pdf.js already gets it.
+        pluginUUID: app.context.pluginUUID
       });
     },
     onEmbedCall: async function(app, ...args) {

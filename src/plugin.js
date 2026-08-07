@@ -40,6 +40,9 @@ const plugin = {
       page,
       highlightId,
       lightDarkMode: app.context.lightDarkMode,
+      // Needed to build the `plugin://` deep link in an exported highlight - see
+      // src/export.js. Available here the same way annotate-pdf.js already gets it.
+      pluginUUID: app.context.pluginUUID,
     });
   },
 

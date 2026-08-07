@@ -82,6 +82,14 @@ describe("renderEmbed", () => {
     app.context.lightDarkMode = "dark";
     expect(plugin.renderEmbed(app, "att=att-1")).toContain("--pdfa-bg:#1e2126");
   });
+
+  // Scenario: an exported highlight's deep link (src/export.js, built client-side in
+  // the embed) needs this plugin's own note uuid. Missing it here means every exported
+  // link points nowhere, only discoverable after actually clicking one in the live app.
+  test("passes the plugin's own uuid through for the embed's export deep links", () => {
+    const html = plugin.renderEmbed(appFixture(), "att=att-1");
+    expect(html).toContain(`"pluginUUID":"${PLUGIN_UUID}"`);
+  });
 });
 
 describe("onEmbedCall", () => {

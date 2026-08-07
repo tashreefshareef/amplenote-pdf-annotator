@@ -8,15 +8,19 @@ page and position.
 
 Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty_plugins).
 
-> **Status: Phase 4.** The PDF renders in the note with a working text layer, zoom and
+> **Status: Phase 5.** The PDF renders in the note with a working text layer, zoom and
 > page navigation (Phase 1). Highlights work end to end — select text and pick one of
 > four colors, either from the toolbar or from the popover that appears at the selection;
 > recolor or remove an existing highlight by clicking it (Phase 2). Each highlight takes
 > one plain-text note, offered as soon as it's created, and a panel lists every highlight
 > and note with click-to-jump (Phase 3). A Download button bakes every highlight and note
 > into the PDF as native annotations — real, selectable, reader-editable ones, not
-> painted-on rectangles — and downloads the result (Phase 4). Export to Amplenote notes
-> with deep-links is Phase 5. See
+> painted-on rectangles — and downloads the result (Phase 4). A highlight can be copied
+> to the clipboard or sent straight to the bottom of the note as Amplenote's own
+> `==highlight<!-- {"cycleColor":"N"} -->==` markdown, and an Export button builds a
+> "\<PDF name\> - Highlights" note from every highlight (optionally filtered by color),
+> each block carrying a `plugin://` deep-link back to its exact page and position
+> (Phase 5). See
 > [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan.
 
 ## Why there's a build step
@@ -143,6 +147,8 @@ src/               Plugin source, authored as ES modules
   geometry.js      Pure rect arithmetic; also injected into the embed (see below)
   annotations.js   Writes highlights into a PDF as native annotations (pdf-lib);
                     also injected into the embed, same pattern as geometry.js
+  export.js        Builds the exported markdown block and plugin:// deep link for a
+                    highlight; also injected into the embed, same pattern as geometry.js
   highlights.js    Highlight data model and validation
   storage.js       The managed note section highlights are persisted into
   colors.js        Highlight color lookups
@@ -171,12 +177,13 @@ data, so untestable code is a compliance problem and not only a style one.
 
 The embed pushes that further. `src/embed/viewer.js` cannot import anything — it is
 serialized with `.toString()` and injected into the page — so any logic worth testing
-would normally have to be transcribed into it by hand. Instead `src/geometry.js` and
-`src/annotations.js` each wrap their functions in a factory (`createGeometry()`,
-`createAnnotationWriter()`) that closes over nothing, and `src/embed/html.js` injects
-*that function's source* alongside the viewer. The embed reads the results off
-`window.__PDFA_GEOM` and `window.__PDFA_ANNOTATIONS`, so the rect arithmetic and the
-pdf-lib annotation writing the browser runs are byte-for-byte the code Jest covers —
+would normally have to be transcribed into it by hand. Instead `src/geometry.js`,
+`src/annotations.js` and `src/export.js` each wrap their functions in a factory
+(`createGeometry()`, `createAnnotationWriter()`, `createExportBuilder()`) that closes
+over nothing, and `src/embed/html.js` injects *that function's source* alongside the
+viewer. The embed reads the results off `window.__PDFA_GEOM`, `window.__PDFA_ANNOTATIONS`
+and `window.__PDFA_EXPORT`, so the rect arithmetic, the pdf-lib annotation writing and the
+exported-markdown building the browser runs are byte-for-byte the code Jest covers —
 `annotations.js`'s tests run against the real `pdf-lib` npm package, not a mock of one.
 Two rules follow for anything built this way: nothing inside the factory may reference
 module scope, and the serialized function may not contain a literal closing `script` tag

@@ -5,15 +5,17 @@
  * they must not be a dropdown or a sidebar - and the viewer mounts them from the color
  * table in constants.js so there is one source of truth per color.
  *
- * THREE FUNCTIONS ARE INJECTED, each by serializing its source:
+ * FOUR FUNCTIONS ARE INJECTED, each by serializing its source:
  *   - `createGeometry()` from src/geometry.js, so the embed runs the SAME rect
  *     arithmetic the Jest suite covers instead of an untested transcription of it
  *   - `createAnnotationWriter()` from src/annotations.js, so Download writes native
  *     PDF annotations with the SAME code Jest exercises against the real pdf-lib
  *     package, not an untested transcription of the pdf-lib spike
+ *   - `createExportBuilder()` from src/export.js, so Copy / Send to note / Export all
+ *     build the exact markdown Jest checks against the bounty's own layout requirement
  *   - `viewerMain()`, the DOM, PDF.js and pdf-lib wiring
  * None can import anything, and none may contain a literal closing script tag anywhere
- * in its source - comments included. There are tests for all three.
+ * in its source - comments included. There are tests for all four.
  *
  * SCRIPT LOADING - two live failures are baked into the shape of this file:
  *
@@ -30,6 +32,7 @@
 import { CDN, HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "../constants.js";
 import { createGeometry } from "../geometry.js";
 import { createAnnotationWriter } from "../annotations.js";
+import { createExportBuilder } from "../export.js";
 import { viewerMain } from "./viewer.js";
 
 /** Escape a value being interpolated into HTML text or an attribute. */
@@ -149,11 +152,17 @@ const STYLES = `
      embed is its own iframe, so a click's client coordinates are already relative to
      this element's containing block - no scroll-offset arithmetic to get wrong. */
   .pdfa-popover { position: fixed; display: none; gap: 5px; align-items: center; padding: 6px 8px;
-    z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg);
+    z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg); max-width: 320px; flex-wrap: wrap;
     border: 1px solid var(--pdfa-border); border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,.3); }
   .pdfa-popover.pdfa-open { display: flex; }
   /* The note editor turns the popover into a small column form. */
   .pdfa-popover.pdfa-editing { flex-direction: column; align-items: stretch; width: 274px; }
+  /* Export all's color filter: independently-toggled swatches, not the single-select
+     behaviour the same .pdfa-color class has everywhere else - the filter is "any
+     combination of colors", not "one active color". */
+  .pdfa-popover.pdfa-exporting { flex-direction: column; align-items: stretch; width: 220px; }
+  .pdfa-export-colors { display: flex; gap: 6px; padding: 2px 0 8px; }
+  .pdfa-export-hint { font-size: 12px; opacity: .75; padding-bottom: 6px; }
   .pdfa-note-input { font: inherit; font-size: 12px; width: 100%; resize: vertical; padding: 6px;
     border: 1px solid var(--pdfa-border); border-radius: 5px;
     background: var(--pdfa-bg); color: inherit; }
@@ -202,6 +211,8 @@ const THEMES = {
  * @param {number|null} options.page       Deep-link target page, if any.
  * @param {string|null} options.highlightId Deep-link target highlight, if any.
  * @param {string} options.lightDarkMode   "light" | "dark"
+ * @param {string} options.pluginUUID      This plugin's own note uuid - needed to build
+ *   the `plugin://` deep link in an exported highlight (src/export.js).
  */
 export function buildEmbedHtml({
   attachmentUUID,
@@ -209,6 +220,7 @@ export function buildEmbedHtml({
   page = null,
   highlightId = null,
   lightDarkMode = "light",
+  pluginUUID = null,
 } = {}) {
   const theme = THEMES[lightDarkMode] || THEMES.light;
   // The library URL travels in the config because the viewer loads PDF.js itself -
@@ -220,16 +232,22 @@ export function buildEmbedHtml({
     // primitive the panel already uses, so it costs nothing to honour now - and spec
     // section 7.3 warns that retrofitting the deep-link path later is the expensive way.
     highlightId,
+    pluginUUID,
     pdfJsSrc: CDN.pdfJs,
     workerSrc: CDN.pdfJsWorker,
     // Loaded lazily, only when Download is clicked - see viewer.js's loadPdfLib.
     pdfLibSrc: CDN.pdfLib,
-    // rgb now travels to the embed too: Phase 4's Download button writes native
-    // annotations CLIENT-SIDE, reusing the PDF bytes already fetched for rendering
-    // rather than round-tripping a whole file through the plugin bridge (which only
-    // reliably carries strings - see docs/api-notes.md). cycleIndex stays plugin-side;
-    // it is still purely a Phase 5 export concern with nothing to do here.
-    colors: HIGHLIGHT_COLORS.map((c) => ({ id: c.id, label: c.label, hex: c.hex, rgb: c.rgb })),
+    // rgb (Phase 4) and cycleIndex (Phase 5) both now travel to the embed: Download
+    // writes native annotations and Copy/Send/Export-all build export markdown, all
+    // CLIENT-SIDE, reusing data already loaded rather than round-tripping through the
+    // plugin bridge (which only reliably carries strings - see docs/api-notes.md).
+    colors: HIGHLIGHT_COLORS.map((c) => ({
+      id: c.id,
+      label: c.label,
+      hex: c.hex,
+      rgb: c.rgb,
+      cycleIndex: c.cycleIndex,
+    })),
     defaultColorId: DEFAULT_COLOR_ID,
   };
 
@@ -267,6 +285,11 @@ export function buildEmbedHtml({
          attachNoteMedia rejects PDFs outright (see docs/api-notes.md), so download is
          the whole feature, not a fallback. -->
     <button id="pdfa-download" title="Download this PDF with every highlight and note baked in as a native annotation">Download</button>
+    <span class="pdfa-sep"></span>
+    <!-- Auto-creates (or updates) a destination note holding every highlight, with a
+         color filter - spec section 4's "export all highlights into an auto-created
+         destination note, with the ability to filter by highlight color". -->
+    <button id="pdfa-export" title="Export highlights to a note, optionally filtered by color">Export</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
   </div>
@@ -281,6 +304,7 @@ export function buildEmbedHtml({
 </div>
 <script>window.__PDFA_CONFIG = ${safeJson(config)};
 window.__PDFA_GEOM = (${createGeometry.toString()})();
-window.__PDFA_ANNOTATIONS = (${createAnnotationWriter.toString()})();<\/script>
+window.__PDFA_ANNOTATIONS = (${createAnnotationWriter.toString()})();
+window.__PDFA_EXPORT = (${createExportBuilder.toString()})();<\/script>
 <script>(${viewerMain.toString()})();<\/script>`;
 }

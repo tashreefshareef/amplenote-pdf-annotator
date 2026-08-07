@@ -53,8 +53,15 @@ const app = {
   },
 
   // Mirrors the real `{ section: { heading: { text } } }` behavior - replace only what
-  // is under that heading, leave the heading and the user's other content alone.
+  // is under that heading, leave the heading and the user's other content alone. Also
+  // doubles as the plain full-content replace exportAll uses against its own destination
+  // note (a separate in-memory note, routed by handle.uuid).
   async replaceNoteContent(handle, content, opts = {}) {
+    const target = Object.values(window.__harness.exportNotes).find((n) => n.uuid === handle.uuid);
+    if (target) {
+      target.content = content;
+      return true;
+    }
     const headingText = opts.section && opts.section.heading && opts.section.heading.text;
     if (!headingText) {
       note.content = content;
@@ -87,9 +94,21 @@ const app = {
   async getAttachmentURL() {
     return "sample.pdf";
   },
+
+  // Minimal find-or-create stand-in for exportAll's destination note, keyed by name in
+  // the same in-memory store as the main note.
+  async findNote({ name }) {
+    return window.__harness.exportNotes[name] ? { uuid: window.__harness.exportNotes[name].uuid } : null;
+  },
+
+  async createNote(name) {
+    const uuid = `note-export-${Object.keys(window.__harness.exportNotes).length + 1}`;
+    window.__harness.exportNotes[name] = { uuid, name, content: "" };
+    return uuid;
+  },
 };
 
-window.__harness = { note, calls: [] };
+window.__harness = { note, calls: [], exportNotes: {} };
 
 window.callAmplenotePlugin = async function (payload) {
   const request = JSON.parse(payload);

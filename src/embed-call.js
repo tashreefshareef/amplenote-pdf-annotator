@@ -162,6 +162,40 @@ export async function handleEmbedCall(app, payload) {
       }
     }
 
+    case "sendToNote": {
+      if (!request.content) return { error: "Nothing to send." };
+      try {
+        // atEnd - never disturbs the user's own content above it (spec §4: "probably
+        // appended at the bottom of the note").
+        await app.insertNoteContent(
+          { uuid: app.context.noteUUID },
+          "\n" + request.content + "\n",
+          { atEnd: true }
+        );
+        return { ok: true };
+      } catch (err) {
+        return { error: `Could not add this to the note: ${err.message}` };
+      }
+    }
+
+    case "exportAll": {
+      if (!request.noteName) return { error: "Missing destination note name." };
+      try {
+        // A deterministic name is what makes this idempotent: re-running "Export all"
+        // finds the SAME note rather than creating a new one every time, and a whole
+        // -note replace (no section - this note IS the export, unlike the highlights
+        // data section which shares a note with the user's own content) means the
+        // destination always reflects exactly the current highlight set, never a
+        // growing pile of duplicates from previous runs.
+        const existing = await app.findNote({ name: request.noteName });
+        const noteUUID = existing ? existing.uuid : await app.createNote(request.noteName);
+        await app.replaceNoteContent({ uuid: noteUUID }, request.content || "");
+        return { ok: true, noteUUID };
+      } catch (err) {
+        return { error: `Could not export highlights: ${err.message}` };
+      }
+    }
+
     case "ping":
       // Lets the embed verify the bridge before doing real work.
       return { ok: true };

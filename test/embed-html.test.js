@@ -91,7 +91,7 @@ describe("buildEmbedHtml", () => {
       "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
       "pdfa-colors", "pdfa-hint", "pdfa-popover", "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
-      "pdfa-download",
+      "pdfa-download", "pdfa-export",
     ]) {
       expect(out).toContain(`id="${id}"`);
     }
@@ -116,17 +116,24 @@ describe("buildEmbedHtml", () => {
     expect(toolbar).toContain('id="pdfa-colors"');
   });
 
-  // Scenario: rgb now DOES reach the embed - Phase 4's Download button writes native
-  // annotations client-side, reusing the PDF bytes already fetched for rendering rather
-  // than round-tripping a whole file through the plugin bridge (string-only - see
-  // docs/api-notes.md). cycleIndex stays plugin-side; it is purely a Phase 5 export
-  // concern with nothing to do inside the embed.
-  test("sends rgb to the embed for pdf-lib but withholds export-only cycleIndex", () => {
+  // Scenario: rgb (Phase 4, native annotations) and cycleIndex (Phase 5, export
+  // markdown) both reach the embed now - both features build their output CLIENT-SIDE,
+  // reusing data already loaded rather than round-tripping through the plugin bridge
+  // (string-only - see docs/api-notes.md).
+  test("sends rgb and cycleIndex to the embed for pdf-lib and export markdown", () => {
     const out = html();
-    expect(out).not.toContain("cycleIndex");
     for (const color of HIGHLIGHT_COLORS) {
       expect(out).toContain(`"rgb":[${color.rgb.join(",")}]`);
+      expect(out).toContain(`"cycleIndex":${color.cycleIndex}`);
     }
+  });
+
+  // Scenario: the deep link an exported highlight carries is built from this plugin's
+  // own note uuid (src/export.js) - it has to reach the viewer's config the same way
+  // attachmentUUID and highlightId already do.
+  test("passes the plugin's own uuid through for building export deep links", () => {
+    expect(html({ pluginUUID: "plugin-uuid-1" })).toContain('"pluginUUID":"plugin-uuid-1"');
+    expect(html()).toContain('"pluginUUID":null');
   });
 
   // Scenario: the overlay must sit ABOVE the rendered page but BELOW the text layer, or
@@ -305,6 +312,18 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("writeHighlightsIntoPdf");
     // Still inside the SAME first script block as config and geometry - no new
     // <script> tag, or "emits two balanced script blocks" above would catch it.
+    const configBlock = out.slice(0, out.indexOf("__PDFA_CONFIG || {}"));
+    expect((configBlock.match(/<\/script>/g) || []).length).toBe(1);
+  });
+
+  // Scenario: the fourth serialized function. The export builder's source is injected
+  // alongside config, geometry and the annotation writer so Copy / Send to note /
+  // Export all all run the code the Jest suite checks against the bounty's export
+  // format requirement, not an untested transcription of it.
+  test("injects the tested export builder, with a script-safe source", () => {
+    const out = html();
+    expect(out).toContain("window.__PDFA_EXPORT");
+    expect(out).toContain("buildHighlightBlock");
     const configBlock = out.slice(0, out.indexOf("__PDFA_CONFIG || {}"));
     expect((configBlock.match(/<\/script>/g) || []).length).toBe(1);
   });

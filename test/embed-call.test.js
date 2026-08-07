@@ -476,6 +476,118 @@ describe("loadHighlights", () => {
   });
 });
 
+describe("sendToNote", () => {
+  // Scenario: the core Phase 5 "send to note" action - spec §4's "a button sends that
+  // highlight to its correct Amplenote (probably appended at the bottom of the note)".
+  test("appends the given content to the end of the source note", async () => {
+    const app = appWithNote("# Reading notes\nmy own text");
+    const result = await call(app, { action: "sendToNote", content: "==[paper.pdf](url)==\n> \"quote\"" });
+
+    expect(result).toEqual({ ok: true });
+    const final = app._notes.get(NOTE).content;
+    expect(final).toContain("my own text");
+    expect(final).toContain('> "quote"');
+    // Appended, not prepended or replacing.
+    expect(final.indexOf("my own text")).toBeLessThan(final.indexOf('> "quote"'));
+  });
+
+  // Scenario: "append without disturbing existing content" - explicit spec test
+  // requirement. Content before AND after the append point must both survive.
+  test("does not disturb content already in the note", async () => {
+    const app = appWithNote("# Intro\nbefore\n\n# Conclusion\nafter");
+    await call(app, { action: "sendToNote", content: "new block" });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final).toContain("before");
+    expect(final).toContain("after");
+    expect(final.indexOf("after")).toBeGreaterThan(final.indexOf("before"));
+  });
+
+  // Scenario: nothing to send must be refused before it reaches insertNoteContent,
+  // rather than writing an empty/blank block into the note.
+  test("refuses to send empty content", async () => {
+    const app = appWithNote();
+    const result = await call(app, { action: "sendToNote", content: "" });
+    expect(result.error).toMatch(/nothing to send/i);
+    expect(app.insertNoteContent).not.toHaveBeenCalled();
+  });
+});
+
+describe("exportAll", () => {
+  // Scenario: THE core "export all" requirement - auto-creates a destination note when
+  // one doesn't exist yet.
+  test("creates the destination note when it does not exist", async () => {
+    const app = appWithNote();
+    const result = await call(app, {
+      action: "exportAll",
+      noteName: "paper.pdf - Highlights",
+      content: "==[paper.pdf](url)==\n> \"quote one\"",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(app.createNote).toHaveBeenCalledWith("paper.pdf - Highlights");
+    const created = app._notes.get(result.noteUUID);
+    expect(created.content).toContain("quote one");
+  });
+
+  // Scenario: THE idempotency requirement - re-running "export all" must find the SAME
+  // note by its deterministic name, not create a second one.
+  test("reuses the existing destination note on a second run rather than duplicating", async () => {
+    const app = appWithNote();
+    const first = await call(app, {
+      action: "exportAll",
+      noteName: "paper.pdf - Highlights",
+      content: "first run content",
+    });
+    const second = await call(app, {
+      action: "exportAll",
+      noteName: "paper.pdf - Highlights",
+      content: "second run content",
+    });
+
+    expect(second.noteUUID).toBe(first.noteUUID);
+    expect(app.createNote).toHaveBeenCalledTimes(1);
+    // The SECOND run's content is what the note holds now - a full replace, not an
+    // ever-growing append, so re-running never duplicates what was exported before.
+    const finalContent = app._notes.get(first.noteUUID).content;
+    expect(finalContent).toBe("second run content");
+    expect(finalContent).not.toContain("first run content");
+  });
+
+  // Scenario: the color filter is applied by the CALLER (export.js, embed-side) before
+  // this action ever runs - this action just writes whatever content it is given. This
+  // test is here to document that division of responsibility, since it is easy to
+  // assume filtering happens plugin-side and duplicate the logic.
+  test("writes exactly the content it is given, filtering being the caller's job", async () => {
+    const app = appWithNote();
+    const result = await call(app, {
+      action: "exportAll",
+      noteName: "paper.pdf - Highlights",
+      content: "only-the-green-ones",
+    });
+    expect(app._notes.get(result.noteUUID).content).toBe("only-the-green-ones");
+  });
+
+  // Scenario: a missing destination note name must be refused, not silently create a
+  // note called "undefined" or similar.
+  test("refuses to run without a destination note name", async () => {
+    const app = appWithNote();
+    const result = await call(app, { action: "exportAll", content: "some content" });
+    expect(result.error).toMatch(/destination note name/i);
+    expect(app.createNote).not.toHaveBeenCalled();
+  });
+
+  // Scenario: an empty highlight set (every highlight filtered out, or none exist) must
+  // still produce a valid, empty destination note rather than throwing - the toolbar
+  // button has no way to know in advance whether the filter will match anything.
+  test("creates an empty destination note rather than throwing when there is nothing to export", async () => {
+    const app = appWithNote();
+    const result = await call(app, { action: "exportAll", noteName: "paper.pdf - Highlights", content: "" });
+    expect(result.ok).toBe(true);
+    expect(app._notes.get(result.noteUUID).content).toBe("");
+  });
+});
+
 describe("unknown and failing requests", () => {
   // Scenario: a version mismatch between a cached embed and a newer plugin. The action
   // name is echoed so the failure is diagnosable from the embed's status bar alone -

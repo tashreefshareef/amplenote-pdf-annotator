@@ -8,22 +8,28 @@
  *     injected the same way) rather than being reimplemented here
  *   - the pdf-lib annotation writer arrives on `window.__PDFA_ANNOTATIONS`
  *     (src/annotations.js, injected the same way), for the same reason
+ *   - the export markdown builder arrives on `window.__PDFA_EXPORT`
+ *     (src/export.js, injected the same way), for the same reason again
  *   - it cannot be unit tested (it needs a real iframe, PDF.js, and a live plugin
  *     bridge), which is exactly why everything decidable lives in src/ modules instead.
  *     Keep this file about DOM, PDF.js and pdf-lib wiring only. See spec section 8.
  *
  * Scope: render every page with a real text layer, zoom and page navigation, the full
  * highlight loop (create, recolor, remove), one plain-text note per highlight, a panel
- * listing everything, and downloading the PDF with every highlight and note baked in as
- * a native annotation.
+ * listing everything, downloading the PDF with every highlight and note baked in as a
+ * native annotation, and exporting highlights back into Amplenote notes - copy one to
+ * the clipboard, send one to the bottom of the source note, or export every highlight
+ * (optionally filtered by color) into an auto-created destination note.
  *
- * THE POPOVER IS THE CENTRE OF THE UI. One element, four contexts:
+ * THE POPOVER IS THE CENTRE OF THE UI. One element, five contexts:
  *   - a fresh text selection -> the four colors, so highlighting never requires a trip
  *     to the toolbar
  *   - straight after creating a highlight -> "Add note", because the spec requires that
  *     offer to appear immediately
- *   - an existing highlight -> recolor, add/edit note, remove
+ *   - an existing highlight -> recolor, add/edit note, copy, send to note, remove
  *   - the note editor itself
+ *   - "export all"'s color filter - the one context where the swatches are an
+ *     independent multi-select instead of "pick one"
  * The toolbar colors keep working independently: the spec requires them as top-level
  * single-click buttons, and the popover is a shortcut to them, not a replacement.
  *
@@ -36,6 +42,7 @@ export function viewerMain() {
   var cfg = window.__PDFA_CONFIG || {};
   var geom = window.__PDFA_GEOM || {};
   var annotations = window.__PDFA_ANNOTATIONS || {};
+  var exportBuilder = window.__PDFA_EXPORT || {};
   var els = {
     root: document.getElementById("pdfa-root"),
     pages: document.getElementById("pdfa-pages"),
@@ -49,6 +56,7 @@ export function viewerMain() {
     listToggle: document.getElementById("pdfa-list-toggle"),
     count: document.getElementById("pdfa-count"),
     download: document.getElementById("pdfa-download"),
+    exportAll: document.getElementById("pdfa-export"),
   };
 
   var state = {
@@ -735,10 +743,15 @@ export function viewerMain() {
    * Fixed positioning works because the embed is its own iframe: a click's client
    * coordinates are already relative to this element's containing block, and the whole
    * frame moves as one unit when the surrounding note scrolls.
+   *
+   * @param mode "editing" (the note editor) or "exporting" (export all's color filter)
+   *   switch the popover into a column layout with its own width; omit for the default
+   *   single-row layout every other context uses.
    */
-  function showPopover(children, clientX, clientY, editing) {
+  function showPopover(children, clientX, clientY, mode) {
     els.popover.innerHTML = "";
-    els.popover.classList.toggle("pdfa-editing", !!editing);
+    els.popover.classList.toggle("pdfa-editing", mode === "editing");
+    els.popover.classList.toggle("pdfa-exporting", mode === "exporting");
     for (var i = 0; i < children.length; i++) els.popover.appendChild(children[i]);
 
     // Must be visible before measuring - a display:none element has no size.
@@ -761,7 +774,7 @@ export function viewerMain() {
   function closePopover(force) {
     if (state.noteEditing && !force) return;
     state.noteEditing = null;
-    els.popover.classList.remove("pdfa-open", "pdfa-editing");
+    els.popover.classList.remove("pdfa-open", "pdfa-editing", "pdfa-exporting");
     els.popover.innerHTML = "";
   }
 
@@ -801,6 +814,11 @@ export function viewerMain() {
         openNoteEditor(highlight, clientX, clientY);
       })
     );
+    // "Copy" and "Send to note" - spec section 4. Not offered on a highlight still
+    // waiting on its first save (no id yet - see applyHighlight), same guard the click
+    // hit-test already applies before this popover can even open for one.
+    children.push(button("Copy", "", function () { copyHighlight(highlight); }));
+    children.push(button("Send to note", "", function () { sendHighlightToNote(highlight); }));
     children.push(
       button("Remove", "pdfa-remove", function () {
         removeHighlightById(highlight.id);
@@ -808,6 +826,49 @@ export function viewerMain() {
     );
 
     showPopover(children, clientX, clientY);
+  }
+
+  /**
+   * Context 5: "export all"'s color filter. Independently-toggled swatches - the four
+   * booleans are which colors to INCLUDE, not a single active color - so this cannot
+   * reuse the single-select handling every other popover context relies on.
+   */
+  function openExportPopover(clientX, clientY) {
+    var list = colorList();
+    var active = {};
+    for (var i = 0; i < list.length; i++) active[list[i].id] = true;
+
+    var hint = document.createElement("div");
+    hint.className = "pdfa-export-hint";
+    hint.textContent = "Export highlights to a note";
+
+    var swatchRow = document.createElement("div");
+    swatchRow.className = "pdfa-export-colors";
+    for (var j = 0; j < list.length; j++) {
+      (function (color) {
+        var sw = makeSwatch(color, true, function (colorId) {
+          active[colorId] = !active[colorId];
+          sw.setAttribute("aria-pressed", String(active[colorId]));
+        }, "Toggle");
+        swatchRow.appendChild(sw);
+      })(list[j]);
+    }
+
+    var actions = document.createElement("div");
+    actions.className = "pdfa-note-actions";
+    actions.appendChild(
+      button("Create / update note", "pdfa-btn-primary", function () {
+        var included = [];
+        for (var k = 0; k < list.length; k++) {
+          if (active[list[k].id]) included.push(list[k].id);
+        }
+        // All colors selected is the same as no filter at all - sending null rather
+        // than a filter that happens to match everything is the clearer signal.
+        exportAllHighlights(included.length === list.length ? null : included);
+      })
+    );
+
+    showPopover([hint, swatchRow, actions], clientX, clientY, "exporting");
   }
 
   /** Context 4: the note editor. One plain-text note, per spec section 4. */
@@ -864,7 +925,7 @@ export function viewerMain() {
       }
     };
 
-    showPopover([input, actions], clientX, clientY, true);
+    showPopover([input, actions], clientX, clientY, "editing");
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   }
@@ -1050,6 +1111,125 @@ export function viewerMain() {
     return base + "-annotated.pdf";
   }
 
+  /** { [colorId]: cycleIndex } from config, for export.js's markdown builders. */
+  function colorCycleIndexTable() {
+    var table = {};
+    var list = colorList();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].cycleIndex !== undefined) table[list[i].id] = list[i].cycleIndex;
+    }
+    return table;
+  }
+
+  /** The name of the "export all" destination note - deterministic, so re-running the
+   * export finds the SAME note (see embed-call.js's exportAll action) instead of
+   * creating a new one every time. */
+  function destinationNoteName() {
+    var base = (state.attachmentName || "PDF").replace(/\.pdf$/i, "");
+    return base + " - Highlights";
+  }
+
+  function exportBlockFor(highlight) {
+    return exportBuilder.buildHighlightBlock(
+      state.attachmentName,
+      cfg.pluginUUID,
+      cfg.attachmentUUID,
+      highlight,
+      colorCycleIndexTable()[highlight.color]
+    );
+  }
+
+  /**
+   * Write to the clipboard, falling back to a hidden textarea + execCommand when the
+   * async Clipboard API is unavailable - cross-origin iframes (the embed's own
+   * situation, on plugins.amplenote.com) can have clipboard-write permission-gated by
+   * the EMBEDDING page in a way this plugin has no control over, and execCommand has
+   * historically worked in more restrictive iframe contexts than the modern API.
+   */
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (err) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      if (ok) resolve();
+      else reject(new Error("Clipboard access is unavailable here."));
+    });
+  }
+
+  /** "Copy" - spec section 4: copy a highlight, paste it into any note. */
+  function copyHighlight(highlight) {
+    closePopover(true);
+    copyToClipboard(exportBlockFor(highlight))
+      .then(function () {
+        status("Highlight copied - paste it into any note.");
+      })
+      .catch(function (err) {
+        status("Could not copy: " + (err.message || err), true);
+      });
+  }
+
+  /** "Send to note" - spec section 4: append to the bottom of the source note. */
+  function sendHighlightToNote(highlight) {
+    closePopover(true);
+    callPlugin({ action: "sendToNote", content: exportBlockFor(highlight) })
+      .then(function (result) {
+        if (!result || result.error) {
+          throw new Error((result && result.error) || "Could not send this to the note.");
+        }
+        status("Sent to the bottom of this note.");
+      })
+      .catch(function (err) {
+        status(err.message || String(err), true);
+      });
+  }
+
+  /**
+   * "Export all" - spec section 4: auto-create (or update) a destination note holding
+   * every highlight, filtered by color. The filter is applied HERE, client-side, before
+   * anything is sent to the plugin - embed-call.js's exportAll action just writes
+   * whatever content it is given, so there is exactly one place color-filtering logic
+   * lives, not two copies that could drift apart.
+   */
+  function exportAllHighlights(colorFilter) {
+    closePopover(true);
+    var content = exportBuilder.buildExportAllContent(
+      state.attachmentName,
+      cfg.pluginUUID,
+      cfg.attachmentUUID,
+      state.highlights,
+      colorCycleIndexTable(),
+      colorFilter
+    );
+    if (!content) {
+      status(colorFilter ? "No highlights match those colors." : "No highlights to export yet.", true);
+      return;
+    }
+    callPlugin({ action: "exportAll", noteName: destinationNoteName(), content: content })
+      .then(function (result) {
+        if (!result || result.error) {
+          throw new Error((result && result.error) || "Could not export highlights.");
+        }
+        status('Exported to "' + destinationNoteName() + '".');
+      })
+      .catch(function (err) {
+        status(err.message || String(err), true);
+      });
+  }
+
   /**
    * Write every highlight into the SOURCE bytes as native annotations (see
    * annotations.js - the pdf-lib spike turned into production code) and hand the
@@ -1175,6 +1355,9 @@ export function viewerMain() {
     document.getElementById("pdfa-zoom-out").onclick = function () { setZoom(state.scale - 0.25); };
     els.listToggle.onclick = function () { togglePanel(); };
     els.download.onclick = downloadAnnotatedPdf;
+    els.exportAll.onclick = function (event) {
+      openExportPopover(event.clientX, event.clientY);
+    };
     scroller().addEventListener("scroll", trackScroll);
 
     // Scoped to the page area on purpose. On `document` it would also fire when the user
