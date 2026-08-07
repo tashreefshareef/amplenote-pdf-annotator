@@ -588,6 +588,58 @@ describe("exportAll", () => {
   });
 });
 
+describe("removeViewer", () => {
+  const PLUGIN = "plug-uuid";
+  const embedTag = (attUUID) => `<object data="plugin://${PLUGIN}?att=${attUUID}" data-aspect-ratio="1.2" />`;
+
+  // Scenario: THE point of this action - explicit, user-triggered detach removes both
+  // halves of a viewer: the <object> line in the note body, and its highlights entry in
+  // the managed section. Neither is cleaned up any other way (no "attachment removed"
+  // event exists to react to).
+  test("removes the embed line and the highlights entry together", async () => {
+    const content = `# Notes\n\n${embedTag(ATT)}\n\n# ${STORAGE_SECTION_HEADING}\n\n\`\`\`json\n{}\n\`\`\``;
+    const app = appWithNote(content);
+    await saveHighlights(app, NOTE, ATT, [createHighlight(draft())]);
+
+    const result = await call(app, { action: "removeViewer", attachmentUUID: ATT, pluginUUID: PLUGIN });
+
+    expect(result.ok).toBe(true);
+    const finalContent = app._notes.get(NOTE).content;
+    expect(finalContent).not.toContain("plugin://" + PLUGIN);
+    expect(await loadHighlights(app, NOTE, ATT)).toEqual([]);
+  });
+
+  // Scenario: a note with two viewers - removing one must leave the other's embed AND
+  // its highlights completely untouched.
+  test("leaves a different viewer on the same note untouched", async () => {
+    const ATT_OTHER = "attach-other";
+    const content = `# Notes\n\n${embedTag(ATT)}\n\n${embedTag(ATT_OTHER)}`;
+    const app = appWithNote(content);
+    app._notes.get(NOTE).attachments.push(mockAttachment({ uuid: ATT_OTHER, name: "other.pdf" }));
+    const otherHighlight = createHighlight(draft({ quoteText: "the other pdf's text" }));
+    await saveHighlights(app, NOTE, ATT_OTHER, [otherHighlight]);
+
+    await call(app, { action: "removeViewer", attachmentUUID: ATT, pluginUUID: PLUGIN });
+
+    expect(app._notes.get(NOTE).content).toContain(embedTag(ATT_OTHER));
+    expect(await loadHighlights(app, NOTE, ATT_OTHER)).toEqual([otherHighlight]);
+  });
+
+  // Scenario: nothing to remove - already gone, or the note was hand-edited. Reported
+  // back as an error the embed can show, not thrown.
+  test("reports an error when this viewer's embed line cannot be found", async () => {
+    const app = appWithNote("# Notes\nnothing here");
+    const result = await call(app, { action: "removeViewer", attachmentUUID: ATT, pluginUUID: PLUGIN });
+    expect(result.error).toMatch(/could not find/i);
+  });
+
+  test("refuses to run without an attachment or a plugin id", async () => {
+    const app = appWithNote(embedTag(ATT));
+    expect((await call(app, { action: "removeViewer", pluginUUID: PLUGIN })).error).toMatch(/attachment/i);
+    expect((await call(app, { action: "removeViewer", attachmentUUID: ATT })).error).toMatch(/plugin/i);
+  });
+});
+
 describe("unknown and failing requests", () => {
   // Scenario: a version mismatch between a cached embed and a newer plugin. The action
   // name is echoed so the failure is diagnosable from the embed's status bar alone -

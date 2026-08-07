@@ -136,6 +136,19 @@ var __pluginModule = (() => {
     if (!attachmentUUID) return true;
     return noteContent.includes(`att=${attachmentUUID}`);
   }
+  function removeEmbedMarkup(noteContent, pluginUUID, attachmentUUID) {
+    if (!noteContent || !pluginUUID || !attachmentUUID) return null;
+    const lines = noteContent.split("\n");
+    const marker = `plugin://${pluginUUID}`;
+    const idx = lines.findIndex(
+      (line) => line.includes(marker) && line.includes(`att=${attachmentUUID}`)
+    );
+    if (idx === -1) return null;
+    const next = lines.slice();
+    next.splice(idx, 1);
+    if (next[idx] === "" && next[idx - 1] === "") next.splice(idx, 1);
+    return next.join("\n");
+  }
 
   // src/actions/annotate-pdf.js
   async function annotatePdf(app, noteUUID, pluginUUID) {
@@ -290,6 +303,19 @@ ${COMMENT_CLOSE}`;
       section: { heading: { text: STORAGE_SECTION_HEADING, level: 1 } }
     });
   }
+  async function deleteHighlights(app, noteUUID, attachmentUUID) {
+    const noteHandle = { uuid: noteUUID };
+    const content = await app.getNoteContent(noteHandle);
+    const section = extractSection(content, STORAGE_SECTION_HEADING);
+    if (section === null) return;
+    const existing = deserialize(section) || {};
+    if (!(attachmentUUID in existing)) return;
+    const rest = { ...existing };
+    delete rest[attachmentUUID];
+    await app.replaceNoteContent(noteHandle, serialize(rest), {
+      section: { heading: { text: STORAGE_SECTION_HEADING, level: 1 } }
+    });
+  }
   function extractSection(noteContent, headingText) {
     if (!noteContent) return null;
     const lines = noteContent.split("\n");
@@ -425,6 +451,23 @@ ${COMMENT_CLOSE}`;
           return { ok: true };
         } catch (err) {
           return { error: `Could not add this to the note: ${err.message}` };
+        }
+      }
+      case "removeViewer": {
+        if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+        if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate this viewer." };
+        try {
+          const noteUUID = app.context.noteUUID;
+          const content = await app.getNoteContent({ uuid: noteUUID });
+          const updated = removeEmbedMarkup(content, request.pluginUUID, request.attachmentUUID);
+          if (updated === null) {
+            return { error: "Could not find this viewer's block in the note - it may already be removed." };
+          }
+          await app.replaceNoteContent({ uuid: noteUUID }, updated);
+          await deleteHighlights(app, noteUUID, request.attachmentUUID);
+          return { ok: true };
+        } catch (err) {
+          return { error: `Could not remove this viewer: ${err.message}` };
         }
       }
       case "exportAll": {
@@ -824,7 +867,8 @@ ${COMMENT_CLOSE}`;
       listToggle: document.getElementById("pdfa-list-toggle"),
       count: document.getElementById("pdfa-count"),
       download: document.getElementById("pdfa-download"),
-      exportAll: document.getElementById("pdfa-export")
+      exportAll: document.getElementById("pdfa-export"),
+      removeViewer: document.getElementById("pdfa-remove-viewer")
     };
     var state = {
       doc: null,
@@ -1629,6 +1673,24 @@ ${COMMENT_CLOSE}`;
         status(err.message || String(err), true);
       });
     }
+    function removeThisViewer() {
+      if (!window.confirm(
+        "Remove this PDF Annotator viewer and all its highlights from this note? This cannot be undone."
+      )) {
+        return;
+      }
+      els.removeViewer.disabled = true;
+      status("Removing this viewer...");
+      callPlugin({ action: "removeViewer", attachmentUUID: cfg.attachmentUUID, pluginUUID: cfg.pluginUUID }).then(function(result) {
+        if (!result || result.error) {
+          throw new Error(result && result.error || "Could not remove this viewer.");
+        }
+        document.body.innerHTML = '<div style="padding:16px;font:13px sans-serif;opacity:.75">Removed - this block will disappear once the note refreshes.</div>';
+      }).catch(function(err) {
+        els.removeViewer.disabled = false;
+        status(err.message || String(err), true);
+      });
+    }
     function downloadAnnotatedPdf() {
       if (!state.pdfBytes) return;
       var btn = els.download;
@@ -1729,6 +1791,7 @@ ${COMMENT_CLOSE}`;
       els.exportAll.onclick = function(event) {
         openExportPopover(event.clientX, event.clientY);
       };
+      els.removeViewer.onclick = removeThisViewer;
       scroller().addEventListener("scroll", trackScroll);
       els.pages.addEventListener("mouseup", captureSelection);
       els.pages.addEventListener("click", onPagesClick);
@@ -1763,6 +1826,10 @@ ${COMMENT_CLOSE}`;
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
   .pdfa-toolbar button:disabled { opacity: .5; cursor: default; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
+  /* Destructive and deliberately quiet at rest - only turns clearly "warning" colored on
+     hover, so it doesn't compete for attention with the toolbar's everyday actions. */
+  .pdfa-remove { color: var(--pdfa-error); border-color: var(--pdfa-error); opacity: .7; }
+  .pdfa-remove:hover { opacity: 1; background: var(--pdfa-error); color: #fff; }
   .pdfa-sep { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 0 4px; }
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
@@ -1976,6 +2043,13 @@ ${COMMENT_CLOSE}`;
     <button id="pdfa-export" title="Export highlights to a note, optionally filtered by color">Export</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName2)}</span>
+    <span class="pdfa-sep"></span>
+    <!-- Explicit, user-triggered detach: deletes this embed's own <object> line and its
+         highlights entry. Nothing does this automatically - there's no "attachment was
+         removed" event to react to, and re-attaching a same-named PDF gets a brand new
+         uuid, not the old one - so a dead or unwanted viewer only ever goes away when
+         asked to. -->
+    <button id="pdfa-remove-viewer" class="pdfa-remove" title="Remove this viewer and its highlights from this note">Remove</button>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-body">

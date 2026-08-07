@@ -69,6 +69,10 @@ const STYLES = `
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
   .pdfa-toolbar button:disabled { opacity: .5; cursor: default; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
+  /* Destructive and deliberately quiet at rest - only turns clearly "warning" colored on
+     hover, so it doesn't compete for attention with the toolbar's everyday actions. */
+  .pdfa-remove { color: var(--pdfa-error); border-color: var(--pdfa-error); opacity: .7; }
+  .pdfa-remove:hover { opacity: 1; background: var(--pdfa-error); color: #fff; }
   .pdfa-sep { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 0 4px; }
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
@@ -300,6 +304,13 @@ export function buildEmbedHtml({
     <button id="pdfa-export" title="Export highlights to a note, optionally filtered by color">Export</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
+    <span class="pdfa-sep"></span>
+    <!-- Explicit, user-triggered detach: deletes this embed's own <object> line and its
+         highlights entry. Nothing does this automatically - there's no "attachment was
+         removed" event to react to, and re-attaching a same-named PDF gets a brand new
+         uuid, not the old one - so a dead or unwanted viewer only ever goes away when
+         asked to. -->
+    <button id="pdfa-remove-viewer" class="pdfa-remove" title="Remove this viewer and its highlights from this note">Remove</button>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-body">

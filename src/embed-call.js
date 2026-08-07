@@ -10,7 +10,8 @@
  * opaque failure, whereas `{ error }` can be shown to the user.
  */
 import { fetchableAttachmentURL } from "./attachments.js";
-import { loadHighlights, saveHighlights } from "./storage.js";
+import { loadHighlights, saveHighlights, deleteHighlights } from "./storage.js";
+import { removeEmbedMarkup } from "./embed-args.js";
 import {
   createHighlight,
   removeHighlight,
@@ -175,6 +176,27 @@ export async function handleEmbedCall(app, payload) {
         return { ok: true };
       } catch (err) {
         return { error: `Could not add this to the note: ${err.message}` };
+      }
+    }
+
+    case "removeViewer": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate this viewer." };
+      try {
+        const noteUUID = app.context.noteUUID;
+        const content = await app.getNoteContent({ uuid: noteUUID });
+        const updated = removeEmbedMarkup(content, request.pluginUUID, request.attachmentUUID);
+        if (updated === null) {
+          return { error: "Could not find this viewer's block in the note - it may already be removed." };
+        }
+        // Whole-note replace, deliberately - the embed tag can sit anywhere the user
+        // left it, unlike the highlights section below, which is always the same
+        // heading and can go through the safer section-scoped replace.
+        await app.replaceNoteContent({ uuid: noteUUID }, updated);
+        await deleteHighlights(app, noteUUID, request.attachmentUUID);
+        return { ok: true };
+      } catch (err) {
+        return { error: `Could not remove this viewer: ${err.message}` };
       }
     }
 

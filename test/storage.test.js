@@ -8,7 +8,7 @@
  * during Phase 1 development, so these tests exercise the same code path Amplenote
  * actually runs.
  */
-import { loadHighlights, saveHighlights } from "../src/storage.js";
+import { loadHighlights, saveHighlights, deleteHighlights } from "../src/storage.js";
 import { createHighlight } from "../src/highlights.js";
 import { STORAGE_SECTION_HEADING } from "../src/constants.js";
 import { createMockApp } from "./helpers.js";
@@ -230,5 +230,57 @@ describe("saveHighlights", () => {
     expect(final).toContain("user text before");
     expect(final).toContain("user text after");
     expect(final.indexOf("user text after")).toBeGreaterThan(final.indexOf("user text before"));
+  });
+});
+
+describe("deleteHighlights", () => {
+  // Scenario: THE point of this function - detaching a viewer (embed-call.js's
+  // removeViewer action) must not leave even an empty [] placeholder behind for an
+  // attachment that no longer exists.
+  test("removes the attachment's entry entirely, not just clears it", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+
+    await deleteHighlights(app, NOTE, ATT_A);
+
+    const stored = app._notes.get(NOTE).content;
+    // No trace of the attachment's key at all - not even an empty array for it.
+    expect(stored).not.toContain(ATT_A);
+    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([]);
+  });
+
+  // Scenario: multiple PDFs on one note - deleting one attachment's highlights must not
+  // disturb another's, same guarantee saveHighlights gives.
+  test("preserves other attachments' highlights", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    const hB = sampleHighlight({ id: "hl-b" });
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight({ id: "hl-a" })]);
+    await saveHighlights(app, NOTE, ATT_B, [hB]);
+
+    await deleteHighlights(app, NOTE, ATT_A);
+
+    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([]);
+    expect(await loadHighlights(app, NOTE, ATT_B)).toEqual([hB]);
+  });
+
+  // Scenario: nothing to delete - a fresh note with no managed section at all - must not
+  // throw. removeViewer's own attachment lookup already guards against this in practice,
+  // but the function itself should be safe called on its own too.
+  test("is a no-op when there is no managed section yet", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "# Title\nhello" }] });
+    await expect(deleteHighlights(app, NOTE, ATT_A)).resolves.toBeUndefined();
+    expect(app._notes.get(NOTE).content).toBe("# Title\nhello");
+  });
+
+  // Scenario: an attachment with no entry in an otherwise-populated section - also a
+  // no-op, not an error, and must not disturb the entry that IS there.
+  test("is a no-op when this attachment has no entry in the section", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    const hB = sampleHighlight({ id: "hl-b" });
+    await saveHighlights(app, NOTE, ATT_B, [hB]);
+
+    await deleteHighlights(app, NOTE, ATT_A);
+
+    expect(await loadHighlights(app, NOTE, ATT_B)).toEqual([hB]);
   });
 });

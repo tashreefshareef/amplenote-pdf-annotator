@@ -57,6 +57,7 @@ export function viewerMain() {
     count: document.getElementById("pdfa-count"),
     download: document.getElementById("pdfa-download"),
     exportAll: document.getElementById("pdfa-export"),
+    removeViewer: document.getElementById("pdfa-remove-viewer"),
   };
 
   var state = {
@@ -1231,6 +1232,42 @@ export function viewerMain() {
   }
 
   /**
+   * Detach this viewer entirely: delete its own <object> line from the note and its
+   * highlights entry from the managed section (embed-call.js's removeViewer action).
+   *
+   * Nothing does this automatically - see the toolbar comment in html.js for why. A
+   * native confirm() gates it since there is no undo: this is the one action here that
+   * can make a whole highlight set disappear in a single click.
+   */
+  function removeThisViewer() {
+    if (
+      !window.confirm(
+        "Remove this PDF Annotator viewer and all its highlights from this note? This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    els.removeViewer.disabled = true;
+    status("Removing this viewer...");
+    callPlugin({ action: "removeViewer", attachmentUUID: cfg.attachmentUUID, pluginUUID: cfg.pluginUUID })
+      .then(function (result) {
+        if (!result || result.error) {
+          throw new Error((result && result.error) || "Could not remove this viewer.");
+        }
+        // The note just lost this embed's own <object> tag - Amplenote will tear this
+        // iframe down once it notices. Nothing left to render here in the meantime.
+        document.body.innerHTML =
+          '<div style="padding:16px;font:13px sans-serif;opacity:.75">' +
+          "Removed - this block will disappear once the note refreshes." +
+          "</div>";
+      })
+      .catch(function (err) {
+        els.removeViewer.disabled = false;
+        status(err.message || String(err), true);
+      });
+  }
+
+  /**
    * Write every highlight into the SOURCE bytes as native annotations (see
    * annotations.js - the pdf-lib spike turned into production code) and hand the
    * result to the browser's own download flow via a throwaway <a download> link.
@@ -1358,6 +1395,7 @@ export function viewerMain() {
     els.exportAll.onclick = function (event) {
       openExportPopover(event.clientX, event.clientY);
     };
+    els.removeViewer.onclick = removeThisViewer;
     scroller().addEventListener("scroll", trackScroll);
 
     // Scoped to the page area on purpose. On `document` it would also fire when the user

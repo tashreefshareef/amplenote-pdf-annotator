@@ -11,6 +11,7 @@ import {
   buildEmbedArgs,
   buildEmbedMarkup,
   hasEmbedFor,
+  removeEmbedMarkup,
 } from "../src/embed-args.js";
 
 describe("parseEmbedArgs", () => {
@@ -133,5 +134,37 @@ describe("hasEmbedFor", () => {
   test("handles empty content", () => {
     expect(hasEmbedFor("", "plug-1")).toBe(false);
     expect(hasEmbedFor(null, "plug-1")).toBe(false);
+  });
+});
+
+describe("removeEmbedMarkup", () => {
+  const markupA = '<object data="plugin://plug-1?att=att-1" data-aspect-ratio="1.2" />';
+  const markupB = '<object data="plugin://plug-1?att=att-2" data-aspect-ratio="1.2" />';
+
+  // Scenario: THE detach guarantee - explicitly removing one viewer must not touch a
+  // second, different viewer sitting elsewhere in the same note.
+  test("removes only the line for the given attachment, leaving another viewer intact", () => {
+    const content = `notes\n\n${markupA}\n\n${markupB}\n\nmore`;
+    const result = removeEmbedMarkup(content, "plug-1", "att-1");
+    expect(result).not.toContain(markupA);
+    expect(result).toContain(markupB);
+  });
+
+  // Scenario: annotate-pdf.js always inserts the tag as its own line padded by a blank
+  // line before and after - removal must collapse one of them, or every add+remove cycle
+  // leaves a growing gap of blank lines behind.
+  test("collapses the surrounding blank line so no gap is left behind", () => {
+    const content = `# Notes\nhand-written stuff\n\n${markupA}\n\n# Conclusions\nafter`;
+    const result = removeEmbedMarkup(content, "plug-1", "att-1");
+    expect(result).toBe("# Notes\nhand-written stuff\n\n# Conclusions\nafter");
+  });
+
+  // Scenario: nothing to remove - already gone, or this exact combination never existed.
+  // Must signal "not found" distinctly from "found and removed nothing changed".
+  test("returns null when there is no matching embed", () => {
+    expect(removeEmbedMarkup(`notes\n${markupA}`, "plug-1", "att-9")).toBeNull();
+    expect(removeEmbedMarkup(`notes\n${markupA}`, "other-plugin", "att-1")).toBeNull();
+    expect(removeEmbedMarkup("", "plug-1", "att-1")).toBeNull();
+    expect(removeEmbedMarkup(null, "plug-1", "att-1")).toBeNull();
   });
 });

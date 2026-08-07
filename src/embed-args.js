@@ -88,3 +88,33 @@ export function hasEmbedFor(noteContent, pluginUUID, attachmentUUID = null) {
   if (!attachmentUUID) return true;
   return noteContent.includes(`att=${attachmentUUID}`);
 }
+
+/**
+ * Remove ONE specific embed's `<object>` line from note content - the counterpart to
+ * hasEmbedFor, used when a viewer is explicitly detached (embed-call.js's `removeViewer`
+ * action). Matched by this exact attachment's `att=` marker, so it can never touch a
+ * different embed for a different PDF on the same note.
+ *
+ * annotatePdf always inserts the tag as its own line, wrapped in a blank line before and
+ * after (`\n<object .../>\n`) - so once the line itself is spliced out, one of the two
+ * now-adjacent blank lines is collapsed too, or removal would leave a growing gap each
+ * time a viewer is added and removed.
+ *
+ * @returns {string|null} the updated note content, or null if no matching line was
+ *   found (nothing to remove - already gone, or never matched this exact shape).
+ */
+export function removeEmbedMarkup(noteContent, pluginUUID, attachmentUUID) {
+  if (!noteContent || !pluginUUID || !attachmentUUID) return null;
+
+  const lines = noteContent.split("\n");
+  const marker = `plugin://${pluginUUID}`;
+  const idx = lines.findIndex(
+    (line) => line.includes(marker) && line.includes(`att=${attachmentUUID}`)
+  );
+  if (idx === -1) return null;
+
+  const next = lines.slice();
+  next.splice(idx, 1);
+  if (next[idx] === "" && next[idx - 1] === "") next.splice(idx, 1);
+  return next.join("\n");
+}

@@ -128,6 +128,32 @@ export async function saveHighlights(app, noteUUID, attachmentUUID, highlights) 
 }
 
 /**
+ * Drop one attachment's entry entirely, rather than saving it as `[]`. Used when a
+ * viewer is explicitly detached (see embed-call.js's `removeViewer` action) - an
+ * attachment that no longer exists shouldn't leave even an empty placeholder behind in
+ * the managed section forever.
+ *
+ * A no-op (not an error) if there's no section yet or this attachment has no entry in
+ * it - removal is idempotent, same as saveHighlights.
+ */
+export async function deleteHighlights(app, noteUUID, attachmentUUID) {
+  const noteHandle = { uuid: noteUUID };
+  const content = await app.getNoteContent(noteHandle);
+  const section = extractSection(content, STORAGE_SECTION_HEADING);
+  if (section === null) return;
+
+  const existing = deserialize(section) || {};
+  if (!(attachmentUUID in existing)) return;
+
+  const rest = { ...existing };
+  delete rest[attachmentUUID];
+
+  await app.replaceNoteContent(noteHandle, serialize(rest), {
+    section: { heading: { text: STORAGE_SECTION_HEADING, level: 1 } },
+  });
+}
+
+/**
  * Find the content directly under a level-1 heading with this exact text, mirroring
  * the section-lookup semantics `replaceNoteContent`'s `section` option relies on -
  * needed here so load/save agree on what "the section" means without an extra API call.

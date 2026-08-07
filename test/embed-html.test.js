@@ -91,7 +91,7 @@ describe("buildEmbedHtml", () => {
       "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
       "pdfa-colors", "pdfa-hint", "pdfa-popover", "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
-      "pdfa-download", "pdfa-export",
+      "pdfa-download", "pdfa-export", "pdfa-remove-viewer",
     ]) {
       expect(out).toContain(`id="${id}"`);
     }
