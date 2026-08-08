@@ -60,12 +60,10 @@ const STYLES = `
   * { box-sizing: border-box; }
   body { margin: 0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg); }
-  /* COLLAPSED BY DEFAULT (unless a deep link targets an exact page/highlight - see
-     buildEmbedHtml). The bounty's own original wording asked the user to "enter a user
-     experience" to annotate, not have the PDF permanently occupying the whole note - and
-     an embed that never renders a single page until asked to is also the whole PDF.js
-     fetch/parse/render cost deferred until someone actually wants it, not paid on every
-     note open. height:auto here (not the 100vh above) so the collapsed bar takes only
+  /* A MANUAL toggle, applied by viewer.js's collapseViewer/openViewer - never present on
+     initial render (see buildEmbedHtml's own comment on why a default-collapsed embed,
+     tried first, was explicitly rejected: it added a forced extra click before every
+     annotation). height:auto here (not the 100vh above) so the collapsed bar takes only
      its own natural height, not a nearly-empty full-height box. */
   #pdfa-root.pdfa-collapsed-mode { height: auto; }
   #pdfa-root.pdfa-collapsed-mode .pdfa-toolbar,
@@ -304,24 +302,20 @@ export function buildEmbedHtml({
     defaultColorId: DEFAULT_COLOR_ID,
   };
 
-  // Collapsed by default - EXCEPT when a deep link targets an exact page or highlight
-  // (an exported link's "note=...&page=...&hl=..." args, see src/actions/link-target.js).
-  // Making the user click "Open" again after they already clicked a link to get here
-  // would defeat half the point of that feature - the deep link should land exactly
-  // where it says it will, not one extra click away from it.
-  const startCollapsed = !page && !highlightId;
-
-  // The upstream stylesheet is linked BEFORE ours so our selection colour and safety
-  // net win on equal specificity.
+  // Always starts EXPANDED - a default-collapsed embed that made every annotation start
+  // with an extra "Open" click was tried and explicitly rejected live. Collapsing is a
+  // MANUAL action from inside the toolbar's overflow menu instead (see viewer.js's
+  // collapseViewer) - the same collapsed bar markup below, just reached by choice rather
+  // than forced on every open.
   return `<link rel="stylesheet" href="${CDN.pdfViewerCss}">
 <style>:root{${theme}}${STYLES}</style>
-<div id="pdfa-root"${startCollapsed ? ' class="pdfa-collapsed-mode"' : ""}>
+<div id="pdfa-root">
   <div class="pdfa-collapsed">
     <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
     <span class="pdfa-collapsed-name">${escapeHtml(attachmentName)}</span>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-collapsed-count" id="pdfa-collapsed-count"></span>
-    <button id="pdfa-open" class="pdfa-btn pdfa-btn-primary">Open to annotate</button>
+    <button id="pdfa-open" class="pdfa-btn pdfa-btn-primary">Expand</button>
   </div>
   <div class="pdfa-toolbar">
     <!-- Identifies this viewer at a glance. Amplenote renders its OWN PDF preview for

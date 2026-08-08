@@ -99,24 +99,20 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("pdfa-name");
   });
 
-  // Scenario: the bounty's own original wording asked the user to "enter a user
-  // experience" to annotate - not have the PDF permanently occupying the whole note.
-  // Starting collapsed also means boot()'s fetch/parse/render cost is deferred until
-  // someone actually wants it, rather than paid on every note open.
-  test("starts collapsed with no deep-link target", () => {
-    const out = html();
-    expect(out).toContain('id="pdfa-root" class="pdfa-collapsed-mode"');
-    expect(out).toContain('id="pdfa-open"');
-  });
-
-  // Scenario: THE exception - a deep link from an exported highlight (src/actions/
-  // link-target.js) already says exactly where to land. Forcing another "Open" click
-  // after the user already clicked a link to get here would defeat half that feature.
-  test("starts expanded when a deep link targets a page or highlight", () => {
+  // Scenario: a default-collapsed embed, requiring an "Expand" click before every
+  // annotation, was tried and explicitly rejected live - it added a forced extra step to
+  // something that should just be there. The embed always starts fully expanded now;
+  // collapsing (the SAME markup below, .pdfa-collapsed) is a manual, on-demand toolbar
+  // action instead (see viewer.js's collapseViewer), never the initial state.
+  test("always starts expanded, never collapsed on initial render", () => {
     // The class name still appears in the <style> block's own selectors regardless -
     // it's specifically the ROOT DIV's opening tag that must not carry it.
+    expect(html()).toContain('id="pdfa-root">');
     expect(html({ page: 3 })).toContain('id="pdfa-root">');
     expect(html({ highlightId: "hl-1" })).toContain('id="pdfa-root">');
+    // The collapsed bar's own markup is still present - it's what collapseViewer reveals
+    // later - just not the state the embed opens into.
+    expect(html()).toContain('id="pdfa-open"');
   });
 
   // Scenario: the spec is explicit that all four colors are top-level toolbar buttons,

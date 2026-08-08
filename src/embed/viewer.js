@@ -1253,6 +1253,10 @@ export function viewerMain() {
    */
   function openMoreMenu(clientX, clientY) {
     var children = [
+      button("Collapse", "", function () {
+        closePopover(true);
+        collapseViewer();
+      }),
       button("Download", "", function () {
         closePopover(true);
         downloadAnnotatedPdf();
@@ -1388,24 +1392,26 @@ export function viewerMain() {
   }
 
   /**
-   * While collapsed, a cheap peek at the highlight count - just a note-content read via
-   * the plugin bridge, no PDF.js involved at all - so the placeholder can say "3
-   * highlights" without paying any of the fetch/parse/render cost boot() otherwise pays
-   * immediately. Errors are swallowed here rather than shown - loadHighlights already
-   * reports its own failure via status(), but that bar is hidden while collapsed; boot()
-   * retries the same load anyway once the user actually opens the viewer.
+   * Manually collapse down to the title bar - the toolbar's "Collapse" menu item. The
+   * PDF stays fully loaded in memory (state.doc, state.highlights, every rendered page);
+   * this only hides the DOM, so re-expanding is instant with no re-fetch. The count comes
+   * straight from state - already loaded, no reason to ask the plugin again for it.
    */
-  function showCollapsedPreview() {
-    loadHighlights().then(function () {
-      var n = state.highlights.length;
-      els.collapsedCount.textContent = n ? n + (n === 1 ? " highlight" : " highlights") : "";
-    });
+  function collapseViewer() {
+    var n = state.highlights.length;
+    els.collapsedCount.textContent = n ? n + (n === 1 ? " highlight" : " highlights") : "";
+    els.root.classList.add("pdfa-collapsed-mode");
   }
 
-  /** Leaves collapsed mode and boots the full viewer - the one thing the "Open" button does. */
+  /**
+   * Leaves collapsed mode - the "Expand" button. Only calls boot() the FIRST time
+   * (state.doc is set once PDF.js finishes loading the document inside boot()) - every
+   * later expand, after a manual collapse, just reveals what's already rendered rather
+   * than re-fetching and re-parsing the PDF from scratch.
+   */
   function openViewer() {
     els.root.classList.remove("pdfa-collapsed-mode");
-    boot();
+    if (!state.doc) boot();
   }
 
   function boot() {
@@ -1502,15 +1508,10 @@ export function viewerMain() {
     renderPanel();
     els.open.onclick = openViewer;
 
-    // Collapsed by default (see the CSS/HTML comments in html.js) - skip the entire
-    // fetch/parse/render cost until the user actually asks for it, except when a deep
-    // link already specifies an exact page/highlight, where html.js renders the embed
-    // already expanded and this branch never runs at all.
-    if (els.root.classList.contains("pdfa-collapsed-mode")) {
-      showCollapsedPreview();
-    } else {
-      boot();
-    }
+    // Always boots immediately - a default-collapsed embed, requiring an "Open" click
+    // before every annotation, was tried and explicitly rejected live. Collapsing is
+    // available afterward, on demand, from the toolbar's overflow menu (collapseViewer).
+    boot();
   } catch (err) {
     status("Viewer failed to start: " + (err && err.message ? err.message : err), true);
   }
