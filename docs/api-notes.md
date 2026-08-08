@@ -121,6 +121,36 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    only work "already operating within that embed's context" per Amplenote's own docs -
    there's no cross-note equivalent.
 
+10. **An attachment IS present in note markdown, at its real position in the body, as
+    `[filename](attachment://ATTACHMENT_UUID)`** - and that uuid is the same one
+    `getNoteAttachments` returns. This is documented NOWHERE: the plugin markdown
+    reference covers colored text, footnotes, tables, line breaks, collapsible headings
+    and tasks, and omits attachments entirely; the app-interface doc only hints at it,
+    noting `getNoteAttachments` returns "only attachments that are currently referenced in
+    the note". Confirmed by dumping a real note's `getNoteContent` output into a fenced
+    block in a scratch note and reading it. **This is the join that lets a plugin position
+    content relative to a specific attachment** - without it, a plugin can only append.
+    Corollary worth internalizing: **when Amplenote renders something at a position in the
+    note, a token for it exists at that position in the markdown** - markdown is the
+    note's internal representation, so "the UI shows it there" is good evidence the
+    content does too, even for constructs no reference documents. If the PDF's text was
+    extracted, the chip line also carries a rich-footnote marker (`[^1]`) whose definition
+    holds the extracted text at the bottom of the note - so match on the uuid substring,
+    not on a whole-line link regex.
+
+11. **There is no positional write API. `insertNoteContent`'s only documented option is
+    `{ atEnd }`** - there is no "insert at offset", no "insert after element". Two ways
+    around it, both confirmed working live:
+    - **Read, splice, whole-note `replaceNoteContent`.** What #10 enables. Costs a full
+      round-trip of the user's entire note through `getNoteContent` -> string surgery ->
+      write, so touch exactly one line and leave everything else byte-identical.
+    - **The `insertText` action** - the one genuinely cursor-positioned write. The user
+      types `{Plugin Name}` where they want the content and Amplenote substitutes the
+      action's return string for that expression in place. Easy to miss: it's one of 17
+      action types and reads like a text macro, but it's the only API that writes where
+      the user is pointing. Note the keyword defaults to the plugin's *name*; return a
+      string from `check` to override it.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and
