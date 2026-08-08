@@ -102,6 +102,25 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    both. Confirmed live: the decoupled form renders correctly, marker in color, link
    plain and clickable.
 
+9. **A clickable `[text](plugin://UUID?args)` markdown link does NOT route to
+   `renderEmbed` - it routes to a completely separate, easy-to-miss action called
+   `linkTarget`.** `renderEmbed` only ever handles the `<object data="plugin://...">`
+   EMBED tag; a plain link using the identical `plugin://` scheme is a different
+   mechanism entirely, with its own action (`linkTarget(app, ...args)`, args being the
+   query string, same shape as `renderEmbed`/`onEmbedCall`). Confirmed live the hard way:
+   a plugin that builds deep-link markdown (e.g. "click to jump back to X") but never
+   defines `linkTarget` produces links that just sit there - Amplenote shows its own
+   generic "unrecognized link" popup instead of doing anything, no error, nothing to
+   suggest what's missing. **If a plugin generates ANY clickable `plugin://` link, it
+   MUST define `linkTarget` too, or the link is decorative.** Separately: `linkTarget`
+   can `app.navigate` to a note (`https://www.amplenote.com/notes/NOTE_UUID`, confirmed
+   real), but there is no documented way to pass embed arguments alongside that
+   navigation - if the goal is "jump to a specific state inside an embed on a different
+   note," the args have to already be baked into that note's OWN embed tag before
+   navigating there (see `updateEmbedArgs` below), since `updateEmbedArgs`/`renderEmbed`
+   only work "already operating within that embed's context" per Amplenote's own docs -
+   there's no cross-note equivalent.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and

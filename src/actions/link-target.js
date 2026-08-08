@@ -17,6 +17,10 @@
  * navigating - best-effort: if anything about that fails (a hand-edited note, a link
  * exported before the source note's uuid was tracked - see docs/api-notes.md), the user
  * still lands on the correct note, just not scrolled to the exact spot.
+ *
+ * CONFIRMED LIVE, both halves: clicking an exported link navigates to the source note
+ * AND lands on the exact page/highlight, not just the top of the PDF - the rewrite-then-
+ * navigate mechanism above, which had no documented precedent anywhere, actually works.
  */
 import { parseEmbedArgs, updateEmbedArgs } from "../embed-args.js";
 
