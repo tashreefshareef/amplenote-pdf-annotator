@@ -151,6 +151,27 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       the user is pointing. Note the keyword defaults to the plugin's *name*; return a
       string from `check` to override it.
 
+12. **An embed CANNOT resize itself, so anything that changes its height has to rewrite
+    the note.** Amplenote's app-interface doc, verbatim: *"Embeds are fully isolated from
+    the hosting application, so they can't be sized dynamically based on the content of
+    the embed."* The iframe's height comes from `data-aspect-ratio` on the `<object>` tag
+    (width / height - `1.2` renders a box taller than it is wide) and from nothing else.
+    There is no resize callback, no postMessage height protocol, and `updateEmbedArgs`
+    changes data only, never dimensions. **Consequence: a collapse/expand affordance inside
+    an embed does not work the way it does on a normal web page.** Hiding the DOM shrinks
+    the *content* and leaves the *box* - a title bar floating above a tall blank rectangle,
+    which is exactly how it was reported here. The fix is to rewrite the tag's
+    `data-aspect-ratio` in the note and let Amplenote re-render. Two things fall out of
+    that, and both are easy to miss until they bite:
+    - **The rewrite re-renders the embed**, so any state the collapse depended on is lost.
+      Persist that state in the tag's own args (`?c=1`) and re-apply it in `renderEmbed`,
+      or the embed springs back open the instant it resizes.
+    - **A collapsed embed should skip its expensive load entirely** - but then it has
+      nothing to label itself with, since `renderEmbed` gets only the args in the tag. Budget
+      for a cheap metadata round-trip that does *not* trigger the expensive path.
+    Pick the collapsed ratio knowing it can't be exact: height is width/ratio and the embed's
+    width follows the reader's window, so one ratio cannot match a fixed-height bar everywhere.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and
