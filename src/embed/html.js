@@ -104,9 +104,22 @@ const STYLES = `
      a narrow embed where the controls alone can span more than half the width. */
   .pdfa-filename-bar { text-align: center; padding: 0 8px 6px; border-bottom: 1px solid var(--pdfa-border);
     background: var(--pdfa-toolbar); flex: 0 0 auto; }
+  /* The standby copy of the brand. Hidden while the toolbar has room to show its
+     own; the narrow-embed query below swaps which one is visible, so exactly one is
+     on screen at any width. */
+  .pdfa-filename-bar .pdfa-brand { display: none; }
   .pdfa-name { display: inline-block; max-width: 90%; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* No align-items: center here on purpose - see the .pdfa-page comment below. */
-  .pdfa-scroll { flex: 1 1 auto; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  /* No align-items: center here on purpose - see the .pdfa-page comment below.
+
+     overscroll-behavior is for touch: the embed is an iframe inside a note that
+     scrolls, and on Android a drag over the page area moved the NOTE rather than the
+     pages, so the PDF could not be scrolled by dragging it at all (reported live -
+     the only gesture that moved it was a long-press drag). "contain" stops a pan
+     that reaches this element's end from chaining out to the host note. It cannot
+     stop the host from claiming the gesture in the first place, so this is a
+     necessary-not-sufficient fix - see docs/api-notes.md. */
+  .pdfa-scroll { flex: 1 1 auto; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px;
+    overscroll-behavior: contain; }
   /* Centered via its own auto margins rather than the scroller's align-items: center.
      align-items: center is "unsafe" alignment by spec default - once a page is wider
      than the scroller (past ~100% zoom on a narrow embed), it centers the overflow
@@ -241,6 +254,82 @@ const STYLES = `
      explicit that the two must be clearly distinguishable. */
   .pdfa-hl-note { font-size: 12px; line-height: 1.35; opacity: .85; font-style: italic;
     margin-top: 4px; padding-left: 7px; border-left: 2px solid var(--pdfa-border); }
+
+  /* ---- NARROW EMBEDS -------------------------------------------------------
+     Confirmed on a real Android phone running the Amplenote app: embeds DO render
+     there, but at a phone note width (~358px) the toolbar wrapped to THREE rows -
+     with the overflow button stranded alone on the third, the exact outcome the
+     comment on #pdfa-more says it was grouped left to avoid - and the chrome above
+     the pages ended up taller than the strip of page left below it.
+
+     The query is on the EMBED's own width, not the device's. The iframe viewport IS
+     the box Amplenote gives us, so "narrow here" already means "this viewer is
+     narrow" - and it catches a cramped desktop sidebar too, which a device check
+     would miss. */
+  @media (max-width: 520px) {
+    /* Dividers cost ~9px each and stop earning it once the rows wrap: the wrap
+       itself is now what groups the controls. */
+    .pdfa-sep { display: none; }
+    /* The brand moves down to the filename row rather than being dropped. It is
+       there to answer "which viewer is this" - Amplenote renders its OWN preview
+       for the same attachment and the two look broadly alike - so losing it
+       entirely would undo that fix instead of just relocating it. */
+    .pdfa-toolbar .pdfa-brand { display: none; }
+    .pdfa-filename-bar .pdfa-brand { display: inline; }
+    .pdfa-toolbar { gap: 4px; padding: 5px 6px; justify-content: center; }
+    .pdfa-label { min-width: 44px; }
+    /* Same information, about half the row. The filename is also on the attachment
+       chip immediately above the embed and on the collapsed bar, so this is the
+       third place it appears - worth keeping, not worth 27px of a 298px box. */
+    .pdfa-filename-bar { padding: 0 6px 3px; font-size: 11px; }
+    /* Full width, since the row it shares is no longer competing with a page. */
+    .pdfa-panel { width: 100%; max-width: 100%; }
+  }
+
+  /* ---- TOUCH POINTERS ------------------------------------------------------
+     Hit areas only - nothing here changes what anything looks like on a mouse.
+     The 44px figure is the WCAG 2.5.5 / platform HIG minimum; the toolbar's own
+     buttons were 24-26px tall and the color swatches 20px across, with the four
+     swatches sitting shoulder to shoulder. */
+  @media (pointer: coarse) {
+    /* :not(.pdfa-color) is load-bearing. The swatches ARE buttons in this toolbar, so
+       without it they inherit min-height and render as 40x20 ellipses - caught by
+       measuring, not by reading. They get their bigger hit area from ::after below,
+       which leaves the circle alone. */
+    .pdfa-toolbar button:not(.pdfa-color) { min-height: 40px; padding: 8px 12px; }
+    #pdfa-more { padding: 8px 14px; }
+    .pdfa-btn { min-height: 38px; }
+    .pdfa-hl-row { padding: 11px 8px; }
+    /* A bigger target without a bigger circle: an invisible overlay centred on the
+       swatch, reaching past its 20px visual to 42px. Four 44px circles would
+       dominate a toolbar that is already the tallest thing in the box on a phone,
+       and the swatch's size is what makes it read as a color chip rather than a
+       button. */
+    .pdfa-color, .pdfa-toolbar .pdfa-color { position: relative; }
+    .pdfa-color::after { content: ""; position: absolute; inset: -10px -5px; }
+    /* The four swatches sit shoulder to shoulder, so the hit areas above would run
+       into each other and a near-miss would apply the wrong color - the one mis-tap
+       in this toolbar that silently changes the document. Spreading them gives each
+       one room to be 30px wide without touching its neighbour. */
+    #pdfa-colors { display: inline-flex; gap: 10px; vertical-align: middle; }
+    /* The whole collapsed bar becomes the tap target, not just its Expand button.
+       The bar's box is sized by data-aspect-ratio as a fraction of the note width
+       (see constants.js), so on a phone it is ~22px tall - too short to ever hold a
+       44px button. Full-bleed width is what makes it comfortably tappable instead. */
+    .pdfa-collapsed { cursor: pointer; }
+  }
+
+  /* The collapsed bar, when its box is shorter than the bar's natural height.
+     Measured: the bar wants 44px, but width/16 at a 358px phone note width gives
+     the iframe only 22px, so it was being cut in half. The box cannot adapt per
+     device - data-aspect-ratio is written into the shared note markup, so one value
+     has to serve every screen - which leaves compressing the CONTENT as the only
+     lever. A height query works here because the iframe viewport is the box. */
+  @media (max-height: 34px) {
+    .pdfa-collapsed { padding: 0 8px; gap: 6px; font-size: 12px; height: 100%; }
+    .pdfa-collapsed .pdfa-btn { padding: 0 8px; min-height: 0; font-size: 11px; }
+    .pdfa-collapsed-count { display: none; }
+  }
 `;
 
 /** Light and dark palettes, driven by `app.context.lightDarkMode`. */
@@ -364,6 +453,10 @@ export function buildEmbedHtml({
   <!-- Its own row, centered - see the CSS comment on .pdfa-filename-bar for why this
        isn't just centered inline with the buttons above. -->
   <div class="pdfa-filename-bar">
+    <!-- Only ever visible on a narrow embed, where the toolbar above has given up
+         its own copy to save a row. See the CSS for why the brand has to survive
+         somewhere rather than just being dropped. -->
+    <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
     <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>

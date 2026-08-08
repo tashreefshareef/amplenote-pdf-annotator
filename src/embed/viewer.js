@@ -1051,6 +1051,47 @@ export function viewerMain() {
     renderAll();
   }
 
+  /**
+   * Pick the starting zoom so a page fits the width of the box we were handed.
+   *
+   * Only ever zooms OUT from the 1.25 default, never in. On a desktop-width embed the
+   * fitting scale is wider than 1.25, so the default survives untouched and nothing
+   * about the existing experience moves. It earns its place on a phone: measured in the
+   * Amplenote Android app at a 358px note width, a 612pt page at 1.25 renders 765px
+   * wide inside a ~343px scroller - 45% of the page visible, every line needing a
+   * horizontal pan. Manually zooming to 75% was still not enough to clear the text.
+   *
+   * Deliberately a one-shot at boot rather than a live fit-to-width mode: an embed
+   * cannot be resized by its reader (its box comes from data-aspect-ratio in the note),
+   * so the width this measures is the width it keeps.
+   */
+  function fitInitialZoom() {
+    if (!state.doc) return Promise.resolve();
+    return state.doc
+      .getPage(1)
+      .then(function (page) {
+        var box = scroller();
+        if (!box) return;
+        var style = window.getComputedStyle(box);
+        var available =
+          box.clientWidth -
+          (parseFloat(style.paddingLeft) || 0) -
+          (parseFloat(style.paddingRight) || 0);
+        var pageWidth = page.getViewport({ scale: 1 }).width;
+        if (!(available > 0) || !(pageWidth > 0)) return;
+        // Clamped to the same floor setZoom uses, so the fit can never land at a zoom
+        // the zoom-out button itself could not have reached.
+        var fit = Math.max(0.4, available / pageWidth);
+        if (fit < state.scale) {
+          state.scale = fit;
+          updateLabels();
+        }
+      })
+      ["catch"](function () {
+        // A fit is a nicety. Never let it stop the PDF from rendering at the default.
+      });
+  }
+
   // Keep the page indicator honest as the user scrolls.
   function trackScroll() {
     // The popover is positioned in fixed client coordinates, so it would hang in place
@@ -1487,6 +1528,11 @@ export function viewerMain() {
         return loadHighlights();
       })
       .then(function () {
+        // Before renderAll, so a narrow embed paints once at the fitting scale instead
+        // of rendering every page at 125% and immediately re-rendering them all.
+        return fitInitialZoom();
+      })
+      .then(function () {
         return renderAll();
       })
       .then(function () {
@@ -1545,7 +1591,14 @@ export function viewerMain() {
 
     mountColorButtons();
     renderPanel();
-    els.open.onclick = openViewer;
+    // Bound to the whole bar, not just its Expand button - a click on the button bubbles
+    // up to here, so one handler serves both (and keyboard Enter on the focused button
+    // still works, since that dispatches a click too). The bar is the target because its
+    // height is dictated by data-aspect-ratio as a fraction of the note width, which on a
+    // phone leaves ~22px - too short to hold a comfortable touch target, so the full-bleed
+    // width has to be the target instead. It only exists in collapsed mode, so this can
+    // never swallow a click meant for the expanded viewer.
+    els.root.querySelector(".pdfa-collapsed").onclick = openViewer;
 
     // Boots immediately UNLESS the user left this viewer collapsed. Defaulting every
     // embed to collapsed, so annotating always began with an "Open" click, was tried and

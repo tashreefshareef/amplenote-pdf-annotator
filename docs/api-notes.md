@@ -172,6 +172,31 @@ several of these cost real debugging time (or a live, reported bug) on this one.
     Pick the collapsed ratio knowing it can't be exact: height is width/ratio and the embed's
     width follows the reader's window, so one ratio cannot match a fixed-height bar everywhere.
 
+13. **Embeds DO render in the Amplenote mobile app - and a desktop-only embed is close to
+    unusable there.** Confirmed on Android, 2026-08-08: the viewer rendered and its
+    tap-driven controls worked. Mobile is a real surface, not a dead end, so budget for it.
+    Four things bit at once, and three are not PDF-specific:
+    - **Every height tuned at desktop width is proportionally smaller on a phone.** The box
+      is `width / data-aspect-ratio` (lesson 12) and the *note markup is shared across
+      devices*, so one ratio serves every screen - a bar sized to 45px at a ~720px desktop
+      note width gets 22px at a ~358px phone width, and clips. There is no per-device
+      escape. The only lever is making the *content* compress into whatever it is given.
+    - **Media queries inside an embed key off the embed's own box, not the device** - the
+      iframe viewport IS the box Amplenote hands you. That is a convenience, not a
+      limitation: `max-width` means "this viewer is narrow" (and catches a cramped desktop
+      sidebar too, which a device check would miss), and `max-height` is a reliable way to
+      detect the collapsed box from CSS alone.
+    - **A toolbar that fits one row on desktop wraps to three on a phone**, and the wrap
+      order is not the grouping you designed - here the overflow button was stranded alone
+      on its own row. Chrome that costs 13% of a desktop box can cost 40% of a phone box.
+    - **Touch does not deliver the same events.** A tap produces a `click` and everything
+      keyed to clicks kept working; a long-press text selection produced NO reaction from a
+      `mouseup` listener on the same element. Any embed whose core interaction is
+      selection-driven and gated on mouse events should assume it is broken on mobile until
+      tested on a device. (Open here: whether a native selection forms at all, or forms
+      without ever emitting `mouseup` - the two need different fixes.) Separately, a
+      scrollable region inside the embed lost its vertical pan to the host note.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and
