@@ -10,6 +10,7 @@
  * into Amplenote - paste the build output.
  */
 import { annotatePdf } from "./actions/annotate-pdf.js";
+import { insertViewer } from "./actions/insert-viewer.js";
 import { linkTarget } from "./actions/link-target.js";
 import { handleEmbedCallSerialized } from "./embed-call.js";
 import { buildEmbedHtml } from "./embed/html.js";
@@ -22,6 +23,19 @@ const plugin = {
       // `plugin://` markup must point at.
       return annotatePdf(app, noteUUID, app.context.pluginUUID);
     },
+  },
+
+  /**
+   * Typing `{PDF Annotator}` in a note drops a viewer at THAT spot, instead of appending
+   * to the bottom like the note-menu option must. Amplenote substitutes this return value
+   * for the expression in place - the only cursor-positioned write the API offers.
+   *
+   * Declared as a bare function, not a `{ keyword: fn }` map: the documented form is
+   * `insertText(app)` with the keyword defaulting to the plugin's name, and the map form
+   * is unverified here.
+   */
+  insertText: async function (app) {
+    return insertViewer(app, app.context.noteUUID, app.context.pluginUUID);
   },
 
   // Handles a CLICKED `plugin://` link (an exported highlight's deep link) - distinct
