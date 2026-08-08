@@ -273,6 +273,72 @@ each handler is individually correct — the bug is only visible in the combinat
 
 ---
 
+## A selection-driven UI gated on `mouseup` is dead on touch, while taps keep working
+
+**Symptom:** on Android, long-pressing text in the viewer selected it natively — blue
+range, drag handles, everything — but the four color buttons never appeared, so no
+highlight could be created at all. The plugin's entire purpose was unreachable on a
+phone. Confusingly, *tapping an existing highlight* opened its popover and recoloring
+worked fine, which made it look like a selection bug rather than an event bug.
+
+**Cause:** capture ran from a single `mouseup` listener. A tap synthesizes a full
+`mousedown`/`mouseup`/`click` sequence, which is why everything tap-driven kept working;
+a long-press-to-select gesture does not, and dragging a selection handle afterwards
+produces no mouse events at all. So the one gesture that mattered was the one gesture
+that delivered nothing.
+
+**Fix:** add `selectionchange` as a second, mouse-free trigger, debounced ~300ms so it
+fires when the selection settles rather than on every frame of a handle drag. Three
+constraints keep it from disturbing the mouse path:
+
+1. It may only **add** a capture, never clear one. `selectionchange` also fires when the
+   browser collapses the selection as a toolbar button is pressed — precisely when the
+   held selection is about to be read — so clearing there breaks picking a color on
+   *desktop*.
+2. It **skips a selection the mouse already captured**, compared by raw DOM text. Without
+   this, desktop gets a second capture ~300ms after the first that re-anchors the popover
+   away from the pointer.
+3. `mouseup` stays scoped to the pages element while `selectionchange` can only live on
+   `document` (it has no element-scoped form) — which is what makes constraint 1
+   load-bearing rather than stylistic.
+
+**General lesson:** touch does not deliver a degraded version of the mouse event set — it
+delivers a *different* one, and the split is per-gesture, not per-device. Taps are
+faithfully emulated; press-and-hold, drag-to-select, and handle manipulation are not
+emulated at all. So a UI can be *partly* working on touch in a way that misdirects
+diagnosis: the working half (taps) is evidence about event synthesis, not about the
+feature. Any interaction whose trigger is "the user finished selecting something" needs a
+selection-level event, not a pointer-level one. And when adding a second trigger to a
+path that already has hard-won ordering subtleties, make the new one strictly additive
+and idempotent rather than trying to unify the two — the old path's edge cases are load
+bearing even when they look arbitrary.
+
+---
+
+## Chrome tuned at one container width can eat a third of the box at another
+
+**Symptom:** the same embed that used 13% of its height for toolbars on desktop used 40%
+on a phone, leaving a strip of PDF shorter than the controls above it — and the toolbar's
+overflow button, deliberately grouped left to keep it from wrapping alone, wrapped alone.
+
+**Cause:** every size in the chrome was tuned at one width. The container's height was
+also a *fixed ratio of its width*, so a narrower screen shrank the box and grew the
+chrome's share of it simultaneously — the two effects compound rather than cancel.
+
+**Fix:** width-keyed media queries for the layout, plus a content scale (here, initial
+zoom) computed from the measured container rather than hardcoded. The rule that made the
+zoom fix safe: only ever adjust *away* from the existing default, never toward it, so the
+already-verified wide case is provably untouched.
+
+**General lesson:** when a container's height is derived from its width, "tune it once at
+a typical size" fails in both directions at once and the failure is quadratic, not
+linear. Also: media queries inside an iframe key off the *iframe's* box, not the device —
+which is usually what you actually want ("this instance is narrow" catches a cramped
+desktop sidebar too), and makes a `max-height` query a reliable way to detect a
+deliberately-shortened container from CSS alone.
+
+---
+
 ## Cross-reference: general lessons that happened to surface via `docs/api-notes.md`
 
 A few entries in the Amplenote-specific notes file are really platform-agnostic

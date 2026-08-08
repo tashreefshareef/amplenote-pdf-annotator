@@ -352,4 +352,80 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("convertToPdfPoint");
     expect(out).toContain("convertToViewportPoint");
   });
+
+  // Scenario: THE mobile blocker, confirmed on Android in the Amplenote app. A long-press
+  // selects text natively - handles and all - but no mouseup is ever delivered, so the
+  // mouseup listener that drives capture never ran and the colors never appeared:
+  // highlighting, the whole point of the plugin, was unreachable on a phone. Taps were
+  // fine throughout, which is what isolated it to the mouse events. Capture therefore has
+  // to have a second, mouse-free trigger.
+  test("captures a selection without a mouseup, for touch", () => {
+    const out = html();
+    expect(out).toContain('addEventListener("selectionchange"');
+    expect(out).toContain("captureSettledSelection");
+  });
+
+  // Scenario: the two triggers must not fight. mouseup stays scoped to the pages element
+  // - on document it would also fire when the mouse is released on a toolbar button, by
+  // which point the browser has collapsed the selection and the pending capture would be
+  // thrown away right before a color is picked. selectionchange has no element-scoped
+  // form, so it can only live on document, which is exactly why it is forbidden from
+  // clearing pending state and why it skips a selection the mouse already captured.
+  test("keeps mouseup scoped to the pages, and never lets the touch path clear pending state", () => {
+    const out = html();
+    expect(out).toContain('els.pages.addEventListener("mouseup", captureSelection)');
+    expect(out).not.toContain('document.addEventListener("mouseup"');
+    // The identity check that makes the settled capture a no-op once mouseup has won.
+    expect(out).toContain("state.lastCapturedText");
+    // The settled path only ever adds - the sole setPending(null) calls belong to
+    // captureSelection, reached from mouseup.
+    const settled = out.match(/function captureSettledSelection\(\)[\s\S]*?\n {2}}/)[0];
+    expect(settled).not.toContain("setPending(null)");
+    expect(settled).not.toContain("closePopover");
+  });
+
+  // Scenario: at a phone note width (~358px, measured in the Amplenote Android app) the
+  // toolbar wrapped to three rows and the chrome ended up taller than the strip of page
+  // below it. The brand moves to the filename row rather than being dropped - it is what
+  // distinguishes this viewer from Amplenote's own PDF preview of the same attachment -
+  // so exactly one copy must be visible at any width, never zero and never two.
+  test("shows exactly one brand label, whichever width the embed is given", () => {
+    const out = html();
+    // Two copies in the markup: the toolbar's and the filename row's standby.
+    expect((out.match(/class="pdfa-brand"/g) || []).length).toBeGreaterThanOrEqual(2);
+    // Wide: the filename row's copy is the hidden one.
+    expect(out).toMatch(/\.pdfa-filename-bar \.pdfa-brand\s*\{\s*display:\s*none/);
+    // Narrow: they swap.
+    const narrow = out.match(/@media \(max-width: 520px\)[\s\S]*?\n {2}\}/)[0];
+    expect(narrow).toMatch(/\.pdfa-toolbar \.pdfa-brand\s*\{\s*display:\s*none/);
+    expect(narrow).toMatch(/\.pdfa-filename-bar \.pdfa-brand\s*\{\s*display:\s*inline/);
+  });
+
+  // Scenario: the color swatches ARE buttons in this toolbar, so a bare
+  // ".pdfa-toolbar button { min-height }" for touch targets caught them too and rendered
+  // the four circles as 40x20 ellipses. Found by measuring, not by reading. The swatches
+  // get their larger hit area from an ::after overlay instead, which leaves the circle
+  // untouched - and the four sit shoulder to shoulder, so those hit areas must not
+  // overlap either: a near-miss would silently apply the wrong color.
+  test("grows touch targets without deforming the color swatches", () => {
+    const out = html();
+    const coarse = out.match(/@media \(pointer: coarse\)[\s\S]*?\n {2}\}/)[0];
+    expect(coarse).toMatch(/\.pdfa-toolbar button:not\(\.pdfa-color\)\s*\{[^}]*min-height/);
+    // The swatch keeps its own size and gains an overlay.
+    expect(coarse).not.toMatch(/\.pdfa-color\s*\{[^}]*min-height/);
+    expect(coarse).toMatch(/\.pdfa-color::after\s*\{[^}]*position:\s*absolute/);
+    // Spread far enough apart that the overlays cannot collide.
+    expect(coarse).toMatch(/#pdfa-colors\s*\{[^}]*gap:\s*10px/);
+  });
+
+  // Scenario: the collapsed bar's box is width/COLLAPSED_ASPECT_RATIO, and the note
+  // markup carrying that ratio is shared across every device - so a bar tuned to 45px at
+  // a desktop note width gets 22px on a phone and was being cut in half. The box cannot
+  // adapt per device, which leaves compressing the content as the only lever.
+  test("compresses the collapsed bar rather than letting a short box clip it", () => {
+    const out = html();
+    expect(out).toMatch(/@media \(max-height: \d+px\)/);
+    const short = out.match(/@media \(max-height: \d+px\)[\s\S]*?\n {2}\}/)[0];
+    expect(short).toContain(".pdfa-collapsed");
+  });
 });

@@ -99,6 +99,11 @@ export function viewerMain() {
     // Held because clicking a toolbar button collapses the DOM selection before the
     // click handler runs - by then window.getSelection() is empty.
     pendingSelection: null,
+    // The raw DOM text of whatever pendingSelection was built from. Only job: let the
+    // touch capture path tell "the mouse already handled this exact selection" from "a
+    // genuinely new one", so the two triggers can coexist without double-capturing.
+    // Maintained solely by setPending, so it can never drift from pendingSelection.
+    lastCapturedText: "",
     // Id of the highlight whose note is being edited, or null. While this is set the
     // popover refuses to close on scroll or an outside click, so a half-typed note
     // cannot be lost by a stray gesture.
@@ -588,6 +593,7 @@ export function viewerMain() {
 
   function setPending(selection) {
     state.pendingSelection = selection;
+    state.lastCapturedText = selection ? selection.rawText || "" : "";
     if (!selection) {
       els.hint.textContent = "";
       els.hint.style.display = "none";
@@ -655,9 +661,66 @@ export function viewerMain() {
       spilled: spilled,
       anchorX: anchorX,
       anchorY: anchorY,
+      // The UNnormalized DOM text, kept only for the identity check in
+      // captureSettledSelection - quoteText has been through normalizeQuoteText and so
+      // can no longer be compared against a live window.getSelection().
+      rawText: String(sel),
     };
     setPending(selection);
     openSelectionPopover(selection);
+  }
+
+  /**
+   * The touch half of selection capture.
+   *
+   * Confirmed on Android in the Amplenote app: a long-press selects text natively,
+   * handles and all, but NO mouseup ever reaches the listener that drives
+   * captureSelection - so the colors never appeared and highlighting, the entire point
+   * of the plugin, was unreachable on a phone. Taps were unaffected throughout
+   * (tap-to-recolor an existing highlight kept working), which is what narrowed it to
+   * the mouse events rather than to the click path or the hit-testing.
+   *
+   * Three properties keep this from disturbing the mouse path, which is well covered and
+   * full of hard-won ordering subtleties:
+   *
+   *   1. It only ever ADDS a capture. Clearing pending state on an empty selection stays
+   *      exclusively with mouseup. That matters because `selectionchange` fires when the
+   *      browser collapses the selection as a toolbar button is pressed - the very
+   *      moment pendingSelection is about to be read - and clearing there would break
+   *      picking a color on DESKTOP, the same trap that keeps the mouseup listener
+   *      scoped to els.pages instead of document.
+   *   2. It skips a selection the mouse already captured, by comparing raw DOM text. So
+   *      on desktop mouseup wins the race and this becomes a no-op, rather than
+   *      re-anchoring the popover away from the pointer a moment after it opened.
+   *   3. It waits for the selection to SETTLE. `selectionchange` fires continuously
+   *      while a handle is dragged; capturing on each one would re-measure and re-anchor
+   *      the popover on every frame of the drag.
+   */
+  var SELECTION_SETTLE_MS = 300;
+  var selectionSettleTimer = null;
+
+  function onSelectionChanged() {
+    if (state.noteEditing) return;
+    if (selectionSettleTimer) clearTimeout(selectionSettleTimer);
+    selectionSettleTimer = setTimeout(captureSettledSelection, SELECTION_SETTLE_MS);
+  }
+
+  function captureSettledSelection() {
+    selectionSettleTimer = null;
+    if (state.noteEditing) return;
+
+    var sel = window.getSelection();
+    // Property 1: no selection is not our business - see the doc comment above.
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+    // Anything outside a page's text layer (the note editor, the panel, the note
+    // textarea) is somebody else's selection.
+    if (!textLayerOf(sel.getRangeAt(0).startContainer)) return;
+    // Property 2.
+    if (String(sel) === state.lastCapturedText) return;
+
+    // No event, so captureSelection falls back to anchoring on the last measured word's
+    // own rect - the path built for keyboard selection, which has no pointer either.
+    captureSelection(null);
   }
 
   // ---- mutating highlights -------------------------------------------------
@@ -1567,6 +1630,22 @@ export function viewerMain() {
     // selection, so the pending capture would be thrown away just before it is used.
     els.pages.addEventListener("mouseup", captureSelection);
     els.pages.addEventListener("click", onPagesClick);
+    // The touch path - see captureSettledSelection for why it cannot simply replace the
+    // mouseup above, and why it is safe on document when mouseup deliberately is not.
+    // selectionchange only exists on document; it has no element-scoped form.
+    document.addEventListener("selectionchange", onSelectionChanged);
+    // touchend is an accelerator, not the guarantee: when it does fire, the colors
+    // appear on finger-lift instead of 300ms after it. It has to capture IMMEDIATELY
+    // rather than go through onSelectionChanged, which would merely restart the settle
+    // timer and make the wait longer than doing nothing at all. Whether a long-press
+    // selection emits a touchend is not something this can assume - the settle timer
+    // stays the guarantee - and the shared identity check means whichever of the two
+    // arrives first wins while the other becomes a no-op.
+    els.pages.addEventListener("touchend", function () {
+      if (selectionSettleTimer) clearTimeout(selectionSettleTimer);
+      selectionSettleTimer = null;
+      captureSettledSelection();
+    });
     document.addEventListener("keydown", function (event) {
       // The editor handles its own Escape, so this only reaches the other contexts.
       if (event.key === "Escape" && !state.noteEditing) closePopover();
