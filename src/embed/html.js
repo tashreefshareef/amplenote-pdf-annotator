@@ -64,7 +64,7 @@ const STYLES = `
      overlay the pages without the toolbar, and without reflowing the PDF - the embed is
      often barely wider than a page, so a panel that stole width would squeeze it. */
   .pdfa-body { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
-  .pdfa-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--pdfa-border); background: var(--pdfa-toolbar); flex: 0 0 auto; flex-wrap: wrap; }
+  .pdfa-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--pdfa-toolbar); flex: 0 0 auto; flex-wrap: wrap; }
   .pdfa-toolbar button { font: inherit; padding: 4px 9px; border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit; border-radius: 5px; cursor: pointer; line-height: 1.2; }
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
   .pdfa-toolbar button:disabled { opacity: .5; cursor: default; }
@@ -77,7 +77,15 @@ const STYLES = `
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
   .pdfa-spacer { flex: 1 1 auto; }
-  .pdfa-name { opacity: .7; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The filename gets its own row below the controls, genuinely centered relative to the
+     WHOLE toolbar width - not "centered in whatever room the button row happens to leave
+     over", which with a left-heavy control cluster (colors + Notes + the overflow menu)
+     would still land noticeably right of center. A dedicated row also means it can never
+     overlap the buttons above it, unlike true position:absolute centering would risk on
+     a narrow embed where the controls alone can span more than half the width. */
+  .pdfa-filename-bar { text-align: center; padding: 0 8px 6px; border-bottom: 1px solid var(--pdfa-border);
+    background: var(--pdfa-toolbar); flex: 0 0 auto; }
+  .pdfa-name { display: inline-block; max-width: 90%; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* No align-items: center here on purpose - see the .pdfa-page comment below. */
   .pdfa-scroll { flex: 1 1 auto; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
   /* Centered via its own auto margins rather than the scroller's align-items: center.
@@ -304,16 +312,21 @@ export function buildEmbedHtml({
     <span class="pdfa-hint" id="pdfa-hint"></span>
     <span class="pdfa-sep"></span>
     <button id="pdfa-list-toggle" title="Show highlights and notes">Notes (<span id="pdfa-count">0</span>)</button>
-    <span class="pdfa-spacer"></span>
-    <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
     <span class="pdfa-sep"></span>
     <!-- Download, Export and Remove are all occasional, one-off actions - unlike the
          colors (top-level is an explicit spec requirement) or page/zoom/Notes (used
          constantly while reading) - so they live behind one overflow menu instead of
          three permanent buttons competing for space in an embed that's often barely
          wider than a page. Nothing here is spec-mandated to be top-level; this is our
-         own toolbar design, not an Amplenote requirement. -->
+         own toolbar design, not an Amplenote requirement. Grouped with the other
+         controls on the left, not off by the filename, so it reads as part of the
+         toolbar rather than a stray button wrapped onto its own line. -->
     <button id="pdfa-more" title="More actions">&#8942;</button>
+  </div>
+  <!-- Its own row, centered - see the CSS comment on .pdfa-filename-bar for why this
+       isn't just centered inline with the buttons above. -->
+  <div class="pdfa-filename-bar">
+    <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-body">
