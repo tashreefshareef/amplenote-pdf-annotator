@@ -28,10 +28,17 @@ const result = await esbuild.build({
   globalName: "__pluginModule",
   platform: "browser",
   target: "es2020",
-  // Readable output: this gets pasted into a note where a human may need to eyeball it,
-  // and minified code makes the "did Grammarly corrupt my code block" failure (spec section 8)
-  // impossible to diagnose.
-  minify: false,
+  // Minified. Was deliberately readable (minify: false) for a while, on the theory a
+  // human might need to eyeball the pasted code directly in Amplenote - but an
+  // unminified ~92k-character, 2000+ line note turned out to make the PLUGIN NOTE ITSELF
+  // hang the whole browser tab for minutes just to open it (reported live; the note was
+  // at ~93% of Amplenote's own 100k-character cap). That cost is paid on every open, not
+  // just when something needs debugging - and the actual source for debugging is src/ in
+  // git, not the generated paste, which this file's own header already says not to edit.
+  // Minifying trades "readable if you scroll into the pasted block" for "the note is
+  // actually usable," which is the right trade given the paste was never meant to be
+  // the place you read from.
+  minify: true,
   // Escape non-ASCII inside string literals rather than emitting them raw. The output
   // travels through clipboards and note storage of uncertain encoding; a stray em-dash
   // in a user-facing message once arrived in Amplenote as mojibake.
