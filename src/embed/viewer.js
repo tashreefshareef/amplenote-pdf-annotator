@@ -1427,7 +1427,17 @@ export function viewerMain() {
    * different implementation.
    */
   function openMoreMenu(clientX, clientY) {
+    // Heads the menu because the filename no longer has a row of its own - it was
+    // duplicating Amplenote's attachment chip immediately above the embed. Here it costs
+    // nothing until the menu is opened, and covers the case the chip does not: a viewer
+    // that has been moved away from its own chip.
+    var name = document.createElement("div");
+    name.className = "pdfa-menu-name";
+    name.textContent = state.attachmentName || "PDF Annotator";
+    name.title = name.textContent;
+
     var children = [
+      name,
       button("Collapse", "", function () {
         closePopover(true);
         collapseViewer();

@@ -70,7 +70,6 @@ const STYLES = `
      - see constants.js. */
   #pdfa-root.pdfa-collapsed-mode { height: auto; }
   #pdfa-root.pdfa-collapsed-mode .pdfa-toolbar,
-  #pdfa-root.pdfa-collapsed-mode .pdfa-filename-bar,
   #pdfa-root.pdfa-collapsed-mode .pdfa-status,
   #pdfa-root.pdfa-collapsed-mode .pdfa-body { display: none; }
   .pdfa-collapsed { display: none; align-items: center; gap: 8px; padding: 10px 12px;
@@ -96,19 +95,11 @@ const STYLES = `
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
   .pdfa-spacer { flex: 1 1 auto; }
-  /* The filename gets its own row below the controls, genuinely centered relative to the
-     WHOLE toolbar width - not "centered in whatever room the button row happens to leave
-     over", which with a left-heavy control cluster (colors + Notes + the overflow menu)
-     would still land noticeably right of center. A dedicated row also means it can never
-     overlap the buttons above it, unlike true position:absolute centering would risk on
-     a narrow embed where the controls alone can span more than half the width. */
-  .pdfa-filename-bar { text-align: center; padding: 0 8px 6px; border-bottom: 1px solid var(--pdfa-border);
-    background: var(--pdfa-toolbar); flex: 0 0 auto; }
-  /* The standby copy of the brand. Hidden while the toolbar has room to show its
-     own; the narrow-embed query below swaps which one is visible, so exactly one is
-     on screen at any width. */
-  .pdfa-filename-bar .pdfa-brand { display: none; }
-  .pdfa-name { display: inline-block; max-width: 90%; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The filename's heading inside the overflow menu, where it moved when its own row
+     was removed - see the markup for why that row was pure duplication. */
+  .pdfa-popover.pdfa-menu .pdfa-menu-name { font-size: 11px; opacity: .6; padding: 2px 8px 5px;
+    margin-bottom: 2px; border-bottom: 1px solid var(--pdfa-border);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* No align-items: center here on purpose - see the .pdfa-page comment below.
 
      overscroll-behavior is for touch: the embed is an iframe inside a note that
@@ -297,18 +288,15 @@ const STYLES = `
     /* Dividers cost ~9px each and stop earning it once the rows wrap: the wrap
        itself is now what groups the controls. */
     .pdfa-sep { display: none; }
-    /* The brand moves down to the filename row rather than being dropped. It is
-       there to answer "which viewer is this" - Amplenote renders its OWN preview
-       for the same attachment and the two look broadly alike - so losing it
-       entirely would undo that fix instead of just relocating it. */
+    /* The brand is what answers "which viewer is this" - Amplenote renders its OWN
+       preview for the same attachment and the two look broadly alike. It is dropped
+       only here, at a width where a full row costs more than the ambiguity does, and
+       where the four color swatches beside a "Notes (n)" button are already a
+       signature Amplenote's own preview has nothing like. It is still on the
+       collapsed bar and heads the overflow menu. */
     .pdfa-toolbar .pdfa-brand { display: none; }
-    .pdfa-filename-bar .pdfa-brand { display: inline; }
     .pdfa-toolbar { gap: 4px; padding: 5px 6px; justify-content: center; }
     .pdfa-label { min-width: 44px; }
-    /* Same information, about half the row. The filename is also on the attachment
-       chip immediately above the embed and on the collapsed bar, so this is the
-       third place it appears - worth keeping, not worth 27px of a 298px box. */
-    .pdfa-filename-bar { padding: 0 6px 3px; font-size: 11px; }
     /* Full width, since the row it shares is no longer competing with a page. */
     .pdfa-panel { width: 100%; max-width: 100%; }
   }
@@ -480,15 +468,16 @@ export function buildEmbedHtml({
          toolbar rather than a stray button wrapped onto its own line. -->
     <button id="pdfa-more" title="More actions">&#8942;</button>
   </div>
-  <!-- Its own row, centered - see the CSS comment on .pdfa-filename-bar for why this
-       isn't just centered inline with the buttons above. -->
-  <div class="pdfa-filename-bar">
-    <!-- Only ever visible on a narrow embed, where the toolbar above has given up
-         its own copy to save a row. See the CSS for why the brand has to survive
-         somewhere rather than just being dropped. -->
-    <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
-    <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
-  </div>
+  <!-- The filename used to have a whole row to itself here. It was removed: Amplenote's
+       own attachment chip sits immediately above this embed carrying the SAME filename
+       (that is where insertViewer places the viewer, directly beneath its chip), so the
+       row was showing the name a second time within about 30px of the first - visible on
+       both desktop and phone. It cost a full row of the box on every screen to do it.
+       The name is still on the collapsed bar, and now heads the overflow menu, so it is
+       never more than one tap away for a viewer that has been moved away from its chip.
+       Kept as a hidden element rather than deleted so setAttachmentName has one code
+       path and the export/download names cannot silently diverge from what is shown. -->
+  <span class="pdfa-name" hidden></span>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-body">
     <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>

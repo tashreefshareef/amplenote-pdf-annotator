@@ -16,6 +16,12 @@ import {
   setEmbedCollapsed,
   updateEmbedArgs,
 } from "../src/embed-args.js";
+// Asserted against the constants, never against a literal: the expanded ratio is a
+// tuning value that has already been changed once (1.2 -> 1.0, to give the PDF more of
+// the box), and a test that hardcodes it fails on the next tune for no real reason.
+// Fixtures below deliberately keep the literal 1.2 - there they represent an embed tag
+// written by an OLDER version, which is exactly the input these rewriters must handle.
+import { EXPANDED_ASPECT_RATIO, COLLAPSED_ASPECT_RATIO } from "../src/constants.js";
 
 describe("parseEmbedArgs", () => {
   // Scenario: the normal case — Amplenote hands renderEmbed the query string from
@@ -329,7 +335,7 @@ describe("collapsed state in the embed tag", () => {
     const result = setEmbedCollapsed(collapsed, "plug-1", "att-1", false);
 
     expect(result).not.toContain("c=1");
-    expect(result).toContain('data-aspect-ratio="1.2"');
+    expect(result).toContain(`data-aspect-ratio="${EXPANDED_ASPECT_RATIO}"`);
   });
 
   // Scenario: the flag and the box are two representations of one thing. A tag saying
@@ -361,11 +367,14 @@ describe("collapsed state in the embed tag", () => {
   // Scenario: markup built for a collapsed viewer must be born at the collapsed size.
   test("builds markup at the size matching its collapsed flag", () => {
     expect(buildEmbedMarkup("plug-1", { attachmentUUID: "a", collapsed: true })).toContain(
-      'data-aspect-ratio="16"'
+      `data-aspect-ratio="${COLLAPSED_ASPECT_RATIO}"`
     );
     expect(buildEmbedMarkup("plug-1", { attachmentUUID: "a" })).toContain(
-      'data-aspect-ratio="1.2"'
+      `data-aspect-ratio="${EXPANDED_ASPECT_RATIO}"`
     );
+    // The two must stay distinguishable, or "collapsed" and "expanded" are the same box
+    // and every assertion above passes while the feature does nothing.
+    expect(COLLAPSED_ASPECT_RATIO).toBeGreaterThan(EXPANDED_ASPECT_RATIO);
   });
 
   // Scenario: nothing to resize — same "not found" contract as the other tag rewriters.

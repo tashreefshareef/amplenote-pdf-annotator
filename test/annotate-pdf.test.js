@@ -8,6 +8,10 @@ import { annotatePdf } from "../src/actions/annotate-pdf.js";
 import { handleEmbedCall, handleEmbedCallSerialized, parseEmbedPayload } from "../src/embed-call.js";
 import { PDF_MIME } from "../src/attachments.js";
 import { createMockApp, mockAttachment } from "./helpers.js";
+// Asserted from the constant rather than a literal - the expanded ratio is a tuning
+// value (already changed once, 1.2 -> 1.0, to give the PDF more of the box). Fixtures
+// keep the old literal on purpose: they stand in for tags written by an earlier version.
+import { EXPANDED_ASPECT_RATIO, COLLAPSED_ASPECT_RATIO } from "../src/constants.js";
 
 const PLUGIN = "plug-uuid";
 const pdf = (name, uuid) => mockAttachment({ name, uuid, type: PDF_MIME });
@@ -268,7 +272,7 @@ describe("setCollapsed and getViewerSummary embed calls", () => {
 
     expect(result.ok).toBe(true);
     const content = a._notes.get("note-1").content;
-    expect(content).toContain('data-aspect-ratio="16"');
+    expect(content).toContain(`data-aspect-ratio="${COLLAPSED_ASPECT_RATIO}"`);
     expect(content).toContain("c=1");
     // The user's own content must survive the whole-note rewrite.
     expect(content).toContain("prose");
@@ -285,7 +289,7 @@ describe("setCollapsed and getViewerSummary embed calls", () => {
       pluginUUID: PLUG,
     });
 
-    expect(a._notes.get("note-1").content).toContain('data-aspect-ratio="1.2"');
+    expect(a._notes.get("note-1").content).toContain(`data-aspect-ratio="${EXPANDED_ASPECT_RATIO}"`);
   });
 
   // Scenario: a note with two viewers. Resizing one must not touch the other.

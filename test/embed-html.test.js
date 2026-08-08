@@ -385,21 +385,36 @@ describe("buildEmbedHtml", () => {
     expect(settled).not.toContain("closePopover");
   });
 
-  // Scenario: at a phone note width (~358px, measured in the Amplenote Android app) the
-  // toolbar wrapped to three rows and the chrome ended up taller than the strip of page
-  // below it. The brand moves to the filename row rather than being dropped - it is what
-  // distinguishes this viewer from Amplenote's own PDF preview of the same attachment -
-  // so exactly one copy must be visible at any width, never zero and never two.
-  test("shows exactly one brand label, whichever width the embed is given", () => {
+  // Scenario: reported live with screenshots from both desktop and phone - the filename
+  // had a row of its own directly beneath Amplenote's attachment chip, which carries the
+  // SAME filename, so the name appeared twice within about 30px and cost a full row of a
+  // box that is short to begin with. The row is gone; the name survives on the collapsed
+  // bar and at the head of the overflow menu, which covers the one case the chip does
+  // not (a viewer moved away from its own chip).
+  test("does not repeat the filename that Amplenote's own chip already shows", () => {
+    const out = html({ attachmentName: "paper.pdf" });
+    expect(out).not.toContain("pdfa-filename-bar");
+    // Still exactly one place the name is written into the markup, so setAttachmentName
+    // keeps a single code path and the export name cannot drift from the displayed one.
+    expect(out).toContain('<span class="pdfa-name" hidden>');
+    // The collapsed bar keeps its own copy - there is no chip visible when collapsed.
+    expect(out).toContain('class="pdfa-collapsed-name"');
+    // And the menu heading it moved to.
+    expect(out).toContain("pdfa-menu-name");
+  });
+
+  // Scenario: the brand is what distinguishes this viewer from Amplenote's own PDF
+  // preview of the same attachment, which can sit in the same note looking broadly
+  // alike. It is dropped ONLY on a narrow embed, where a full row costs more than the
+  // ambiguity - and there it is still reachable from the overflow menu.
+  test("keeps the brand in the toolbar, dropping it only where a row is too expensive", () => {
     const out = html();
-    // Two copies in the markup: the toolbar's and the filename row's standby.
-    expect((out.match(/class="pdfa-brand"/g) || []).length).toBeGreaterThanOrEqual(2);
-    // Wide: the filename row's copy is the hidden one.
-    expect(out).toMatch(/\.pdfa-filename-bar \.pdfa-brand\s*\{\s*display:\s*none/);
-    // Narrow: they swap.
+    const toolbar = out.match(/<div class="pdfa-toolbar">[\s\S]*?<\/div>/)[0];
+    expect(toolbar).toContain('class="pdfa-brand"');
+    // Visible by default - only the narrow query may hide it.
+    expect(out).not.toMatch(/\n\s*\.pdfa-brand\s*\{[^}]*display:\s*none/);
     const narrow = out.match(/@media \(max-width: 520px\)[\s\S]*?\n {2}\}/)[0];
     expect(narrow).toMatch(/\.pdfa-toolbar \.pdfa-brand\s*\{\s*display:\s*none/);
-    expect(narrow).toMatch(/\.pdfa-filename-bar \.pdfa-brand\s*\{\s*display:\s*inline/);
   });
 
   // Scenario: the color swatches ARE buttons in this toolbar, so a bare

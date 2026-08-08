@@ -39,8 +39,14 @@ export const STORAGE_SECTION_HEADING = "PDF Annotator data";
 export const ATTACHMENT_SCHEME = "attachment://";
 
 /**
- * Embed box proportions, as `data-aspect-ratio` (width / height - confirmed by measuring
- * a rendered viewer: 1.2 produces a box noticeably taller than it is wide).
+ * Embed box proportions, as `data-aspect-ratio`.
+ *
+ * The box is `width / ratio`, so a LOWER number is a TALLER box. Two independent
+ * measurements agree: COLLAPSED_ASPECT_RATIO 16 renders ~45px at a ~720px desktop note
+ * width (720/16), and a 1.2 embed measured ~705x564 in the live app (705/1.2). An earlier
+ * version of this comment claimed 1.2 was "taller than it is wide", which is the opposite
+ * of both measurements - it is about 20% wider than tall. Correcting it because the sign
+ * of this relationship is exactly what you need to get right to change the value at all.
  *
  * These exist because an embed CANNOT resize itself. Amplenote's docs are explicit:
  * "Embeds are fully isolated from the hosting application, so they can't be sized
@@ -54,7 +60,23 @@ export const ATTACHMENT_SCHEME = "attachment://";
  * embed's width depends on the reader's window, so no single ratio yields exactly the
  * title bar's height everywhere. 16 gives roughly 45px at a typical desktop note width.
  */
-export const EXPANDED_ASPECT_RATIO = 1.2;
+/**
+ * Reported live, with screenshots, on both desktop and phone: the box was too short and
+ * the PDF got a strip of it. 1.2 was never chosen for content - it was the arbitrary
+ * default in the first embed commit and was only ever promoted to a named constant
+ * later, and the spec says nothing about embed height.
+ *
+ * 1.0 makes the box exactly as tall as it is wide: ~705px at a desktop note width
+ * (was ~588) and ~358px on a phone (was ~298), about 20% more in both. Deliberately not
+ * lower than that - one ratio serves every screen (see below), and at 0.8 a desktop box
+ * would be ~880px, taller than a typical browser viewport, so the toolbar and the bottom
+ * of the embed could not be on screen at the same time.
+ *
+ * NOTE: the ratio is baked into each embed's tag when it is written, so changing this
+ * only affects newly inserted viewers. An existing one picks it up when its tag is next
+ * rewritten - collapsing and re-expanding it is the cheap way to migrate one by hand.
+ */
+export const EXPANDED_ASPECT_RATIO = 1.0;
 export const COLLAPSED_ASPECT_RATIO = 16;
 
 /**
