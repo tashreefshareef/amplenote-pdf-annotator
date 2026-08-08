@@ -69,13 +69,10 @@ const STYLES = `
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
   .pdfa-toolbar button:disabled { opacity: .5; cursor: default; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
-  /* Named separately from the popover's own per-highlight ".pdfa-remove" button (below) -
-     they used to share a class, which meant styling one silently restyled the other too.
-     Full opacity at rest on purpose: a dimmed/low-opacity destructive button reads as
-     disabled, not "use with care", and this one must look as clickable as any other
-     toolbar button - only its color signals what it does. */
-  .pdfa-remove-viewer { color: var(--pdfa-error); border-color: var(--pdfa-error); }
-  .pdfa-remove-viewer:hover { background: var(--pdfa-error); color: #fff; }
+  /* The overflow menu's own trigger - a plain toolbar button. Its contents (Download,
+     Export, Remove) render as ordinary popover buttons below, so a destructive one among
+     them reuses the popover's own ".pdfa-remove" styling, not a toolbar-specific class. */
+  #pdfa-more { font-size: 16px; line-height: 1; padding: 3px 10px; }
   .pdfa-sep { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 0 4px; }
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
@@ -176,6 +173,12 @@ const STYLES = `
      behaviour the same .pdfa-color class has everywhere else - the filter is "any
      combination of colors", not "one active color". */
   .pdfa-popover.pdfa-exporting { flex-direction: column; align-items: stretch; width: 220px; }
+  /* The toolbar overflow menu (Download / Export / Remove) - a plain vertical stack of
+     full-width buttons, left-aligned text rather than the centered .pdfa-btn default, so
+     it reads as a menu rather than a row of action buttons. */
+  .pdfa-popover.pdfa-menu { flex-direction: column; align-items: stretch; width: 200px; gap: 2px; }
+  .pdfa-popover.pdfa-menu .pdfa-btn { text-align: left; border-color: transparent; background: transparent; }
+  .pdfa-popover.pdfa-menu .pdfa-btn:hover { background: var(--pdfa-btn-hover); }
   .pdfa-export-colors { display: flex; gap: 6px; padding: 2px 0 8px; }
   .pdfa-export-hint { font-size: 12px; opacity: .75; padding-bottom: 6px; }
   .pdfa-note-input { font: inherit; font-size: 12px; width: 100%; resize: vertical; padding: 6px;
@@ -301,28 +304,16 @@ export function buildEmbedHtml({
     <span class="pdfa-hint" id="pdfa-hint"></span>
     <span class="pdfa-sep"></span>
     <button id="pdfa-list-toggle" title="Show highlights and notes">Notes (<span id="pdfa-count">0</span>)</button>
-    <span class="pdfa-sep"></span>
-    <!-- Bakes every highlight and note into the PDF as native annotations (verified
-         against a real pdf-lib reload in the spike) and downloads the result. Spec
-         section 4's "export/download the PDF with annotations baked in" - uploading it
-         back to the note was the spec's own suggestion, not the requirement, and
-         attachNoteMedia rejects PDFs outright (see docs/api-notes.md), so download is
-         the whole feature, not a fallback. -->
-    <button id="pdfa-download" title="Download this PDF with every highlight and note baked in as a native annotation">Download</button>
-    <span class="pdfa-sep"></span>
-    <!-- Auto-creates (or updates) a destination note holding every highlight, with a
-         color filter - spec section 4's "export all highlights into an auto-created
-         destination note, with the ability to filter by highlight color". -->
-    <button id="pdfa-export" title="Export highlights to a note, optionally filtered by color">Export</button>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-name">${escapeHtml(attachmentName)}</span>
     <span class="pdfa-sep"></span>
-    <!-- Explicit, user-triggered detach: deletes this embed's own <object> line and its
-         highlights entry. Nothing does this automatically - there's no "attachment was
-         removed" event to react to, and re-attaching a same-named PDF gets a brand new
-         uuid, not the old one - so a dead or unwanted viewer only ever goes away when
-         asked to. -->
-    <button id="pdfa-remove-viewer" class="pdfa-remove-viewer" title="Remove this viewer and its highlights from this note">Remove</button>
+    <!-- Download, Export and Remove are all occasional, one-off actions - unlike the
+         colors (top-level is an explicit spec requirement) or page/zoom/Notes (used
+         constantly while reading) - so they live behind one overflow menu instead of
+         three permanent buttons competing for space in an embed that's often barely
+         wider than a page. Nothing here is spec-mandated to be top-level; this is our
+         own toolbar design, not an Amplenote requirement. -->
+    <button id="pdfa-more" title="More actions">&#8942;</button>
   </div>
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-body">

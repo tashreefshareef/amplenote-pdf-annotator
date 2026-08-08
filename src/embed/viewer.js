@@ -55,9 +55,7 @@ export function viewerMain() {
     panel: document.getElementById("pdfa-panel"),
     listToggle: document.getElementById("pdfa-list-toggle"),
     count: document.getElementById("pdfa-count"),
-    download: document.getElementById("pdfa-download"),
-    exportAll: document.getElementById("pdfa-export"),
-    removeViewer: document.getElementById("pdfa-remove-viewer"),
+    more: document.getElementById("pdfa-more"),
   };
 
   var state = {
@@ -754,14 +752,16 @@ export function viewerMain() {
    * coordinates are already relative to this element's containing block, and the whole
    * frame moves as one unit when the surrounding note scrolls.
    *
-   * @param mode "editing" (the note editor) or "exporting" (export all's color filter)
-   *   switch the popover into a column layout with its own width; omit for the default
-   *   single-row layout every other context uses.
+   * @param mode "editing" (the note editor), "exporting" (export all's color filter, and
+   *   the remove-viewer confirm, which reuses its column layout), or "menu" (the toolbar
+   *   overflow menu) switch the popover into a column layout with its own width; omit
+   *   for the default single-row layout every other context uses.
    */
   function showPopover(children, clientX, clientY, mode) {
     els.popover.innerHTML = "";
     els.popover.classList.toggle("pdfa-editing", mode === "editing");
     els.popover.classList.toggle("pdfa-exporting", mode === "exporting");
+    els.popover.classList.toggle("pdfa-menu", mode === "menu");
     for (var i = 0; i < children.length; i++) els.popover.appendChild(children[i]);
 
     // Must be visible before measuring - a display:none element has no size.
@@ -784,7 +784,7 @@ export function viewerMain() {
   function closePopover(force) {
     if (state.noteEditing && !force) return;
     state.noteEditing = null;
-    els.popover.classList.remove("pdfa-open", "pdfa-editing", "pdfa-exporting");
+    els.popover.classList.remove("pdfa-open", "pdfa-editing", "pdfa-exporting", "pdfa-menu");
     els.popover.innerHTML = "";
   }
 
@@ -1241,6 +1241,29 @@ export function viewerMain() {
   }
 
   /**
+   * The toolbar's overflow menu: Download, Export and Remove, none of which the spec
+   * requires to be a permanent top-level button (only the four colors are - see the
+   * toolbar comment in html.js). Each item hands off to the SAME function a dedicated
+   * button used to call directly; this menu is purely a different entry point, not a
+   * different implementation.
+   */
+  function openMoreMenu(clientX, clientY) {
+    var children = [
+      button("Download", "", function () {
+        closePopover(true);
+        downloadAnnotatedPdf();
+      }),
+      button("Export...", "", function () {
+        openExportPopover(clientX, clientY);
+      }),
+      button("Remove viewer...", "pdfa-remove", function () {
+        openRemoveViewerPopover(clientX, clientY);
+      }),
+    ];
+    showPopover(children, clientX, clientY, "menu");
+  }
+
+  /**
    * Confirms detaching this viewer via the SAME in-page popover every other destructive
    * or editing action here uses (recolor, note editor, export filter), rather than a
    * native confirm().
@@ -1277,8 +1300,9 @@ export function viewerMain() {
    * button - so reaching here already means the user confirmed.
    */
   function removeThisViewer() {
+    // Closes (and discards) the confirm popover BEFORE the async work starts, so
+    // there's no button left to double-click, disable, or re-enable on failure.
     closePopover(true);
-    els.removeViewer.disabled = true;
     status("Removing this viewer...");
     callPlugin({ action: "removeViewer", attachmentUUID: cfg.attachmentUUID, pluginUUID: cfg.pluginUUID })
       .then(function (result) {
@@ -1293,7 +1317,6 @@ export function viewerMain() {
           "</div>";
       })
       .catch(function (err) {
-        els.removeViewer.disabled = false;
         status(err.message || String(err), true);
       });
   }
@@ -1309,10 +1332,10 @@ export function viewerMain() {
    */
   function downloadAnnotatedPdf() {
     if (!state.pdfBytes) return;
-    var btn = els.download;
-    var originalLabel = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Preparing...";
+    // Feedback goes through the shared status bar, not a button label - Download is a
+    // transient item inside the overflow menu now (see openMoreMenu), gone from the DOM
+    // the instant it's clicked, same as every other menu action's in-progress state.
+    status("Preparing the download...");
 
     loadPdfLib()
       .then(function (PDFLib) {
@@ -1336,13 +1359,9 @@ export function viewerMain() {
         // and an immediate revoke can race that start.
         setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
         status("");
-        btn.disabled = false;
-        btn.textContent = originalLabel;
       })
       .catch(function (err) {
         status("Could not prepare the download: " + (err.message || err), true);
-        btn.disabled = false;
-        btn.textContent = originalLabel;
       });
   }
 
@@ -1422,12 +1441,8 @@ export function viewerMain() {
     document.getElementById("pdfa-zoom-in").onclick = function () { setZoom(state.scale + 0.25); };
     document.getElementById("pdfa-zoom-out").onclick = function () { setZoom(state.scale - 0.25); };
     els.listToggle.onclick = function () { togglePanel(); };
-    els.download.onclick = downloadAnnotatedPdf;
-    els.exportAll.onclick = function (event) {
-      openExportPopover(event.clientX, event.clientY);
-    };
-    els.removeViewer.onclick = function (event) {
-      openRemoveViewerPopover(event.clientX, event.clientY);
+    els.more.onclick = function (event) {
+      openMoreMenu(event.clientX, event.clientY);
     };
     scroller().addEventListener("scroll", trackScroll);
 
