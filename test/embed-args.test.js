@@ -11,6 +11,7 @@ import {
   buildEmbedArgs,
   buildEmbedMarkup,
   hasEmbedFor,
+  insertEmbedAfterChip,
   removeEmbedMarkup,
   updateEmbedArgs,
 } from "../src/embed-args.js";
@@ -226,5 +227,72 @@ describe("updateEmbedArgs", () => {
     expect(updateEmbedArgs(`notes\n${markupA}`, "other-plugin", "att-1", { page: 1 })).toBeNull();
     expect(updateEmbedArgs("", "plug-1", "att-1", { page: 1 })).toBeNull();
     expect(updateEmbedArgs(null, "plug-1", "att-1", { page: 1 })).toBeNull();
+  });
+});
+
+describe("insertEmbedAfterChip", () => {
+  const TAG = '<object data="plugin://plug-1?att=att-1" data-aspect-ratio="1.2" />';
+  const chip = (uuid) => `[rent.pdf](attachment://${uuid})`;
+
+  // Scenario: the whole point — the tag lands under the chip, mid-note, not at the end.
+  // "Directly after" means the next non-blank line: the tag needs a blank line either
+  // side to be its own block.
+  test("splices the tag in as the first non-blank line after the chip", () => {
+    const result = insertEmbedAfterChip(`intro\n\n${chip("att-1")}\n\noutro`, "att-1", TAG);
+
+    const lines = result.split("\n");
+    const chipIdx = lines.findIndex((l) => l.includes("attachment://"));
+    expect(lines.slice(chipIdx + 1).find((l) => l !== "")).toBe(TAG);
+    expect(lines[lines.length - 1]).toBe("outro");
+  });
+
+  // Scenario: the tag must be surrounded by blank lines, or it is not its own block and
+  // Amplenote has no reason to render it as an embed.
+  test("keeps a blank line on both sides of the tag", () => {
+    const lines = insertEmbedAfterChip(`${chip("att-1")}\nbody`, "att-1", TAG).split("\n");
+
+    const tagIdx = lines.indexOf(TAG);
+    expect(lines[tagIdx - 1]).toBe("");
+    expect(lines[tagIdx + 1]).toBe("");
+  });
+
+  // Scenario: the chip sits on a line with other content — a footnote marker, as
+  // Amplenote actually writes it for a PDF whose text it extracted.
+  test("finds a chip sharing its line with other markdown", () => {
+    const result = insertEmbedAfterChip(`${chip("att-1")} [^1]\n\nbody`, "att-1", TAG);
+    expect(result).toBe(`${chip("att-1")} [^1]\n\n${TAG}\n\nbody`);
+  });
+
+  // Scenario: several PDFs on one note. Matching the wrong uuid would stack every viewer
+  // under whichever chip came first.
+  test("anchors to the chip with the matching uuid, not the first chip", () => {
+    const content = `${chip("att-9")}\n\nmiddle\n\n${chip("att-1")}\n\nend`;
+
+    const lines = insertEmbedAfterChip(content, "att-1", TAG).split("\n");
+
+    expect(lines.indexOf(TAG)).toBeGreaterThan(lines.indexOf("middle"));
+  });
+
+  // Scenario: repeated annotate/detach cycles must not leave the note growing blank
+  // lines where the tag keeps landing.
+  test("does not add a blank line where one already follows the chip", () => {
+    const result = insertEmbedAfterChip(`${chip("att-1")}\n\nbody`, "att-1", TAG);
+    expect(result).not.toMatch(/\n{3,}/);
+  });
+
+  // Scenario: the attachment exists but its chip was deleted from the body. Not an
+  // error — the caller falls back to appending rather than refusing to open a viewer.
+  test("returns null when this attachment has no chip in the body", () => {
+    expect(insertEmbedAfterChip(`${chip("att-9")}\n\nbody`, "att-1", TAG)).toBeNull();
+    expect(insertEmbedAfterChip("no chips here", "att-1", TAG)).toBeNull();
+  });
+
+  // Scenario: defensive — a missing argument must signal "not found", never throw into
+  // an action that would then leave the note half-written.
+  test("returns null on missing arguments rather than throwing", () => {
+    expect(insertEmbedAfterChip("", "att-1", TAG)).toBeNull();
+    expect(insertEmbedAfterChip(null, "att-1", TAG)).toBeNull();
+    expect(insertEmbedAfterChip(chip("att-1"), null, TAG)).toBeNull();
+    expect(insertEmbedAfterChip(chip("att-1"), "att-1", "")).toBeNull();
   });
 });

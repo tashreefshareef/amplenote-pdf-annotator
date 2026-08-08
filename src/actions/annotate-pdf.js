@@ -6,7 +6,7 @@
  * note data.
  */
 import { choosePdfAttachment } from "../attachments.js";
-import { buildEmbedMarkup, hasEmbedFor } from "../embed-args.js";
+import { buildEmbedMarkup, hasEmbedFor, insertEmbedAfterChip } from "../embed-args.js";
 
 /**
  * @param {object} app        Amplenote app interface
@@ -39,11 +39,22 @@ export async function annotatePdf(app, noteUUID, pluginUUID) {
     return attachment.uuid;
   }
 
-  await app.insertNoteContent(
-    { uuid: noteUUID },
-    `\n${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}\n`,
-    { atEnd: true }
-  );
+  const markup = buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid });
+
+  // Preferred: put the viewer directly beneath the PDF's own attachment chip, so a note
+  // with several PDFs reads as several PDFs each followed by its viewer - rather than N
+  // chips scattered through the text and N viewers stacked anonymously at the bottom.
+  // Costs a whole-note rewrite, since Amplenote has no positional insert.
+  const anchored = insertEmbedAfterChip(content, attachment.uuid, markup);
+  if (anchored !== null) {
+    await app.replaceNoteContent({ uuid: noteUUID }, anchored);
+    return attachment.uuid;
+  }
+
+  // No chip in the body for this attachment - it can be deleted from the text while the
+  // attachment itself lives on. Appending is still correct, and it avoids rewriting the
+  // whole note for no placement benefit.
+  await app.insertNoteContent({ uuid: noteUUID }, `\n${markup}\n`, { atEnd: true });
 
   return attachment.uuid;
 }

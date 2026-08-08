@@ -18,9 +18,13 @@ const appWith = (attachments, content = "", promptQueue = []) =>
     promptQueue,
   });
 
+/** How Amplenote renders an attachment chip in note markdown — see constants.js. */
+const chip = (name, uuid) => `[${name}](attachment://${uuid})`;
+
 describe("annotatePdf", () => {
-  // Scenario: the happy path — one PDF on the note, viewer gets embedded.
-  test("inserts embed markup at the end of the note for the chosen PDF", async () => {
+  // Scenario: the happy path — one PDF on the note, viewer gets embedded. No chip in the
+  // body, so there is nothing to anchor to and appending is correct.
+  test("appends embed markup for the chosen PDF when the note has no chip", async () => {
     const app = appWith([pdf("paper.pdf", "att-1")], "# Research\nMy notes.");
 
     const result = await annotatePdf(app, "note-1", PLUGIN);
@@ -31,6 +35,64 @@ describe("annotatePdf", () => {
     // The user's own content must survive untouched.
     expect(content).toContain("My notes.");
     expect(app._calls.insertedContent[0].opts).toEqual({ atEnd: true });
+  });
+
+  // Scenario: the multi-PDF case. The chip sits mid-note, so the viewer belongs directly
+  // beneath it — not at the bottom, several screens away from the thing it renders.
+  test("places the viewer directly beneath the PDF's own attachment chip", async () => {
+    const app = appWith(
+      [pdf("rent.pdf", "att-1")],
+      `# Research\n\n${chip("rent.pdf", "att-1")}\n\n## Later section\ntrailing text`
+    );
+
+    await annotatePdf(app, "note-1", PLUGIN);
+
+    const lines = app._notes.get("note-1").content.split("\n");
+    const chipLine = lines.findIndex((l) => l.includes("attachment://att-1"));
+    const embedLine = lines.findIndex((l) => l.includes("plugin://"));
+    expect(embedLine).toBeGreaterThan(chipLine);
+    // Directly beneath means before the next section, not merely somewhere after.
+    expect(embedLine).toBeLessThan(lines.findIndex((l) => l.startsWith("## Later")));
+    // Anchoring needs a whole-note rewrite; appending would defeat the placement.
+    expect(app.insertNoteContent).not.toHaveBeenCalled();
+  });
+
+  // Scenario: two PDFs, two chips in different parts of the note. Each viewer must land
+  // under its OWN chip — matching on the wrong uuid would put them both in one place.
+  test("anchors each PDF's viewer to its own chip", async () => {
+    const app = appWith(
+      [pdf("a.pdf", "att-1"), pdf("b.pdf", "att-2")],
+      `${chip("a.pdf", "att-1")}\n\nmiddle prose\n\n${chip("b.pdf", "att-2")}\n\nend`,
+      ["att-2"]
+    );
+
+    await annotatePdf(app, "note-1", PLUGIN);
+
+    const lines = app._notes.get("note-1").content.split("\n");
+    const embedLine = lines.findIndex((l) => l.includes("plugin://"));
+    expect(embedLine).toBeGreaterThan(lines.findIndex((l) => l.includes("attachment://att-2")));
+    expect(embedLine).toBeGreaterThan(lines.findIndex((l) => l.includes("middle prose")));
+  });
+
+  // Scenario: everything around the chip must survive the whole-note rewrite intact —
+  // rich footnotes and the plugin's own fenced storage section included, which is what a
+  // real annotated note looks like.
+  test("leaves the rest of the note byte-identical when anchoring", async () => {
+    const before =
+      `# Title\n\nprose\n\n${chip("rent.pdf", "att-1")} [^1]\n\n` +
+      "# PDF Annotator data\n\n```json\n{}\n```\n\n[^1]: extracted page text";
+    const app = appWith([pdf("rent.pdf", "att-1")], before);
+
+    await annotatePdf(app, "note-1", PLUGIN);
+
+    const after = app._notes.get("note-1").content;
+    // Removing only the inserted embed line must give back exactly the original.
+    const restored = after
+      .split("\n")
+      .filter((l) => !l.includes("plugin://"))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n");
+    expect(restored).toBe(before);
   });
 
   // Scenario: the option is run on a note with no PDF. The user needs to be told what

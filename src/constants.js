@@ -25,6 +25,20 @@ export const DEFAULT_COLOR_ID = "yellow";
 export const STORAGE_SECTION_HEADING = "PDF Annotator data";
 
 /**
+ * The link scheme Amplenote uses for an attachment chip in note markdown.
+ *
+ * Undocumented - the plugin markdown reference omits attachments entirely - but confirmed
+ * by dumping a real note's content (src/actions/dump-markdown.js):
+ *
+ *   [RENT AGREEMENT 7 8 26.pdf](attachment://01344d1c-503f-4415-972f-5e6967f9fa4a) [^1]
+ *
+ * An ordinary markdown link, sitting at the chip's actual position in the body, whose
+ * target uuid is the same one `getNoteAttachments` returns. That join is what lets a
+ * viewer be placed beneath its own chip instead of at the end of the note.
+ */
+export const ATTACHMENT_SCHEME = "attachment://";
+
+/**
  * Pinned CDN versions (spec section 3 requires recording these for reproducibility).
  *
  * VERIFIED LOADING inside a live Amplenote embed on 2026-08-06 - these exact URLs

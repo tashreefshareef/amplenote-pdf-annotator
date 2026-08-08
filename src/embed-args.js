@@ -11,6 +11,7 @@
  * Coordinates are PDF user-space (origin bottom-left), matching the storage model in
  * spec section 3 - never screen pixels.
  */
+import { ATTACHMENT_SCHEME } from "./constants.js";
 
 /**
  * Parse the argument Amplenote hands to `renderEmbed`.
@@ -95,6 +96,43 @@ export function buildEmbedMarkup(pluginUUID, args = {}, aspectRatio = 1.2) {
   const query = buildEmbedArgs(args);
   const target = query ? `plugin://${pluginUUID}?${query}` : `plugin://${pluginUUID}`;
   return `<object data="${target}" data-aspect-ratio="${aspectRatio}" />`;
+}
+
+/**
+ * Splice an embed tag into note content directly beneath the PDF's own attachment chip.
+ *
+ * The reason this can exist at all: the chip is a plain markdown link,
+ * `[name](attachment://UUID)`, sitting at its real position in the body - see
+ * ATTACHMENT_SCHEME in src/constants.js for the dump that confirmed it. Amplenote exposes
+ * no positional write (`insertNoteContent` offers only `{ atEnd }`), so the caller has to
+ * follow this with a whole-note `replaceNoteContent`.
+ *
+ * Matched on the uuid substring rather than a full link regex on purpose: the chip's exact
+ * markdown is undocumented, so anything about the link's shape that isn't the uuid is an
+ * assumption waiting to break. The uuid is the one part with a documented meaning.
+ *
+ * @returns {string|null} updated content, or null if this attachment has no chip in the
+ *   body - the caller's cue to fall back to appending, NOT an error. A note can legitimately
+ *   hold an attachment with no chip left in the text.
+ */
+export function insertEmbedAfterChip(noteContent, attachmentUUID, markup) {
+  if (!noteContent || !attachmentUUID || !markup) return null;
+
+  const lines = noteContent.split("\n");
+  const idx = lines.findIndex((line) => line.includes(`${ATTACHMENT_SCHEME}${attachmentUUID}`));
+  if (idx === -1) return null;
+
+  // A blank line either side, so the tag is its own block - the shape that renders. Where
+  // the chip is already followed by a blank line, reuse it as the leading one and splice
+  // in after it, rather than adding a second: repeatedly annotating and detaching would
+  // otherwise leave the note accumulating vertical gaps.
+  const next = lines.slice();
+  if (lines[idx + 1] === "") {
+    next.splice(idx + 2, 0, markup.trim(), "");
+  } else {
+    next.splice(idx + 1, 0, "", markup.trim(), "");
+  }
+  return next.join("\n");
 }
 
 /** True if note content already embeds this plugin, to avoid inserting duplicates. */
