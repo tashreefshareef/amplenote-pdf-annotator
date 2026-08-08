@@ -91,12 +91,32 @@ describe("buildEmbedHtml", () => {
       "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
       "pdfa-colors", "pdfa-hint", "pdfa-popover", "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
-      "pdfa-more",
+      "pdfa-more", "pdfa-open", "pdfa-collapsed-count",
     ]) {
       expect(out).toContain(`id="${id}"`);
     }
     expect(out).toContain("pdfa-scroll");
     expect(out).toContain("pdfa-name");
+  });
+
+  // Scenario: the bounty's own original wording asked the user to "enter a user
+  // experience" to annotate - not have the PDF permanently occupying the whole note.
+  // Starting collapsed also means boot()'s fetch/parse/render cost is deferred until
+  // someone actually wants it, rather than paid on every note open.
+  test("starts collapsed with no deep-link target", () => {
+    const out = html();
+    expect(out).toContain('id="pdfa-root" class="pdfa-collapsed-mode"');
+    expect(out).toContain('id="pdfa-open"');
+  });
+
+  // Scenario: THE exception - a deep link from an exported highlight (src/actions/
+  // link-target.js) already says exactly where to land. Forcing another "Open" click
+  // after the user already clicked a link to get here would defeat half that feature.
+  test("starts expanded when a deep link targets a page or highlight", () => {
+    // The class name still appears in the <style> block's own selectors regardless -
+    // it's specifically the ROOT DIV's opening tag that must not carry it.
+    expect(html({ page: 3 })).toContain('id="pdfa-root">');
+    expect(html({ highlightId: "hl-1" })).toContain('id="pdfa-root">');
   });
 
   // Scenario: the spec is explicit that all four colors are top-level toolbar buttons,

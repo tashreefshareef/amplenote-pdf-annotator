@@ -60,6 +60,24 @@ const STYLES = `
   * { box-sizing: border-box; }
   body { margin: 0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg); }
+  /* COLLAPSED BY DEFAULT (unless a deep link targets an exact page/highlight - see
+     buildEmbedHtml). The bounty's own original wording asked the user to "enter a user
+     experience" to annotate, not have the PDF permanently occupying the whole note - and
+     an embed that never renders a single page until asked to is also the whole PDF.js
+     fetch/parse/render cost deferred until someone actually wants it, not paid on every
+     note open. height:auto here (not the 100vh above) so the collapsed bar takes only
+     its own natural height, not a nearly-empty full-height box. */
+  #pdfa-root.pdfa-collapsed-mode { height: auto; }
+  #pdfa-root.pdfa-collapsed-mode .pdfa-toolbar,
+  #pdfa-root.pdfa-collapsed-mode .pdfa-filename-bar,
+  #pdfa-root.pdfa-collapsed-mode .pdfa-status,
+  #pdfa-root.pdfa-collapsed-mode .pdfa-body { display: none; }
+  .pdfa-collapsed { display: none; align-items: center; gap: 8px; padding: 10px 12px;
+    background: var(--pdfa-toolbar); border-bottom: 1px solid var(--pdfa-border); }
+  #pdfa-root.pdfa-collapsed-mode .pdfa-collapsed { display: flex; }
+  .pdfa-collapsed-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    opacity: .85; }
+  .pdfa-collapsed-count { opacity: .6; font-size: 12px; white-space: nowrap; }
   /* Holds the page scroller and the highlights panel. Positioned so the panel can
      overlay the pages without the toolbar, and without reflowing the PDF - the embed is
      often barely wider than a page, so a panel that stole width would squeeze it. */
@@ -286,11 +304,25 @@ export function buildEmbedHtml({
     defaultColorId: DEFAULT_COLOR_ID,
   };
 
+  // Collapsed by default - EXCEPT when a deep link targets an exact page or highlight
+  // (an exported link's "note=...&page=...&hl=..." args, see src/actions/link-target.js).
+  // Making the user click "Open" again after they already clicked a link to get here
+  // would defeat half the point of that feature - the deep link should land exactly
+  // where it says it will, not one extra click away from it.
+  const startCollapsed = !page && !highlightId;
+
   // The upstream stylesheet is linked BEFORE ours so our selection colour and safety
   // net win on equal specificity.
   return `<link rel="stylesheet" href="${CDN.pdfViewerCss}">
 <style>:root{${theme}}${STYLES}</style>
-<div id="pdfa-root">
+<div id="pdfa-root"${startCollapsed ? ' class="pdfa-collapsed-mode"' : ""}>
+  <div class="pdfa-collapsed">
+    <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
+    <span class="pdfa-collapsed-name">${escapeHtml(attachmentName)}</span>
+    <span class="pdfa-spacer"></span>
+    <span class="pdfa-collapsed-count" id="pdfa-collapsed-count"></span>
+    <button id="pdfa-open" class="pdfa-btn pdfa-btn-primary">Open to annotate</button>
+  </div>
   <div class="pdfa-toolbar">
     <!-- Identifies this viewer at a glance. Amplenote renders its OWN PDF preview for
          an attachment, and both can sit in the same note looking broadly similar; a

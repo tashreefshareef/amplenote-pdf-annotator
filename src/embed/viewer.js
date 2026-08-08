@@ -56,6 +56,8 @@ export function viewerMain() {
     listToggle: document.getElementById("pdfa-list-toggle"),
     count: document.getElementById("pdfa-count"),
     more: document.getElementById("pdfa-more"),
+    open: document.getElementById("pdfa-open"),
+    collapsedCount: document.getElementById("pdfa-collapsed-count"),
   };
 
   var state = {
@@ -1385,6 +1387,27 @@ export function viewerMain() {
       });
   }
 
+  /**
+   * While collapsed, a cheap peek at the highlight count - just a note-content read via
+   * the plugin bridge, no PDF.js involved at all - so the placeholder can say "3
+   * highlights" without paying any of the fetch/parse/render cost boot() otherwise pays
+   * immediately. Errors are swallowed here rather than shown - loadHighlights already
+   * reports its own failure via status(), but that bar is hidden while collapsed; boot()
+   * retries the same load anyway once the user actually opens the viewer.
+   */
+  function showCollapsedPreview() {
+    loadHighlights().then(function () {
+      var n = state.highlights.length;
+      els.collapsedCount.textContent = n ? n + (n === 1 ? " highlight" : " highlights") : "";
+    });
+  }
+
+  /** Leaves collapsed mode and boots the full viewer - the one thing the "Open" button does. */
+  function openViewer() {
+    els.root.classList.remove("pdfa-collapsed-mode");
+    boot();
+  }
+
   function boot() {
     status("Loading PDF...");
 
@@ -1477,7 +1500,17 @@ export function viewerMain() {
 
     mountColorButtons();
     renderPanel();
-    boot();
+    els.open.onclick = openViewer;
+
+    // Collapsed by default (see the CSS/HTML comments in html.js) - skip the entire
+    // fetch/parse/render cost until the user actually asks for it, except when a deep
+    // link already specifies an exact page/highlight, where html.js renders the embed
+    // already expanded and this branch never runs at all.
+    if (els.root.classList.contains("pdfa-collapsed-mode")) {
+      showCollapsedPreview();
+    } else {
+      boot();
+    }
   } catch (err) {
     status("Viewer failed to start: " + (err && err.message ? err.message : err), true);
   }
