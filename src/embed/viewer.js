@@ -105,14 +105,23 @@ export function viewerMain() {
    * Wrapped in a promise so a SYNCHRONOUS throw from callAmplenotePlugin becomes a
    * rejection the caller's .catch can report - otherwise it escapes the chain entirely
    * and the viewer sits on "Loading..." forever with nothing to diagnose.
+   *
+   * `noteUUID` rides along on EVERY call, injected here once rather than at each call
+   * site - it's the note this embed was rendered into (captured by plugin.js at
+   * renderEmbed time), sent explicitly so the plugin side never has to trust its own
+   * `app.context.noteUUID` being fresh on every onEmbedCall. That trust broke
+   * specifically when a note was navigated away from and back to: the embed remounts,
+   * but the plugin's own context read a stale note id, so a highlight that was still
+   * genuinely saved got looked up against the wrong note and looked like it had vanished.
    */
   function callPlugin(payload) {
+    var withNoteUUID = Object.assign({ noteUUID: cfg.noteUUID }, payload);
     return new Promise(function (resolve, reject) {
       try {
         if (typeof window.callAmplenotePlugin !== "function") {
           throw new Error("Plugin bridge unavailable (callAmplenotePlugin missing)");
         }
-        resolve(window.callAmplenotePlugin(JSON.stringify(payload)));
+        resolve(window.callAmplenotePlugin(JSON.stringify(withNoteUUID)));
       } catch (err) {
         reject(err);
       }

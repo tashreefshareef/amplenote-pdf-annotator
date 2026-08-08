@@ -21,12 +21,28 @@ import {
 } from "./highlights.js";
 
 /**
+ * Which note this call is about.
+ *
+ * Prefers the noteUUID the embed sends explicitly - captured once by plugin.js at
+ * renderEmbed time, the moment Amplenote is definitively rendering THIS note's embed -
+ * over trusting `app.context.noteUUID` fresh on every onEmbedCall. Suspected of going
+ * stale specifically when a note is navigated away from and back to: an embed remounts,
+ * but onEmbedCall's own context reads the wrong note, so a highlight that is genuinely
+ * still saved gets looked up against the wrong note and appears to have vanished.
+ * `app.context.noteUUID` stays as a fallback for older cached embed HTML that predates
+ * this and never sends its own noteUUID.
+ */
+function resolveNoteUUID(app, request) {
+  return request.noteUUID || app.context.noteUUID;
+}
+
+/**
  * Look up an attachment's display name from the note the embed lives in.
  * Never throws - a missing name is cosmetic and must not block loading the PDF.
  */
-async function attachmentName(app, attachmentUUID) {
+async function attachmentName(app, noteUUID, attachmentUUID) {
   try {
-    const list = await app.getNoteAttachments({ uuid: app.context.noteUUID });
+    const list = await app.getNoteAttachments({ uuid: noteUUID });
     const match = Array.isArray(list) && list.find((a) => a && a.uuid === attachmentUUID);
     return match ? match.name : "";
   } catch {
@@ -46,8 +62,7 @@ async function attachmentName(app, attachmentUUID) {
  * given (which `updateHighlight` does for an unknown id) skips the write entirely rather
  * than rewriting the note's managed section for nothing.
  */
-async function mutateHighlights(app, attachmentUUID, mutate) {
-  const noteUUID = app.context.noteUUID;
+async function mutateHighlights(app, noteUUID, attachmentUUID, mutate) {
   const current = await loadHighlights(app, noteUUID, attachmentUUID);
   const next = mutate(current);
   if (next !== current) {
@@ -95,7 +110,7 @@ export async function handleEmbedCall(app, payload) {
         const url = await fetchableAttachmentURL(app, attachmentUUID);
         // The embed only knows the uuid, so send the display name along with it rather
         // than making the viewer issue a second round-trip just to label its toolbar.
-        return { url, name: await attachmentName(app, attachmentUUID) };
+        return { url, name: await attachmentName(app, resolveNoteUUID(app, request), attachmentUUID) };
       } catch (err) {
         return { error: `Could not load the PDF: ${err.message}` };
       }
@@ -105,7 +120,7 @@ export async function handleEmbedCall(app, payload) {
       if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
       try {
         return {
-          highlights: await loadHighlights(app, app.context.noteUUID, request.attachmentUUID),
+          highlights: await loadHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID),
         };
       } catch (err) {
         return { error: `Could not load highlights: ${err.message}` };
@@ -119,7 +134,7 @@ export async function handleEmbedCall(app, payload) {
         // gatekeeper for the storage shape, and the embed cannot import it. It also
         // assigns the id, so the viewer never has to invent one.
         const highlight = createHighlight(request.highlight || {});
-        return await mutateHighlights(app, request.attachmentUUID, (list) =>
+        return await mutateHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID, (list) =>
           list.concat([highlight])
         );
       } catch (err) {
@@ -130,7 +145,7 @@ export async function handleEmbedCall(app, payload) {
     case "recolorHighlight": {
       if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
       try {
-        return await mutateHighlights(app, request.attachmentUUID, (list) =>
+        return await mutateHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID, (list) =>
           updateHighlight(list, request.id, (h) => withColor(h, request.color))
         );
       } catch (err) {
@@ -144,7 +159,7 @@ export async function handleEmbedCall(app, payload) {
         // One code path for add, edit and remove. `withNote` trims and turns blank text
         // into null, so clearing the box IS removing the note - there is no second
         // "deleteNote" action that could disagree with this one about what empty means.
-        return await mutateHighlights(app, request.attachmentUUID, (list) =>
+        return await mutateHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID, (list) =>
           updateHighlight(list, request.id, (h) => withNote(h, request.note))
         );
       } catch (err) {
@@ -155,7 +170,7 @@ export async function handleEmbedCall(app, payload) {
     case "removeHighlight": {
       if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
       try {
-        return await mutateHighlights(app, request.attachmentUUID, (list) =>
+        return await mutateHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID, (list) =>
           removeHighlight(list, request.id)
         );
       } catch (err) {
@@ -169,7 +184,7 @@ export async function handleEmbedCall(app, payload) {
         // atEnd - never disturbs the user's own content above it (spec §4: "probably
         // appended at the bottom of the note").
         await app.insertNoteContent(
-          { uuid: app.context.noteUUID },
+          { uuid: resolveNoteUUID(app, request) },
           "\n" + request.content + "\n",
           { atEnd: true }
         );
@@ -183,7 +198,7 @@ export async function handleEmbedCall(app, payload) {
       if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
       if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate this viewer." };
       try {
-        const noteUUID = app.context.noteUUID;
+        const noteUUID = resolveNoteUUID(app, request);
         const content = await app.getNoteContent({ uuid: noteUUID });
         const updated = removeEmbedMarkup(content, request.pluginUUID, request.attachmentUUID);
         if (updated === null) {

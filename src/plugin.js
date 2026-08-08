@@ -43,6 +43,15 @@ const plugin = {
       // Needed to build the `plugin://` deep link in an exported highlight - see
       // src/export.js. Available here the same way annotate-pdf.js already gets it.
       pluginUUID: app.context.pluginUUID,
+      // Captured HERE, at the moment Amplenote is definitively rendering THIS note's
+      // embed, and threaded through every embed-call request from here on (see
+      // viewer.js/embed-call.js) - rather than trusted fresh on `app.context.noteUUID`
+      // inside onEmbedCall itself. Suspected root cause of a real bug: switching away
+      // from a note and back made an already-saved, still-present highlight vanish from
+      // the viewer, consistent with onEmbedCall's own `app.context.noteUUID` reading a
+      // stale note id after the embed remounts, causing loadHighlights to look at the
+      // wrong note.
+      noteUUID: app.context.noteUUID,
     });
   },
 

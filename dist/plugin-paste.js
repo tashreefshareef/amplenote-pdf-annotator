@@ -331,17 +331,19 @@ ${json}
   }
 
   // src/embed-call.js
-  async function attachmentName(app, attachmentUUID) {
+  function resolveNoteUUID(app, request) {
+    return request.noteUUID || app.context.noteUUID;
+  }
+  async function attachmentName(app, noteUUID, attachmentUUID) {
     try {
-      const list = await app.getNoteAttachments({ uuid: app.context.noteUUID });
+      const list = await app.getNoteAttachments({ uuid: noteUUID });
       const match = Array.isArray(list) && list.find((a) => a && a.uuid === attachmentUUID);
       return match ? match.name : "";
     } catch {
       return "";
     }
   }
-  async function mutateHighlights(app, attachmentUUID, mutate) {
-    const noteUUID = app.context.noteUUID;
+  async function mutateHighlights(app, noteUUID, attachmentUUID, mutate) {
     const current = await loadHighlights(app, noteUUID, attachmentUUID);
     const next = mutate(current);
     if (next !== current) {
@@ -371,7 +373,7 @@ ${json}
         if (!attachmentUUID) return { error: "No attachment specified for this viewer." };
         try {
           const url = await fetchableAttachmentURL(app, attachmentUUID);
-          return { url, name: await attachmentName(app, attachmentUUID) };
+          return { url, name: await attachmentName(app, resolveNoteUUID(app, request), attachmentUUID) };
         } catch (err) {
           return { error: `Could not load the PDF: ${err.message}` };
         }
@@ -380,7 +382,7 @@ ${json}
         if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
         try {
           return {
-            highlights: await loadHighlights(app, app.context.noteUUID, request.attachmentUUID)
+            highlights: await loadHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID)
           };
         } catch (err) {
           return { error: `Could not load highlights: ${err.message}` };
@@ -392,6 +394,7 @@ ${json}
           const highlight = createHighlight(request.highlight || {});
           return await mutateHighlights(
             app,
+            resolveNoteUUID(app, request),
             request.attachmentUUID,
             (list) => list.concat([highlight])
           );
@@ -404,6 +407,7 @@ ${json}
         try {
           return await mutateHighlights(
             app,
+            resolveNoteUUID(app, request),
             request.attachmentUUID,
             (list) => updateHighlight(list, request.id, (h) => withColor(h, request.color))
           );
@@ -416,6 +420,7 @@ ${json}
         try {
           return await mutateHighlights(
             app,
+            resolveNoteUUID(app, request),
             request.attachmentUUID,
             (list) => updateHighlight(list, request.id, (h) => withNote(h, request.note))
           );
@@ -428,6 +433,7 @@ ${json}
         try {
           return await mutateHighlights(
             app,
+            resolveNoteUUID(app, request),
             request.attachmentUUID,
             (list) => removeHighlight(list, request.id)
           );
@@ -439,7 +445,7 @@ ${json}
         if (!request.content) return { error: "Nothing to send." };
         try {
           await app.insertNoteContent(
-            { uuid: app.context.noteUUID },
+            { uuid: resolveNoteUUID(app, request) },
             "\n" + request.content + "\n",
             { atEnd: true }
           );
@@ -452,7 +458,7 @@ ${json}
         if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
         if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate this viewer." };
         try {
-          const noteUUID = app.context.noteUUID;
+          const noteUUID = resolveNoteUUID(app, request);
           const content = await app.getNoteContent({ uuid: noteUUID });
           const updated = removeEmbedMarkup(content, request.pluginUUID, request.attachmentUUID);
           if (updated === null) {
@@ -899,12 +905,13 @@ ${json}
       els.status.className = isError ? "pdfa-status pdfa-error" : "pdfa-status";
     }
     function callPlugin(payload) {
+      var withNoteUUID = Object.assign({ noteUUID: cfg.noteUUID }, payload);
       return new Promise(function(resolve, reject) {
         try {
           if (typeof window.callAmplenotePlugin !== "function") {
             throw new Error("Plugin bridge unavailable (callAmplenotePlugin missing)");
           }
-          resolve(window.callAmplenotePlugin(JSON.stringify(payload)));
+          resolve(window.callAmplenotePlugin(JSON.stringify(withNoteUUID)));
         } catch (err) {
           reject(err);
         }
@@ -1987,7 +1994,8 @@ ${json}
     page = null,
     highlightId = null,
     lightDarkMode = "light",
-    pluginUUID = null
+    pluginUUID = null,
+    noteUUID = null
   } = {}) {
     const theme = THEMES[lightDarkMode] || THEMES.light;
     const config = {
@@ -1998,6 +2006,12 @@ ${json}
       // section 7.3 warns that retrofitting the deep-link path later is the expensive way.
       highlightId,
       pluginUUID,
+      // Sent back on every embed-call request (see viewer.js) instead of trusting
+      // onEmbedCall's own `app.context.noteUUID` to still point at the right note after
+      // the embed remounts (switching notes away and back) - suspected of going stale in
+      // that scenario, which read as "highlights disappeared" even though they were still
+      // correctly saved in the note.
+      noteUUID,
       pdfJsSrc: CDN.pdfJs,
       workerSrc: CDN.pdfJsWorker,
       // Loaded lazily, only when Download is clicked - see viewer.js's loadPdfLib.
@@ -2102,7 +2116,16 @@ window.__PDFA_EXPORT = (${createExportBuilder.toString()})();<\/script>
         lightDarkMode: app.context.lightDarkMode,
         // Needed to build the `plugin://` deep link in an exported highlight - see
         // src/export.js. Available here the same way annotate-pdf.js already gets it.
-        pluginUUID: app.context.pluginUUID
+        pluginUUID: app.context.pluginUUID,
+        // Captured HERE, at the moment Amplenote is definitively rendering THIS note's
+        // embed, and threaded through every embed-call request from here on (see
+        // viewer.js/embed-call.js) - rather than trusted fresh on `app.context.noteUUID`
+        // inside onEmbedCall itself. Suspected root cause of a real bug: switching away
+        // from a note and back made an already-saved, still-present highlight vanish from
+        // the viewer, consistent with onEmbedCall's own `app.context.noteUUID` reading a
+        // stale note id after the embed remounts, causing loadHighlights to look at the
+        // wrong note.
+        noteUUID: app.context.noteUUID
       });
     },
     onEmbedCall: async function(app, ...args) {

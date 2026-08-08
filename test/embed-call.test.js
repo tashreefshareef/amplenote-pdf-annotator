@@ -70,6 +70,46 @@ describe("handleEmbedCallSerialized", () => {
   });
 });
 
+describe("noteUUID resolution (switching notes away and back)", () => {
+  // Scenario: THE bug this exists to fix. A user reported highlights disappearing from
+  // the viewer specifically after navigating away from a note and back, even though the
+  // "PDF Annotator data" section still had them - i.e. a load-time bug, not a save-time
+  // one. Suspected cause: onEmbedCall's own app.context.noteUUID goes stale when an
+  // embed remounts after a note switch, so a highlight genuinely saved under the right
+  // note gets looked up against the wrong one. The fix sends noteUUID explicitly with
+  // every request (captured once at renderEmbed time - see plugin.js/viewer.js) rather
+  // than trusting app.context.noteUUID fresh on every call.
+  test("uses the request's own noteUUID over a stale app.context.noteUUID", async () => {
+    const NOTE_B = "note-2";
+    const app = createMockApp({
+      notes: [
+        { uuid: NOTE, name: "A", content: "", attachments: [mockAttachment({ uuid: ATT })] },
+        { uuid: NOTE_B, name: "B", content: "" },
+      ],
+    });
+    await saveHighlights(app, NOTE, ATT, [createHighlight(draft())]);
+
+    // Simulate the live bug directly: the plugin's own context still points at a
+    // DIFFERENT note, as if it wasn't refreshed after switching back to NOTE.
+    app.context.noteUUID = NOTE_B;
+
+    const result = await call(app, { action: "loadHighlights", attachmentUUID: ATT, noteUUID: NOTE });
+
+    expect(result.highlights).toHaveLength(1);
+  });
+
+  // Scenario: back-compat - any cached embed HTML from before this fix never sends its
+  // own noteUUID at all. Must still work by falling back to app.context.noteUUID.
+  test("falls back to app.context.noteUUID when the request sends none", async () => {
+    const app = appWithNote("");
+    await saveHighlights(app, NOTE, ATT, [createHighlight(draft())]);
+
+    const result = await call(app, { action: "loadHighlights", attachmentUUID: ATT });
+
+    expect(result.highlights).toHaveLength(1);
+  });
+});
+
 describe("getPdfUrl", () => {
   // Scenario: the embed cannot fetch the attachment itself - the presigned S3 URL has
   // no CORS headers - so it asks the plugin for a proxied one.

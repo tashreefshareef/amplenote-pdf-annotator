@@ -92,6 +92,9 @@ const embed = buildEmbedHtml({
   attachmentUUID: "attach-1",
   attachmentName: "sample.pdf",
   lightDarkMode: process.argv.includes("--dark") ? "dark" : "light",
+  // Matches harness-bridge.js's hardcoded in-memory note uuid, so the noteUUID actually
+  // sent with every embed-call round-trips through the same wiring the live app uses.
+  noteUUID: "note-1",
 });
 
 // The rAF shim is harness-only. PDF.js drives its canvas render task off

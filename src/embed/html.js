@@ -228,6 +228,8 @@ const THEMES = {
  * @param {string} options.lightDarkMode   "light" | "dark"
  * @param {string} options.pluginUUID      This plugin's own note uuid - needed to build
  *   the `plugin://` deep link in an exported highlight (src/export.js).
+ * @param {string} options.noteUUID        The note THIS embed lives in, captured by
+ *   plugin.js at renderEmbed time - see the config field below for why.
  */
 export function buildEmbedHtml({
   attachmentUUID,
@@ -236,6 +238,7 @@ export function buildEmbedHtml({
   highlightId = null,
   lightDarkMode = "light",
   pluginUUID = null,
+  noteUUID = null,
 } = {}) {
   const theme = THEMES[lightDarkMode] || THEMES.light;
   // The library URL travels in the config because the viewer loads PDF.js itself -
@@ -248,6 +251,12 @@ export function buildEmbedHtml({
     // section 7.3 warns that retrofitting the deep-link path later is the expensive way.
     highlightId,
     pluginUUID,
+    // Sent back on every embed-call request (see viewer.js) instead of trusting
+    // onEmbedCall's own `app.context.noteUUID` to still point at the right note after
+    // the embed remounts (switching notes away and back) - suspected of going stale in
+    // that scenario, which read as "highlights disappeared" even though they were still
+    // correctly saved in the note.
+    noteUUID,
     pdfJsSrc: CDN.pdfJs,
     workerSrc: CDN.pdfJsWorker,
     // Loaded lazily, only when Download is clicked - see viewer.js's loadPdfLib.

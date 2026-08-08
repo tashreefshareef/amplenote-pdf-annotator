@@ -90,6 +90,17 @@ describe("renderEmbed", () => {
     const html = plugin.renderEmbed(appFixture(), "att=att-1");
     expect(html).toContain(`"pluginUUID":"${PLUGIN_UUID}"`);
   });
+
+  // Scenario: captured HERE, the one moment Amplenote is definitively rendering THIS
+  // note's embed, and sent back on every embed-call request from then on - rather than
+  // trusting onEmbedCall's own app.context.noteUUID to still be correct after the embed
+  // remounts (switching notes away and back). Missing it here reintroduces the bug where
+  // a highlight, still genuinely saved, looked up against the wrong note and appeared to
+  // have vanished from the viewer.
+  test("passes the current note's uuid through so onEmbedCall doesn't have to trust its own context later", () => {
+    const html = plugin.renderEmbed(appFixture(), "att=att-1");
+    expect(html).toContain('"noteUUID":"note-1"');
+  });
 });
 
 describe("onEmbedCall", () => {
