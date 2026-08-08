@@ -57,6 +57,8 @@ export function viewerMain() {
     count: document.getElementById("pdfa-count"),
     more: document.getElementById("pdfa-more"),
     open: document.getElementById("pdfa-open"),
+    scrollUp: document.getElementById("pdfa-scroll-up"),
+    scrollDown: document.getElementById("pdfa-scroll-down"),
     collapsedCount: document.getElementById("pdfa-collapsed-count"),
     // The collapsed bar carries its own copy of the filename - renderEmbed has no name to
     // put in the markup (it only knows the attachment uuid), so both name slots start
@@ -345,6 +347,10 @@ export function viewerMain() {
         }
         state.rendering = false;
         updateLabels();
+        // The scrollable height just changed, so which of the two controls is at its
+        // end may have changed with it - a zoom out can end a document that was
+        // scrollable a moment ago.
+        syncScrollNav();
       })
       .catch(function (err) {
         state.rendering = false;
@@ -1155,8 +1161,57 @@ export function viewerMain() {
       });
   }
 
+  /**
+   * Move the page area by most of a screenful.
+   *
+   * The touch scroll controls. See the CSS for why they exist at all: the host note
+   * claims the vertical drag gesture, so on a phone there was no way to scroll the pages
+   * by dragging them. Programmatic scrolling was never affected - the toolbar's page
+   * buttons kept working throughout - which is what makes a button the reliable answer.
+   *
+   * 85% rather than a full screenful so a line or two carries over and you can tell
+   * where you were, the same overlap a Page Down gives you.
+   *
+   * Deliberately an INSTANT jump, not behavior:"smooth". Smooth scrolling is driven off
+   * the same requestAnimationFrame/compositor path that this project already has a
+   * documented silent stall on (see docs/api-notes.md on PDF.js in a hidden tab) - and
+   * measured here, a smooth scrollBy in a non-compositing context never advances at all,
+   * while a direct assignment moves fine. That failure mode is survivable for an
+   * animation; it is not survivable for the ONLY way to scroll the pages on a phone,
+   * where it would present as a dead button. The 15% overlap is what makes the jump
+   * readable without the animation.
+   */
+  function scrollByScreen(direction) {
+    var box = scroller();
+    if (!box) return;
+    box.scrollTop += direction * Math.max(80, box.clientHeight * 0.85);
+    // Re-synced HERE rather than left to the scroll listener. These buttons must never
+    // depend on an event to know what they just did: a scroll event that does not
+    // arrive would leave Up still greyed out at the bottom of a document, which on a
+    // phone - where these are the only way to move - traps the reader with no way back.
+    // (Measured in the harness: in a non-compositing context scrollTop changes while NO
+    // scroll event fires at all, so this is not a hypothetical failure.)
+    syncScrollNav();
+  }
+
+  /**
+   * Grey out whichever control cannot go any further.
+   *
+   * With no gesture scrolling available on touch, these buttons are the only feedback
+   * that there IS more page below - so at the end of the document a still-bright button
+   * that does nothing reads as a broken control rather than as the end.
+   */
+  function syncScrollNav() {
+    var box = scroller();
+    if (!box || !els.scrollUp) return;
+    var max = box.scrollHeight - box.clientHeight;
+    els.scrollUp.disabled = box.scrollTop <= 1;
+    els.scrollDown.disabled = box.scrollTop >= max - 1;
+  }
+
   // Keep the page indicator honest as the user scrolls.
   function trackScroll() {
+    syncScrollNav();
     // The popover is positioned in fixed client coordinates, so it would hang in place
     // over unrelated content once the page moves under it. Not while a note is being
     // typed, though - see closePopover.
@@ -1619,6 +1674,8 @@ export function viewerMain() {
     document.getElementById("pdfa-next").onclick = function () { goToPage(state.current + 1); };
     document.getElementById("pdfa-zoom-in").onclick = function () { setZoom(state.scale + 0.25); };
     document.getElementById("pdfa-zoom-out").onclick = function () { setZoom(state.scale - 0.25); };
+    els.scrollUp.onclick = function () { scrollByScreen(-1); };
+    els.scrollDown.onclick = function () { scrollByScreen(1); };
     els.listToggle.onclick = function () { togglePanel(); };
     els.more.onclick = function (event) {
       openMoreMenu(event.clientX, event.clientY);

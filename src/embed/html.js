@@ -255,6 +255,33 @@ const STYLES = `
   .pdfa-hl-note { font-size: 12px; line-height: 1.35; opacity: .85; font-style: italic;
     margin-top: 4px; padding-left: 7px; border-left: 2px solid var(--pdfa-border); }
 
+  /* ON-SCREEN SCROLL CONTROLS
+     Reported on Android: a drag over the page area scrolls the NOTE, not the pages,
+     so the PDF could not be scrolled vertically at all. Horizontal dragging works
+     fine, and that asymmetry is the diagnosis - vertical is the host note's own
+     scroll axis, so the app claims that gesture (otherwise a full-width embed would
+     trap the scroll and you could never get past it), while nothing competes for
+     horizontal. That decision is made outside this iframe and no CSS in here can
+     take it back: overscroll-behavior on .pdfa-scroll only governs what happens once
+     THIS element hits its end, not who owns the gesture to begin with.
+
+     So the answer is a control that does not depend on a gesture at all. Programmatic
+     scrolling is untouched by any of the above, which is why the page buttons in the
+     toolbar have kept working throughout. Buttons rather than a slider: a slider needs
+     precise dragging on a track barely wider than a finger, and has to sit on top of
+     the text it is scrolling. */
+  .pdfa-scrollnav { display: none; position: absolute; right: 6px; top: 50%;
+    transform: translateY(-50%); flex-direction: column; gap: 8px; z-index: 12; }
+  .pdfa-scrollnav button { width: 40px; height: 40px; border-radius: 50%; font: inherit;
+    font-size: 13px; line-height: 1; cursor: pointer; color: inherit; padding: 0;
+    border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); opacity: .85;
+    box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+  .pdfa-scrollnav button:disabled { opacity: .35; }
+  /* Higher specificity than the coarse-pointer rule that reveals these, so it wins
+     wherever it applies without depending on which block comes last: on a narrow embed
+     the panel is full width, and these would otherwise float on top of it. */
+  .pdfa-panel.pdfa-open ~ .pdfa-scrollnav { display: none; }
+
   /* ---- NARROW EMBEDS -------------------------------------------------------
      Confirmed on a real Android phone running the Amplenote app: embeds DO render
      there, but at a phone note width (~358px) the toolbar wrapped to THREE rows -
@@ -292,6 +319,9 @@ const STYLES = `
      buttons were 24-26px tall and the color swatches 20px across, with the four
      swatches sitting shoulder to shoulder. */
   @media (pointer: coarse) {
+    /* The only place these appear. A mouse has a wheel and a trackpad has two-finger
+       scrolling, neither of which the host note competes for. */
+    .pdfa-scrollnav { display: flex; }
     /* :not(.pdfa-color) is load-bearing. The swatches ARE buttons in this toolbar, so
        without it they inherit min-height and render as 40x20 ellipses - caught by
        measuring, not by reading. They get their bigger hit area from ::after below,
@@ -463,6 +493,12 @@ export function buildEmbedHtml({
   <div class="pdfa-body">
     <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
     <div class="pdfa-panel" id="pdfa-panel"></div>
+    <!-- Touch-only scroll controls. Deliberately AFTER the panel so the sibling
+         selector that hides them behind it works - see the CSS. -->
+    <div class="pdfa-scrollnav">
+      <button id="pdfa-scroll-up" title="Scroll up" aria-label="Scroll up">&#9650;</button>
+      <button id="pdfa-scroll-down" title="Scroll down" aria-label="Scroll down">&#9660;</button>
+    </div>
   </div>
   <!-- Colors on a fresh selection; recolor / note / remove on an existing highlight;
        the note editor itself. One element, filled in per context by the viewer. -->

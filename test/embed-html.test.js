@@ -92,6 +92,7 @@ describe("buildEmbedHtml", () => {
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
       "pdfa-colors", "pdfa-hint", "pdfa-popover", "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
       "pdfa-more", "pdfa-open", "pdfa-collapsed-count",
+      "pdfa-scroll-up", "pdfa-scroll-down",
     ]) {
       expect(out).toContain(`id="${id}"`);
     }
@@ -416,6 +417,26 @@ describe("buildEmbedHtml", () => {
     expect(coarse).toMatch(/\.pdfa-color::after\s*\{[^}]*position:\s*absolute/);
     // Spread far enough apart that the overlays cannot collide.
     expect(coarse).toMatch(/#pdfa-colors\s*\{[^}]*gap:\s*10px/);
+  });
+
+  // Scenario: on Android the host note claims the vertical drag, so the page area could
+  // not be scrolled by dragging it at all - while horizontal dragging worked, since
+  // nothing competes for that axis. That is decided outside this iframe, so the fix has
+  // to be a control that needs no gesture. They are touch-only (a wheel and a trackpad
+  // are uncontested) and must not float on top of the panel, which goes full width on a
+  // narrow embed.
+  test("offers gesture-free scroll controls on touch, out of the panel's way", () => {
+    const out = html();
+    const nav = out.match(/\.pdfa-scrollnav\s*\{[^}]*\}/)[0];
+    expect(nav).toMatch(/display:\s*none/);
+    expect(nav).toMatch(/position:\s*absolute/);
+    const coarse = out.match(/@media \(pointer: coarse\)[\s\S]*?\n {2}\}/)[0];
+    expect(coarse).toMatch(/\.pdfa-scrollnav\s*\{\s*display:\s*flex/);
+    // Beats the coarse rule on specificity, so it holds regardless of block order.
+    expect(out).toMatch(/\.pdfa-panel\.pdfa-open ~ \.pdfa-scrollnav\s*\{\s*display:\s*none/);
+    // Scrolls the page area itself - not scrollIntoView on a page, which would jump a
+    // whole page rather than a screenful.
+    expect(out).toContain("scrollByScreen");
   });
 
   // Scenario: the collapsed bar's box is width/COLLAPSED_ASPECT_RATIO, and the note

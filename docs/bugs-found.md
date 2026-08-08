@@ -315,6 +315,36 @@ bearing even when they look arbitrary.
 
 ---
 
+## A control that learns its own state from an event breaks wherever the event is dropped
+
+**Symptom:** the new touch scroll buttons moved the page correctly but their
+enabled/disabled state never updated — Up stayed greyed out after scrolling down, which
+at the bottom of a document would leave a reader with no way back, since on a phone these
+buttons are the *only* way to scroll.
+
+**Cause:** the state was synced from the container's `scroll` event. Measured in a
+non-compositing context: `scrollTop` changes and **no scroll event fires at all**. Same
+family as the already-documented `requestAnimationFrame` stall — anything the browser
+couples to painting can be dropped when nothing is being painted. (`behavior: "smooth"`
+was found the same way, and for the same reason: the scroll simply never advanced. An
+instant jump with a 15% overlap replaced it.)
+
+**Fix:** the button updates the state itself, immediately after changing `scrollTop`. The
+event listener stays for scrolling the control didn't cause (wheel, trackpad), but the
+button path no longer depends on it.
+
+**General lesson:** an action and the UI state describing that action's availability
+should be updated in the same call stack, not connected through an event round-trip.
+Events are the right mechanism for changes you *didn't* initiate; for one you just
+performed yourself, routing through an event adds a dependency that buys nothing and can
+silently fail. The severity scales with how load-bearing the control is: the same dropped
+event is cosmetic on a page-number indicator and a trap on the only available navigation.
+And a broader one — a "hidden/backgrounded tab" is not just slower, it is a context where
+paint-coupled APIs (rAF, smooth scrolling, scroll events) stop firing entirely, so any of
+them on a critical path needs a non-animated fallback.
+
+---
+
 ## Chrome tuned at one container width can eat a third of the box at another
 
 **Symptom:** the same embed that used 13% of its height for toolbars on desktop used 40%

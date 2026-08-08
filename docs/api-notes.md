@@ -193,9 +193,20 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       keyed to clicks kept working; a long-press text selection produced NO reaction from a
       `mouseup` listener on the same element. Any embed whose core interaction is
       selection-driven and gated on mouse events should assume it is broken on mobile until
-      tested on a device. (Open here: whether a native selection forms at all, or forms
-      without ever emitting `mouseup` - the two need different fixes.) Separately, a
-      scrollable region inside the embed lost its vertical pan to the host note.
+      tested on a device. Resolved here: the selection DOES form natively, handles and
+      all, and simply never emits `mouseup` - so a debounced `selectionchange` listener
+      is the fix. See docs/bugs-found.md for the constraints that keep it from breaking
+      the desktop path.
+    - **The host note claims the VERTICAL drag gesture inside the embed; horizontal is
+      left alone.** Confirmed on Android: dragging the page area sideways panned the PDF
+      normally, dragging it up or down scrolled the *note*, so the embed could not be
+      scrolled vertically at all. The asymmetry is the explanation - vertical is the
+      note's own scroll axis, and a full-width embed that captured it would trap the
+      reader with no way to scroll past, so the app takes it. This is decided outside the
+      iframe: `overscroll-behavior` governs only what happens once the inner element
+      reaches its end, not who owns the gesture, and there is no CSS from inside that can
+      reclaim it. **Budget for gesture-free navigation in any embed taller than its box.**
+      Programmatic scrolling is entirely unaffected, so on-screen controls work fine.
 
 ## Core types
 
