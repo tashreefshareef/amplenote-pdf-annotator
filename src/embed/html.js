@@ -308,6 +308,9 @@ export function buildEmbedHtml({
     defaultColorId: DEFAULT_COLOR_ID,
     // Lets the viewer skip booting PDF.js while collapsed - nothing it renders is visible.
     collapsed,
+    // Also in the config, not just the markup above: the viewer needs it as DATA to build
+    // export blocks and the destination note's name, not only as text on screen.
+    attachmentName,
   };
 
   // Starts expanded UNLESS this user collapsed this viewer themselves. Defaulting every

@@ -27,7 +27,10 @@ describe("insertViewer", () => {
 
     const result = await insertViewer(app, "note-1", PLUGIN);
 
-    expect(result).toContain(`<object data="plugin://${PLUGIN}?att=att-1"`);
+    expect(result).toContain(`<object data="plugin://${PLUGIN}?att=att-1`);
+    // The name rides in the tag - the runtime lookup returned "" live, which left every
+    // exported highlight labelled "PDF" and indistinguishable across PDFs.
+    expect(result).toContain("n=paper.pdf");
     // The whole point of this action: it must never write to the note itself, or the
     // viewer would land at the end AND at the cursor.
     expect(app.insertNoteContent).not.toHaveBeenCalled();

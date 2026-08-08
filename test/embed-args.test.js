@@ -30,6 +30,7 @@ describe("parseEmbedArgs", () => {
       highlightId: "h7",
       noteUUID: null,
       collapsed: false,
+      attachmentName: "",
     });
   });
 
@@ -51,6 +52,7 @@ describe("parseEmbedArgs", () => {
       highlightId: null,
       noteUUID: null,
       collapsed: false,
+      attachmentName: "",
     };
     expect(parseEmbedArgs(undefined)).toEqual(empty);
     expect(parseEmbedArgs("")).toEqual(empty);
@@ -100,6 +102,7 @@ describe("buildEmbedArgs", () => {
       ...original,
       noteUUID: null,
       collapsed: false,
+      attachmentName: "",
     });
   });
 
@@ -368,5 +371,53 @@ describe("collapsed state in the embed tag", () => {
   // Scenario: nothing to resize — same "not found" contract as the other tag rewriters.
   test("returns null when the viewer's tag is not in the note", () => {
     expect(setEmbedCollapsed("prose only", "plug-1", "att-1", true)).toBeNull();
+  });
+});
+
+describe("the PDF name carried in the embed tag", () => {
+  // Scenario: the bug this exists for — every exported highlight was labelled "PDF" and
+  // the destination note came out titled "PDF - Highlights", because the runtime
+  // getNoteAttachments lookup silently returned "". On a note with several PDFs the
+  // exported blocks were then impossible to tell apart.
+  test("round-trips the name through build and parse", () => {
+    const args = buildEmbedArgs({ attachmentUUID: "a", attachmentName: "RENT AGREEMENT 7 8 26.pdf" });
+    expect(parseEmbedArgs(args).attachmentName).toBe("RENT AGREEMENT 7 8 26.pdf");
+  });
+
+  // Scenario: THE encoding hazard. The query string ends up inside data="..." in the note
+  // markup, so an unencoded double quote in a filename would terminate the attribute and
+  // break the tag outright — the embed would stop rendering.
+  test("encodes a double quote in the filename rather than breaking the tag", () => {
+    const markup = buildEmbedMarkup("plug-1", {
+      attachmentUUID: "a",
+      attachmentName: 'the "final" draft.pdf',
+    });
+
+    // Exactly two quote characters in the whole tag pair off as data="..." delimiters,
+    // plus the two around data-aspect-ratio - none from the filename.
+    expect(markup.match(/"/g)).toHaveLength(4);
+    expect(parseEmbedArgs(markup.split("?")[1].split('"')[0]).attachmentName).toBe(
+      'the "final" draft.pdf'
+    );
+  });
+
+  // Scenario: ampersands would otherwise be read as a parameter separator, truncating the
+  // name and corrupting everything after it in the query.
+  test("survives an ampersand in the filename", () => {
+    const args = buildEmbedArgs({ attachmentUUID: "a", attachmentName: "Smith & Jones.pdf", page: 4 });
+    expect(parseEmbedArgs(args).attachmentName).toBe("Smith & Jones.pdf");
+    expect(parseEmbedArgs(args).page).toBe(4);
+  });
+
+  // Scenario: tags written before the name was carried this way must keep working — they
+  // just fall back to the runtime lookup, exactly as before.
+  test("defaults to empty for a tag that carries no name", () => {
+    expect(parseEmbedArgs("att=a").attachmentName).toBe("");
+  });
+
+  // Scenario: renaming stays possible — an update must not wipe the name it already had.
+  test("preserves the name through an unrelated tag update", () => {
+    const content = `<object data="plugin://plug-1?att=att-1&n=paper.pdf" data-aspect-ratio="1.2" />`;
+    expect(updateEmbedArgs(content, "plug-1", "att-1", { page: 9 })).toContain("n=paper.pdf");
   });
 });

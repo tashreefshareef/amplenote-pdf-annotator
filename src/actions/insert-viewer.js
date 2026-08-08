@@ -65,5 +65,9 @@ export async function insertViewer(app, noteUUID, pluginUUID) {
   // Wrapped in newlines so the tag lands as its own block rather than inline in the
   // middle of the paragraph the expression was typed into - the shape annotatePdf
   // already writes, and the only shape confirmed to render.
-  return `\n${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}\n`;
+  return `\n${buildEmbedMarkup(pluginUUID, {
+    attachmentUUID: attachment.uuid,
+    // Baked in rather than looked up at runtime - see annotate-pdf.js for why.
+    attachmentName: attachment.name,
+  })}\n`;
 }

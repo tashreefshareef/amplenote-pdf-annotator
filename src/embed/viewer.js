@@ -90,7 +90,10 @@ export function viewerMain() {
     // detached (byteLength 0) if it were the same object. Cloning once, up front, costs
     // little next to a multi-megabyte PDF and removes the need to know which versions do.
     pdfBytes: null,
-    attachmentName: "",
+    // Seeded from the tag so it is right from the first paint - exports and the
+    // destination note's name both read this, and both came out labelled "PDF" back when
+    // it could only be filled in by the runtime lookup that was silently failing.
+    attachmentName: cfg.attachmentName || "",
     activeColorId: cfg.defaultColorId || ((cfg.colors || [{}])[0] || {}).id,
     // The last text selection made inside a text layer, already converted to PDF space.
     // Held because clicking a toolbar button collapses the DOM selection before the

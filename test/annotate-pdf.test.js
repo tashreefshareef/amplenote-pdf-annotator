@@ -31,7 +31,10 @@ describe("annotatePdf", () => {
 
     expect(result).toBe("att-1");
     const content = app._notes.get("note-1").content;
-    expect(content).toContain(`<object data="plugin://${PLUGIN}?att=att-1"`);
+    expect(content).toContain(`<object data="plugin://${PLUGIN}?att=att-1`);
+    // The PDF's name rides in the tag - the runtime lookup returned "" live, which left
+    // every exported highlight labelled "PDF" and indistinguishable across PDFs.
+    expect(content).toContain("n=paper.pdf");
     // The user's own content must survive untouched.
     expect(content).toContain("My notes.");
     expect(app._calls.insertedContent[0].opts).toEqual({ atEnd: true });

@@ -49,6 +49,7 @@ export function parseEmbedArgs(arg) {
     highlightId: null,
     noteUUID: null,
     collapsed: false,
+    attachmentName: "",
   };
   if (!arg || typeof arg !== "string") return empty;
 
@@ -81,6 +82,13 @@ export function parseEmbedArgs(arg) {
     // shrinking the box means rewriting the tag anyway, and a re-render must come back up
     // in the state the user left it in rather than springing open again.
     collapsed: params.get("c") === "1",
+    // The PDF's display name, baked in when the viewer is inserted rather than looked up.
+    // The live `getNoteAttachments` lookup silently returns "" in the embed-call path -
+    // confirmed by an export note that came out titled "PDF - Highlights" and highlight
+    // links that all read "PDF" - which left every viewer on a note labelled identically.
+    // Carrying it in the tag also means a collapsed viewer knows its own name without
+    // loading anything.
+    attachmentName: params.get("n") || "",
   };
 }
 
@@ -88,10 +96,22 @@ export function parseEmbedArgs(arg) {
  * Build the query string for an embed. Omits empty values so a plain viewer link stays
  * short and readable.
  */
-export function buildEmbedArgs({ attachmentUUID, page, x, y, highlightId, collapsed } = {}) {
+export function buildEmbedArgs({
+  attachmentUUID,
+  page,
+  x,
+  y,
+  highlightId,
+  collapsed,
+  attachmentName,
+} = {}) {
   const params = new URLSearchParams();
   if (attachmentUUID) params.set("att", attachmentUUID);
   if (collapsed) params.set("c", "1");
+  // URLSearchParams percent-encodes this, which matters beyond tidiness: the query ends up
+  // inside data="..." in the note markup, so a filename containing a double quote would
+  // otherwise terminate the attribute and break the tag.
+  if (attachmentName) params.set("n", attachmentName);
   if (Number.isFinite(page) && page >= 1) params.set("page", String(Math.floor(page)));
   if (Number.isFinite(x)) params.set("x", String(x));
   if (Number.isFinite(y)) params.set("y", String(y));

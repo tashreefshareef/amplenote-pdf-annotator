@@ -56,7 +56,9 @@ const plugin = {
    * Amplenote passes embed parameters as a single query string, e.g. "att=abc&page=3".
    */
   renderEmbed: function (app, ...args) {
-    const { attachmentUUID, page, highlightId, collapsed } = parseEmbedArgs(args[0]);
+    const { attachmentUUID, page, highlightId, collapsed, attachmentName } = parseEmbedArgs(
+      args[0]
+    );
 
     if (!attachmentUUID) {
       return `<p style="font:13px sans-serif;padding:12px">
@@ -72,6 +74,10 @@ const plugin = {
       // tag anyway (to shrink the box) and that rewrite re-renders the embed - so the
       // viewer has to come back up collapsed, not spring open again.
       collapsed,
+      // Comes from the tag, so the toolbar and every exported highlight are labelled from
+      // the first paint - no round-trip, and no dependence on the runtime attachment
+      // lookup that was silently returning "" (see parseEmbedArgs).
+      attachmentName,
       lightDarkMode: app.context.lightDarkMode,
       // Needed to build the `plugin://` deep link in an exported highlight - see
       // src/export.js. Available here the same way annotate-pdf.js already gets it.

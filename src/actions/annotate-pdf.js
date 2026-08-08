@@ -39,7 +39,13 @@ export async function annotatePdf(app, noteUUID, pluginUUID) {
     return attachment.uuid;
   }
 
-  const markup = buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid });
+  // The name is baked into the tag because the runtime lookup can't be relied on: every
+  // exported highlight came out labelled "PDF", which on a multi-PDF note made the blocks
+  // impossible to tell apart. It is known for certain here, straight from the picker.
+  const markup = buildEmbedMarkup(pluginUUID, {
+    attachmentUUID: attachment.uuid,
+    attachmentName: attachment.name,
+  });
 
   // Preferred: put the viewer directly beneath the PDF's own attachment chip, so a note
   // with several PDFs reads as several PDFs each followed by its viewer - rather than N
