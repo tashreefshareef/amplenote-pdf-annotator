@@ -11,6 +11,74 @@ Sources:
 
 **Last verified against source 2 on 2026-08-06.**
 
+## Lessons for the NEXT Amplenote plugin (start here)
+
+Everything below is detailed further down in this file or in `docs/bugs-found.md`; this
+is the scannable index specifically for a **different** plugin project, written up after
+several of these cost real debugging time (or a live, reported bug) on this one.
+
+1. **A large, unminified plugin code block can hang the browser just to OPEN the plugin
+   note - well before Amplenote's 100k-character hard cap.** Reported live: opening the
+   plugin definition note (Plugin Builder's sync target, separate from any note embedding
+   the plugin's UI) froze the entire tab for 3-4 minutes, every time, at 92,625 characters
+   (93% of the cap) as one 2000+-line unminified block. Minifying the build (`esbuild`'s
+   `minify: true`) cut it to 52,780 characters and fixed it. **Don't treat "under 100k" as
+   "safe" - treat the cap as "won't outright fail," and minify regardless**, unless you
+   have a specific reason to want the pasted code human-readable (and even then, weigh it
+   against this cost, paid on every open). Verify a minified build still evaluates
+   correctly and preserves whatever contract your sync tooling expects (Plugin Builder's
+   is documented under "dist/plugin.js is the sync target" below) - don't just eyeball a
+   smaller file size.
+
+2. **`window.confirm()` / `alert()` / `prompt()` - the browser-native ones, not
+   `app.confirm`/`app.alert`/`app.prompt` - are unreliable inside the embed iframe.**
+   Confirmed live: a `window.confirm()` call in embed JS did nothing at all - no dialog,
+   no error, the call was silently swallowed, which looked exactly like a dead button.
+   Never gate a destructive embed action on a native browser dialog. Build an in-page
+   confirm UI instead (a popover, an inline "are you sure" state) - it has no dependency
+   on the iframe's dialog permissions. This is presumably a consequence of the embed
+   living in its own cross-origin iframe (`plugins.amplenote.com`, see below) rather than
+   anything specific to confirm() - budget for OTHER `window.*` dialog/permission APIs
+   being similarly restricted until proven otherwise.
+
+3. **A bare `<!-- HTML comment -->` in note content does NOT render hidden.** The
+   cycle-color trick (`==text<!-- {"cycleColor":"14"} -->==`, see the markdown-reference
+   section below) hides a JSON marker, but ONLY because Amplenote's highlight-span syntax
+   specifically consumes it as part of that construct - it is not evidence that Amplenote
+   strips HTML comments from markdown generally. Tried generalizing it to hide a
+   plugin's own stored JSON as a bare comment elsewhere in a note; confirmed live it
+   rendered as plain visible text, `<!--` and all. **Don't generalize a platform-specific
+   trick from the one context it's verified in to a new context without a separate live
+   check** - the assumption looked reasonable and was wrong.
+
+4. **Keep any machine-readable data a plugin persists in note content inside a fenced
+   ` ``` ` code block - don't move it into ordinary paragraph/comment text.** Suspected
+   (strong circumstantial evidence, not root-caused with certainty) that Amplenote's
+   rich-text editor reformats "normal" note text in ways it does NOT apply inside a code
+   fence - moving a plugin's stored JSON out of a fence and into a bare HTML comment
+   (see #3) is suspected of exposing it to that reformatting, corrupting it on next read
+   and silently losing data. A fenced code block is the one construct multiple editors
+   (this one; also Amplenote's own Plugin Builder code block, see the CodeMirror note
+   below) treat as verbatim - treat that as a hard requirement for stored data, not a
+   formatting nicety.
+
+5. **Don't trust `app.context.noteUUID` (or any per-call context field) fresh on every
+   `onEmbedCall` - capture it once and pass it explicitly instead.** Confirmed live:
+   switching away from a note and back can leave the embed's plugin-side context pointing
+   at a stale note, so a note-scoped read/write silently targets the wrong note - a
+   highlight that was genuinely still saved looked up against the wrong note and appeared
+   to have vanished. Fix: capture identifiers like this ONCE at `renderEmbed` time (the
+   one moment Amplenote is definitively rendering THAT note's embed), thread them through
+   the embed's config, and have every subsequent embed→plugin call send them back
+   explicitly rather than re-deriving from `app.context` each time.
+
+6. **The embed runs in its own cross-origin iframe (`plugins.amplenote.com`), not the
+   host app's origin.** Already the root cause documented below for the CORS fetch
+   failure and the script-loading order traps - restated here because items #2 and
+   possibly #3 above are also plausible consequences of the same fact. When something
+   embed-side behaves differently than a normal web page would, "cross-origin iframe
+   restriction" should be an early hypothesis, not a last resort.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and
