@@ -3,10 +3,11 @@
  *
  * These pin the format findings from export.js's own header: the
  * `==text<!-- {"cycleColor":"N"} -->==` color syntax, the "double-quoted block"
- * interpretation (a markdown blockquote AND literal quote marks), and the link-wraps-
- * highlight nesting (the reverse order was tried first and confirmed live to silently
- * drop the color). If any of these turn out wrong once tested live, these are the tests
- * to update alongside the fix.
+ * interpretation (a markdown blockquote AND literal quote marks), and the DECOUPLED
+ * marker+link heading - a colored `==●<!--json-->==` marker followed by a separate
+ * plain `[PDF name](url)` link, since a highlight/mark span and a markdown link were
+ * confirmed live not to compose in either nesting order. If any of these turn out wrong
+ * once tested live, these are the tests to update alongside the fix.
  */
 import { createExportBuilder, buildDeepLink, buildHighlightBlock, buildExportAllContent } from "../src/export.js";
 
@@ -55,10 +56,10 @@ describe("buildDeepLink", () => {
 });
 
 describe("buildHighlightBlock", () => {
-  // Scenario: THE core format - heading link (colored via the highlight+HTML-comment
-  // syntax, not a plain markdown link, which Amplenote does not support), the quoted
-  // text, and the note, each on distinguishable lines.
-  test("builds the three-line block: colored link, quote, note", () => {
+  // Scenario: THE core format - a colored marker (the highlight+HTML-comment syntax,
+  // carrying no link) immediately followed by a plain link with the PDF's name, then the
+  // quoted text, then the note, each on distinguishable lines.
+  test("builds the three-line block: colored marker + link, quote, note", () => {
     const block = buildHighlightBlock(
       "Suzuki Access Insurance 2025-2026.pdf",
       PLUGIN_UUID,
@@ -69,7 +70,7 @@ describe("buildHighlightBlock", () => {
     const lines = block.split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(
-      `[==Suzuki Access Insurance 2025-2026.pdf<!-- {"cycleColor":"14"} -->==](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123)`
+      `==●<!-- {"cycleColor":"14"} -->== [Suzuki Access Insurance 2025-2026.pdf](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123)`
     );
     expect(lines[1]).toBe('> "the highlighted text"');
     expect(lines[2]).toBe("worth double-checking at renewal");
@@ -83,24 +84,24 @@ describe("buildHighlightBlock", () => {
   });
 
   // Scenario: THE hazard the spec's own wording ("colored link") would have missed -
-  // there is no plain colored-link syntax in Amplenote. Color must travel via the
-  // ==...<!-- {"cycleColor"} -->== wrapper, with NO space between the opening == and
-  // the link text - confirmed live, whitespace there silently disables the formatting.
-  // The link WRAPS the highlight (not the reverse - that order was tried first and
-  // confirmed live to silently drop the color, rendering as a plain link instead).
-  test("wraps the heading in a link around Amplenote's highlight+cycleColor syntax, no leading space", () => {
+  // there is no plain colored-link syntax in Amplenote, and a highlight/mark span cannot
+  // contain a markdown link at all (confirmed live, in both nesting orders - see the
+  // file header). Color and link are separate constructs: the marker uses the
+  // ==...<!-- {"cycleColor"} -->== wrapper with NO space after the opening == (confirmed
+  // live, whitespace there silently disables the formatting), and the link right after
+  // it is left completely plain.
+  test("colors a marker, then leaves the link plain, with no leading space in the marker", () => {
     const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 18);
     const heading = block.split("\n")[0];
-    expect(heading).toMatch(/^\[==/); // no space after ==
-    expect(heading).toMatch(/<!-- \{"cycleColor":"18"\} -->==\]\(/);
+    expect(heading).toMatch(/^==\S/); // no space after the opening ==
+    expect(heading).toMatch(/<!-- \{"cycleColor":"18"\} -->== \[paper\.pdf\]\(/);
   });
 
   // Scenario: PDF filenames routinely contain brackets - "[DRAFT] Report.pdf" - which
-  // would prematurely close the link's [...] label segment (which now wraps the whole
-  // highlight span, not just the raw filename) if not escaped.
+  // would prematurely close the plain link's [text] segment if not escaped.
   test("escapes a closing bracket in the PDF name", () => {
     const block = buildHighlightBlock("[DRAFT] Report.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 14);
-    expect(block).toContain('[DRAFT\\] Report.pdf<!--');
+    expect(block).toContain("[DRAFT\\] Report.pdf]");
   });
 
   // Scenario: the highlighted text and the note must be clearly distinguishable from
@@ -165,7 +166,7 @@ describe("buildExportAllContent", () => {
   // blockquotes visually run together as one continuous quote.
   test("separates blocks with a blank line", () => {
     const content = buildExportAllContent("paper.pdf", PLUGIN_UUID, ATT_UUID, three.slice(0, 2), CYCLE_TABLE, null);
-    expect(content).toContain("\n\n[==");
+    expect(content).toContain("\n\n==●");
   });
 
   // Scenario: no highlights at all (a PDF nobody has annotated yet) must not throw -

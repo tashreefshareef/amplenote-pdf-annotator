@@ -4,26 +4,23 @@
  *
  * FINDINGS THIS FILE DEPENDS ON, neither knowable from the spec alone:
  *
- *   1. Amplenote has no "colored link" markdown as a first-class construct. Color
- *      travels through an HTML comment inside a highlight/mark span:
- *      `==some text<!-- {"cycleColor":"14"} -->==`, with NO whitespace between the
- *      opening `==` and the text, or the formatting silently does not apply - confirmed
- *      against Amplenote's own markdown reference doc. What ISN'T documented, and had
- *      to be found live: whether that span can CONTAIN a markdown link. It can't, in
- *      the order first tried - `==[text](url)<!--json-->==` (mark wrapping a link)
- *      rendered as a plain, uncolored link in the real app, confirmed via a highlight
- *      actually exported through the plugin's own write path (app.insertNoteContent),
- *      not just a manual paste (pasting text into Amplenote's editor does NOT reliably
- *      trigger markdown parsing at all - a separate, useful thing learned while
- *      diagnosing this). The nesting is swapped here - a link WRAPPING the highlighted
- *      span, `[==text<!--json-->==](url)` - since inline formatting nested inside link
- *      text is the far more common thing for a markdown parser to support, the reverse
- *      of what was tried first. Verify this is actually the fix that works by sending an
- *      exported highlight to a real note and confirming the heading link renders in
- *      color - if it still doesn't, the fallback is to decouple entirely: a plain
- *      `==colored text<!--json-->==` (confirmed real, undisputed by any live test) next
- *      to a plain `[text](url)` link (also confirmed real), rather than one construct
- *      trying to be both at once.
+ *   1. Amplenote has no "colored link" markdown as a first-class construct, and - found
+ *      live, not documented anywhere - a highlight/mark span and a markdown link do not
+ *      compose AT ALL, in either nesting order. Both were tried and both confirmed live,
+ *      through the plugin's own write path (app.insertNoteContent via "Send to note" and
+ *      "Export all" - a manual paste into Amplenote's editor does NOT reliably trigger
+ *      markdown parsing at all, so that route is not valid evidence either way):
+ *        - `==[text](url)<!--json-->==` (mark wrapping a link) -> plain, uncolored link.
+ *        - `[==text<!--json-->==](url)` (link wrapping a mark) -> ALSO a plain,
+ *          uncolored link, identically to the first order.
+ *      Since neither order works, color and link are DECOUPLED entirely: a small colored
+ *      marker using the exact syntax Amplenote's own docs show working standalone -
+ *      `==●<!-- {"cycleColor":"14"} -->==`, the character being disposable filler
+ *      text, not a link - immediately followed by a plain, separate `[PDF name](url)`
+ *      link. Each piece individually is the one thing proven, more than once, to render
+ *      correctly on its own; nothing here asks Amplenote to do the one thing it won't.
+ *      Still needs a final live check once shipped - the marker itself was never
+ *      isolated and tested alone, only ever in combination with a link.
  *   2. The bounty's "double-quoted block" has no worked example anywhere - not in the
  *      spec, not in the live requirements note (checked directly). Interpreted here as
  *      literally both senses at once: a markdown blockquote (`>`, matching Amplenote's
@@ -75,14 +72,15 @@ export function createExportBuilder() {
   /**
    * One highlight's export block - see the file header for the format's reasoning.
    *
-   *   [==PDF name<!-- {"cycleColor":"N"} -->==](deep link)
+   *   ==●<!-- {"cycleColor":"N"} -->== [PDF name](deep link)
    *   > "the highlighted text"
    *   the user's note, if any
    *
-   * The link WRAPS the colored highlight span, not the other way round - the reverse
-   * order silently drops the color and renders as a plain link (confirmed live). Still
-   * needs a final live check once shipped: send an exported highlight to a real note and
-   * confirm the heading actually renders in color, not just as a working link again.
+   * The color and the link are two SEPARATE constructs on the same line, not one
+   * construct trying to be both - a highlight/mark span cannot contain a markdown link
+   * in either nesting order (confirmed live, see the file header). The marker character
+   * itself carries the color; the link right after it carries the PDF name and stays
+   * fully plain, which is the one combination proven to render correctly.
    *
    * @param pdfName        the attachment's display name - required element per spec §4.
    * @param pluginUUID     this plugin's own note uuid, for the `plugin://` link.
@@ -93,8 +91,10 @@ export function createExportBuilder() {
   function buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, highlight, cycleIndex) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id);
     var linkText = escapeLinkText(pdfName || "PDF");
-    var heading =
-      "[==" + linkText + '<!-- {"cycleColor":"' + cycleIndex + '"} -->==](' + url + ")";
+    // The filler character inside the colored marker is disposable - it exists only to
+    // give the ==...== span something to color, never to be read as meaningful text.
+    var marker = '==●<!-- {"cycleColor":"' + cycleIndex + '"} -->==';
+    var heading = marker + " [" + linkText + "](" + url + ")";
     var quote = '> "' + (highlight.quoteText || "") + '"';
 
     var lines = [heading, quote];
