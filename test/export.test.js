@@ -1,11 +1,12 @@
 /**
  * Tests for building the markdown exported back into an Amplenote note.
  *
- * These pin the two findings that had no worked example anywhere (see export.js's own
- * header): the `==text<!-- {"cycleColor":"N"} -->==` color syntax, and the
- * "double-quoted block" interpretation (a markdown blockquote AND literal quote marks).
- * If either turns out wrong once tested live, these are the tests to update alongside
- * the fix.
+ * These pin the format findings from export.js's own header: the
+ * `==text<!-- {"cycleColor":"N"} -->==` color syntax, the "double-quoted block"
+ * interpretation (a markdown blockquote AND literal quote marks), and the link-wraps-
+ * highlight nesting (the reverse order was tried first and confirmed live to silently
+ * drop the color). If any of these turn out wrong once tested live, these are the tests
+ * to update alongside the fix.
  */
 import { createExportBuilder, buildDeepLink, buildHighlightBlock, buildExportAllContent } from "../src/export.js";
 
@@ -68,7 +69,7 @@ describe("buildHighlightBlock", () => {
     const lines = block.split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(
-      `==[Suzuki Access Insurance 2025-2026.pdf](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123)<!-- {"cycleColor":"14"} -->==`
+      `[==Suzuki Access Insurance 2025-2026.pdf<!-- {"cycleColor":"14"} -->==](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123)`
     );
     expect(lines[1]).toBe('> "the highlighted text"');
     expect(lines[2]).toBe("worth double-checking at renewal");
@@ -84,19 +85,22 @@ describe("buildHighlightBlock", () => {
   // Scenario: THE hazard the spec's own wording ("colored link") would have missed -
   // there is no plain colored-link syntax in Amplenote. Color must travel via the
   // ==...<!-- {"cycleColor"} -->== wrapper, with NO space between the opening == and
-  // the link - confirmed live, whitespace there silently disables the formatting.
-  test("wraps the heading in Amplenote's highlight+cycleColor syntax with no leading space", () => {
+  // the link text - confirmed live, whitespace there silently disables the formatting.
+  // The link WRAPS the highlight (not the reverse - that order was tried first and
+  // confirmed live to silently drop the color, rendering as a plain link instead).
+  test("wraps the heading in a link around Amplenote's highlight+cycleColor syntax, no leading space", () => {
     const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 18);
     const heading = block.split("\n")[0];
-    expect(heading).toMatch(/^==\[/); // no space after ==
-    expect(heading).toMatch(/<!-- \{"cycleColor":"18"\} -->==$/);
+    expect(heading).toMatch(/^\[==/); // no space after ==
+    expect(heading).toMatch(/<!-- \{"cycleColor":"18"\} -->==\]\(/);
   });
 
   // Scenario: PDF filenames routinely contain brackets - "[DRAFT] Report.pdf" - which
-  // would prematurely close the link's [text] segment if not escaped.
+  // would prematurely close the link's [...] label segment (which now wraps the whole
+  // highlight span, not just the raw filename) if not escaped.
   test("escapes a closing bracket in the PDF name", () => {
     const block = buildHighlightBlock("[DRAFT] Report.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 14);
-    expect(block).toContain("[DRAFT\\] Report.pdf]");
+    expect(block).toContain('[DRAFT\\] Report.pdf<!--');
   });
 
   // Scenario: the highlighted text and the note must be clearly distinguishable from
@@ -161,7 +165,7 @@ describe("buildExportAllContent", () => {
   // blockquotes visually run together as one continuous quote.
   test("separates blocks with a blank line", () => {
     const content = buildExportAllContent("paper.pdf", PLUGIN_UUID, ATT_UUID, three.slice(0, 2), CYCLE_TABLE, null);
-    expect(content).toContain("\n\n==[");
+    expect(content).toContain("\n\n[==");
   });
 
   // Scenario: no highlights at all (a PDF nobody has annotated yet) must not throw -
