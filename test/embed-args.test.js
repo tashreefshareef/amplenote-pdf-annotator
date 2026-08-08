@@ -12,6 +12,7 @@ import {
   buildEmbedMarkup,
   hasEmbedFor,
   removeEmbedMarkup,
+  updateEmbedArgs,
 } from "../src/embed-args.js";
 
 describe("parseEmbedArgs", () => {
@@ -25,13 +26,28 @@ describe("parseEmbedArgs", () => {
       x: 100.5,
       y: 250.25,
       highlightId: "h7",
+      noteUUID: null,
     });
+  });
+
+  // Scenario: THE thing that makes a linkTarget click able to navigate anywhere - the
+  // source note's uuid, present in an exported deep link but never in the embed tag's
+  // own args (renderEmbed already knows its note from app.context.noteUUID).
+  test("parses the source note uuid", () => {
+    expect(parseEmbedArgs("att=a&note=note-42").noteUUID).toBe("note-42");
   });
 
   // Scenario: an embed inserted with no parameters at all. Must not throw — a throwing
   // renderEmbed shows an empty box with nothing to diagnose.
   test("returns all-null for undefined, empty, or non-string input", () => {
-    const empty = { attachmentUUID: null, page: null, x: null, y: null, highlightId: null };
+    const empty = {
+      attachmentUUID: null,
+      page: null,
+      x: null,
+      y: null,
+      highlightId: null,
+      noteUUID: null,
+    };
     expect(parseEmbedArgs(undefined)).toEqual(empty);
     expect(parseEmbedArgs("")).toEqual(empty);
     expect(parseEmbedArgs(null)).toEqual(empty);
@@ -74,7 +90,9 @@ describe("buildEmbedArgs", () => {
       y: 640.125,
       highlightId: "hl-abc",
     };
-    expect(parseEmbedArgs(buildEmbedArgs(original))).toEqual(original);
+    // buildEmbedArgs never sets `note` - the embed tag gets its own note from
+    // app.context.noteUUID, not from its own args (see parseEmbedArgs's doc comment).
+    expect(parseEmbedArgs(buildEmbedArgs(original))).toEqual({ ...original, noteUUID: null });
   });
 
   // Scenario: a plain "open this PDF" link carries no position, and shouldn't be
@@ -166,5 +184,47 @@ describe("removeEmbedMarkup", () => {
     expect(removeEmbedMarkup(`notes\n${markupA}`, "other-plugin", "att-1")).toBeNull();
     expect(removeEmbedMarkup("", "plug-1", "att-1")).toBeNull();
     expect(removeEmbedMarkup(null, "plug-1", "att-1")).toBeNull();
+  });
+});
+
+describe("updateEmbedArgs", () => {
+  const markupA = '<object data="plugin://plug-1?att=att-1" data-aspect-ratio="1.2" />';
+  const markupB = '<object data="plugin://plug-1?att=att-2" data-aspect-ratio="1.2" />';
+
+  // Scenario: THE point of this function - linkTarget rewrites the target note's own
+  // embed tag so it opens directly at the clicked highlight, not wherever it last was.
+  test("merges page and highlightId into the embed's existing args", () => {
+    const content = `notes\n\n${markupA}\n\nmore`;
+    const result = updateEmbedArgs(content, "plug-1", "att-1", { page: 5, highlightId: "hl-9" });
+    expect(result).toContain('data="plugin://plug-1?att=att-1&page=5&hl=hl-9"');
+  });
+
+  // Scenario: rewriting one embed's args must not touch a different viewer for a
+  // different PDF on the same note - same guarantee removeEmbedMarkup gives.
+  test("touches only the matching attachment's embed, leaving another untouched", () => {
+    const content = `${markupA}\n\n${markupB}`;
+    const result = updateEmbedArgs(content, "plug-1", "att-1", { page: 2 });
+    expect(result).toContain(markupB);
+    expect(result).not.toContain(markupA);
+  });
+
+  // Scenario: an embed tag can already carry other args (from an earlier deep-link
+  // navigation) - updating page/highlightId must not silently drop them if not
+  // overridden, and must overwrite them cleanly when it is.
+  test("overwrites an existing page/highlightId rather than duplicating it", () => {
+    const withArgs = '<object data="plugin://plug-1?att=att-1&page=1&hl=hl-old" data-aspect-ratio="1.2" />';
+    const result = updateEmbedArgs(withArgs, "plug-1", "att-1", { page: 7, highlightId: "hl-new" });
+    expect(result).toContain('data="plugin://plug-1?att=att-1&page=7&hl=hl-new"');
+    expect(result).not.toContain("hl-old");
+  });
+
+  // Scenario: nothing to update - already gone, or this exact combination never existed.
+  // Signals "not found" distinctly, same as removeEmbedMarkup, so the caller (linkTarget)
+  // knows to fall back to navigating without a scroll target rather than doing nothing.
+  test("returns null when there is no matching embed", () => {
+    expect(updateEmbedArgs(`notes\n${markupA}`, "plug-1", "att-9", { page: 1 })).toBeNull();
+    expect(updateEmbedArgs(`notes\n${markupA}`, "other-plugin", "att-1", { page: 1 })).toBeNull();
+    expect(updateEmbedArgs("", "plug-1", "att-1", { page: 1 })).toBeNull();
+    expect(updateEmbedArgs(null, "plug-1", "att-1", { page: 1 })).toBeNull();
   });
 });

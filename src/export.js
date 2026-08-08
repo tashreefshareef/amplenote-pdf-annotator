@@ -59,12 +59,20 @@ export function createExportBuilder() {
    * module has to run with no imports at all (see the file header). Keeping the same
    * technique in both places, even duplicated, is what keeps them from silently
    * drifting apart if the encoding ever needs to change.
+   *
+   * `sourceNoteUUID` is what makes this link actually GO somewhere. Amplenote routes a
+   * clicked `plugin://` link to a dedicated `linkTarget` action (confirmed live and via
+   * Amplenote's own docs - NOT the same thing as the `<object data="plugin://...">`
+   * embed tag, which `renderEmbed` handles) - `linkTarget` has to navigate to a note via
+   * `app.navigate`, and that needs a note uuid from somewhere. Without it here, a clicked
+   * export link has no note to go to at all.
    */
-  function buildDeepLink(pluginUUID, attachmentUUID, page, highlightId) {
+  function buildDeepLink(pluginUUID, attachmentUUID, page, highlightId, sourceNoteUUID) {
     var params = new URLSearchParams();
     if (attachmentUUID) params.set("att", attachmentUUID);
     if (Number.isFinite(page) && page >= 1) params.set("page", String(Math.floor(page)));
     if (highlightId) params.set("hl", highlightId);
+    if (sourceNoteUUID) params.set("note", sourceNoteUUID);
     var query = params.toString();
     return "plugin://" + pluginUUID + (query ? "?" + query : "");
   }
@@ -87,9 +95,11 @@ export function createExportBuilder() {
    * @param attachmentUUID which PDF the deep link should open.
    * @param highlight      { id, page, quoteText, note, color }.
    * @param cycleIndex     Amplenote cycle-color index matching the highlight's color.
+   * @param sourceNoteUUID the note THIS highlight lives on - what `linkTarget` navigates
+   *   to when the link is clicked. See buildDeepLink's own comment for why it's required.
    */
-  function buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, highlight, cycleIndex) {
-    var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id);
+  function buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, highlight, cycleIndex, sourceNoteUUID) {
+    var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
     var linkText = escapeLinkText(pdfName || "PDF");
     // The filler character inside the colored marker is disposable - it exists only to
     // give the ==...== span something to color, never to be read as meaningful text.
@@ -123,6 +133,7 @@ export function createExportBuilder() {
    *
    * @param colorFilter Set/array of color ids to include, or null/empty for "all colors".
    * @param colorCycleIndexTable { [colorId]: cycleIndex }.
+   * @param sourceNoteUUID the note every highlight here lives on - see buildDeepLink.
    * @returns {string} empty string if nothing matches the filter - callers decide how
    *   to handle "nothing to export" rather than this function guessing at a message.
    */
@@ -132,7 +143,8 @@ export function createExportBuilder() {
     attachmentUUID,
     highlights,
     colorCycleIndexTable,
-    colorFilter
+    colorFilter,
+    sourceNoteUUID
   ) {
     var filterSet = colorFilter && colorFilter.length ? colorFilter : null;
     var filtered = (highlights || []).filter(function (h) {
@@ -142,7 +154,7 @@ export function createExportBuilder() {
 
     var blocks = sorted.map(function (h) {
       var cycleIndex = colorCycleIndexTable ? colorCycleIndexTable[h.color] : undefined;
-      return buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, h, cycleIndex);
+      return buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, h, cycleIndex, sourceNoteUUID);
     });
     return blocks.join("\n\n");
   }

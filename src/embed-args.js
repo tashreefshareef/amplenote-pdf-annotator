@@ -19,11 +19,26 @@
  * query string, or one with a leading "?". A malformed value must never throw, or the
  * embed renders as a blank box with no way to diagnose it.
  *
+ * Shared by two different consumers with different needs from the same shape:
+ * `renderEmbed` (the `<object>` tag's own args - `noteUUID` is always null there, since
+ * the embed already gets its note from `app.context.noteUUID` at render time, not from
+ * its own tag) and `linkTarget` (an exported highlight's deep link - `noteUUID` is the
+ * one thing it needs that the embed tag never carries, since a deep link has to say
+ * which note to navigate TO before anything else). One parser for both rather than two,
+ * since the query-string shape is otherwise identical.
+ *
  * @returns {{attachmentUUID: string|null, page: number|null, x: number|null,
- *            y: number|null, highlightId: string|null}}
+ *            y: number|null, highlightId: string|null, noteUUID: string|null}}
  */
 export function parseEmbedArgs(arg) {
-  const empty = { attachmentUUID: null, page: null, x: null, y: null, highlightId: null };
+  const empty = {
+    attachmentUUID: null,
+    page: null,
+    x: null,
+    y: null,
+    highlightId: null,
+    noteUUID: null,
+  };
   if (!arg || typeof arg !== "string") return empty;
 
   let params;
@@ -50,6 +65,7 @@ export function parseEmbedArgs(arg) {
     x: num("x"),
     y: num("y"),
     highlightId: params.get("hl") || null,
+    noteUUID: params.get("note") || null,
   };
 }
 
@@ -116,5 +132,54 @@ export function removeEmbedMarkup(noteContent, pluginUUID, attachmentUUID) {
   const next = lines.slice();
   next.splice(idx, 1);
   if (next[idx] === "" && next[idx - 1] === "") next.splice(idx, 1);
+  return next.join("\n");
+}
+
+/**
+ * Rewrite ONE specific embed's `<object>` tag to carry new args, merged with whatever it
+ * already had - used by the `linkTarget` action (src/actions/link-target.js) so clicking
+ * an exported highlight's deep link can make the embed on the TARGET note jump straight
+ * to that highlight the moment it next renders, not just open to wherever it last was.
+ *
+ * There is no documented way to pass embed arguments through `app.navigate` when jumping
+ * to a different note (checked against Amplenote's own docs - `updateEmbedArgs` +
+ * `renderEmbed` only work "already operating within that embed's context," i.e. for an
+ * embed already open in front of the user, not one on a note being navigated to). Baking
+ * the target directly into the embed tag's own args - which `renderEmbed` already reads
+ * correctly, since that code path is unrelated and unchanged - sidesteps needing such a
+ * mechanism to exist at all.
+ *
+ * Matched by attachment uuid, same as `removeEmbedMarkup` - never touches a different
+ * embed for a different PDF on the same note.
+ *
+ * @param updates {{page?: number, highlightId?: string}} merged over the embed's
+ *   existing args - anything not passed here (notably `attachmentUUID`) is preserved.
+ * @returns {string|null} the updated note content, or null if no matching embed line was
+ *   found - the caller's cue to fall back to navigating without a scroll target, rather
+ *   than silently doing nothing.
+ */
+export function updateEmbedArgs(noteContent, pluginUUID, attachmentUUID, updates = {}) {
+  if (!noteContent || !pluginUUID || !attachmentUUID) return null;
+
+  const lines = noteContent.split("\n");
+  const marker = `plugin://${pluginUUID}`;
+  const idx = lines.findIndex(
+    (line) => line.includes(marker) && line.includes(`att=${attachmentUUID}`)
+  );
+  if (idx === -1) return null;
+
+  const line = lines[idx];
+  const dataMatch = line.match(/data="(plugin:\/\/[^"]*)"/);
+  if (!dataMatch) return null;
+
+  const target = dataMatch[1];
+  const queryIndex = target.indexOf("?");
+  const currentQuery = queryIndex === -1 ? "" : target.slice(queryIndex + 1);
+  const current = parseEmbedArgs(currentQuery);
+  const mergedQuery = buildEmbedArgs({ ...current, attachmentUUID, ...updates });
+  const newTarget = mergedQuery ? `plugin://${pluginUUID}?${mergedQuery}` : `plugin://${pluginUUID}`;
+
+  const next = lines.slice();
+  next[idx] = line.replace(dataMatch[0], `data="${newTarget}"`);
   return next.join("\n");
 }

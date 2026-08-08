@@ -10,6 +10,7 @@
  * once tested live, these are the tests to update alongside the fix.
  */
 import { createExportBuilder, buildDeepLink, buildHighlightBlock, buildExportAllContent } from "../src/export.js";
+import { parseEmbedArgs } from "../src/embed-args.js";
 
 const PLUGIN_UUID = "plugin-uuid-1";
 const ATT_UUID = "attach-1";
@@ -32,6 +33,16 @@ describe("buildDeepLink", () => {
   test("encodes attachment, page and highlight id as a plugin:// query string", () => {
     const url = buildDeepLink(PLUGIN_UUID, ATT_UUID, 3, "hl-abc123");
     expect(url).toBe(`plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123`);
+  });
+
+  // Scenario: THE thing that makes a clicked link able to go anywhere at all - without
+  // the source note's uuid, linkTarget (src/actions/link-target.js) has no note to
+  // app.navigate to. A `plugin://` link is routed to linkTarget, not renderEmbed
+  // (confirmed live and via Amplenote's own docs - see export.js's file header).
+  test("encodes the source note uuid so linkTarget knows where to navigate", () => {
+    const url = buildDeepLink(PLUGIN_UUID, ATT_UUID, 3, "hl-abc123", "note-42");
+    expect(url).toContain("note=note-42");
+    expect(parseEmbedArgs(url.split("?")[1]).noteUUID).toBe("note-42");
   });
 
   // Scenario: a bare plugin link (no attachment yet) must not produce a stray "?".
@@ -65,12 +76,13 @@ describe("buildHighlightBlock", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ note: "worth double-checking at renewal" }),
-      14
+      14,
+      "note-42"
     );
     const lines = block.split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(
-      `==●<!-- {"cycleColor":"14"} -->== [Suzuki Access Insurance 2025-2026.pdf](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123)`
+      `==●<!-- {"cycleColor":"14"} -->== [Suzuki Access Insurance 2025-2026.pdf](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123&note=note-42)`
     );
     expect(lines[1]).toBe('> "the highlighted text"');
     expect(lines[2]).toBe("worth double-checking at renewal");
@@ -173,6 +185,23 @@ describe("buildExportAllContent", () => {
   // "export all" is reachable from a toolbar button regardless of state.
   test("returns an empty string for no highlights", () => {
     expect(buildExportAllContent("paper.pdf", PLUGIN_UUID, ATT_UUID, [], CYCLE_TABLE, null)).toBe("");
+  });
+
+  // Scenario: every block in an "export all" run needs the SAME source note uuid - they
+  // all came from the same note's embed - so linkTarget can navigate back correctly no
+  // matter which exported link in the batch gets clicked.
+  test("propagates the source note uuid to every block", () => {
+    const content = buildExportAllContent(
+      "paper.pdf",
+      PLUGIN_UUID,
+      ATT_UUID,
+      three,
+      CYCLE_TABLE,
+      null,
+      "note-42"
+    );
+    const occurrences = content.split("note=note-42").length - 1;
+    expect(occurrences).toBe(three.length);
   });
 });
 

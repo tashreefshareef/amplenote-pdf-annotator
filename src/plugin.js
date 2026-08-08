@@ -10,6 +10,7 @@
  * into Amplenote - paste the build output.
  */
 import { annotatePdf } from "./actions/annotate-pdf.js";
+import { linkTarget } from "./actions/link-target.js";
 import { handleEmbedCallSerialized } from "./embed-call.js";
 import { buildEmbedHtml } from "./embed/html.js";
 import { parseEmbedArgs } from "./embed-args.js";
@@ -21,6 +22,13 @@ const plugin = {
       // `plugin://` markup must point at.
       return annotatePdf(app, noteUUID, app.context.pluginUUID);
     },
+  },
+
+  // Handles a CLICKED `plugin://` link (an exported highlight's deep link) - distinct
+  // from renderEmbed, which only ever handles the <object> embed tag. See
+  // src/actions/link-target.js for why both are needed and what each does.
+  linkTarget: async function (app, ...args) {
+    return linkTarget(app, args[0]);
   },
 
   /**

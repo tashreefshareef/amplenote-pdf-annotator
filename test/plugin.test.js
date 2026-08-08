@@ -37,13 +37,21 @@ describe("plugin object shape", () => {
     expect(typeof plugin.onEmbedCall).toBe("function");
   });
 
+  // Scenario: without this, Amplenote has nothing to route a clicked `plugin://` link
+  // to at all - confirmed live, a clicked exported highlight link did nothing but show
+  // Amplenote's generic "unrecognized link" popup before this existed.
+  test("exposes linkTarget", () => {
+    expect(typeof plugin.linkTarget).toBe("function");
+  });
+
   // Scenario: Amplenote awaits actions; a sync action returning a non-promise breaks
   // error propagation.
-  test("note options and onEmbedCall are async", () => {
+  test("note options, onEmbedCall and linkTarget are async", () => {
     for (const fn of Object.values(plugin.noteOption)) {
       expect(fn.constructor.name).toBe("AsyncFunction");
     }
     expect(plugin.onEmbedCall.constructor.name).toBe("AsyncFunction");
+    expect(plugin.linkTarget.constructor.name).toBe("AsyncFunction");
   });
 });
 
@@ -100,6 +108,20 @@ describe("renderEmbed", () => {
   test("passes the current note's uuid through so onEmbedCall doesn't have to trust its own context later", () => {
     const html = plugin.renderEmbed(appFixture(), "att=att-1");
     expect(html).toContain('"noteUUID":"note-1"');
+  });
+});
+
+describe("linkTarget delegation", () => {
+  // Scenario: a clicked exported link must actually navigate the user somewhere - the
+  // whole point of the deep link. Delegation-only check; link-target.test.js covers the
+  // actual rewrite-then-navigate behavior in full.
+  test("navigates to the note carried in the link's query string", async () => {
+    const app = appFixture();
+    app._notes.set("note-2", { uuid: "note-2", content: "", attachments: [] });
+
+    await plugin.linkTarget(app, "att=att-1&page=2&note=note-2");
+
+    expect(app._calls.navigations).toEqual(["https://www.amplenote.com/notes/note-2"]);
   });
 });
 

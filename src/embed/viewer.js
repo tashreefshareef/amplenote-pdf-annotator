@@ -1145,7 +1145,8 @@ export function viewerMain() {
       cfg.pluginUUID,
       cfg.attachmentUUID,
       highlight,
-      colorCycleIndexTable()[highlight.color]
+      colorCycleIndexTable()[highlight.color],
+      cfg.noteUUID
     );
   }
 
@@ -1222,7 +1223,8 @@ export function viewerMain() {
       cfg.attachmentUUID,
       state.highlights,
       colorCycleIndexTable(),
-      colorFilter
+      colorFilter,
+      cfg.noteUUID
     );
     if (!content) {
       status(colorFilter ? "No highlights match those colors." : "No highlights to export yet.", true);
