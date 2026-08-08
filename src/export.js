@@ -21,12 +21,12 @@
  *      (distinct dot colors visible per highlight, cycle-color mapping visually
  *      consistent across coral and yellow in the same export), the link stays plain and
  *      clickable next to it.
- *   2. The bounty's "double-quoted block" has no worked example anywhere - not in the
- *      spec, not in the live requirements note (checked directly). Interpreted here as
- *      literally both senses at once: a markdown blockquote (`>`, matching Amplenote's
- *      GFM-based syntax) around the highlighted text, ALSO wrapped in literal double
- *      quotes - satisfying "double-quoted" either way it's read. Confirmed live: this
- *      part renders correctly (blockquote formatting, literal quote marks visible).
+ *   2. The bounty's "double-quoted block" means a doubly-NESTED blockquote, settled
+ *      against the requirement's own diagram: the highlighted text sits visibly deeper
+ *      than the user's note, i.e. `> >` for the quote and `>` for the note. An earlier
+ *      reading - one `>` level plus literal `"` marks, hedging both senses of the phrase
+ *      at once - was reported wrong live. There are no literal quote marks: the diagram
+ *      shows none, and the nesting is what "double" refers to.
  *
  * The four cycle-color indices (12/14/15/18) are the bounty's own stated values
  * (constants.js), used as given - independent verification against the live color
@@ -78,11 +78,33 @@ export function createExportBuilder() {
   }
 
   /**
+   * Prefix every line of a block of text so it survives as one quote level.
+   *
+   * Splitting matters: quoted PDF text and user notes both legitimately contain newlines,
+   * and a single prefix on the first line only would drop every following line straight
+   * out of the blockquote. Trailing space is trimmed so a blank line inside the text
+   * becomes a bare `>` rather than `> ` with nothing after it.
+   */
+  function prefixLines(text, prefix) {
+    return String(text == null ? "" : text)
+      .split(/\r?\n/)
+      .map(function (line) {
+        return (prefix + " " + line).replace(/[ \t]+$/, "");
+      });
+  }
+
+  /**
    * One highlight's export block - see the file header for the format's reasoning.
    *
    *   ==●<!-- {"cycleColor":"N"} -->== [PDF name](deep link)
-   *   > "the highlighted text"
-   *   the user's note, if any
+   *   > > the highlighted text
+   *   >
+   *   > the user's note, if any
+   *
+   * The lone `>` between them is load-bearing, not spacing. Without it, markdown's lazy
+   * continuation pulls the note line back INTO the inner blockquote, so both render at
+   * the same depth and the nesting the requirement's diagram shows is lost. Closing the
+   * inner quote explicitly is what puts the note one level out.
    *
    * The color and the link are two SEPARATE constructs on the same line, not one
    * construct trying to be both - a highlight/mark span cannot contain a markdown link
@@ -105,10 +127,12 @@ export function createExportBuilder() {
     // give the ==...== span something to color, never to be read as meaningful text.
     var marker = '==●<!-- {"cycleColor":"' + cycleIndex + '"} -->==';
     var heading = marker + " [" + linkText + "](" + url + ")";
-    var quote = '> "' + (highlight.quoteText || "") + '"';
 
-    var lines = [heading, quote];
-    if (highlight.note) lines.push(highlight.note);
+    var lines = [heading].concat(prefixLines(highlight.quoteText, "> >"));
+    if (highlight.note) {
+      lines.push(">");
+      lines = lines.concat(prefixLines(highlight.note, ">"));
+    }
     return lines.join("\n");
   }
 

@@ -3,7 +3,8 @@
  *
  * These pin the format findings from export.js's own header: the
  * `==text<!-- {"cycleColor":"N"} -->==` color syntax, the "double-quoted block"
- * interpretation (a markdown blockquote AND literal quote marks), and the DECOUPLED
+ * interpretation (a doubly-NESTED blockquote - `> >` for the quote, `>` for the note,
+ * no literal quote marks; an earlier literal-quotes reading was reported wrong), and the DECOUPLED
  * marker+link heading - a colored `==●<!--json-->==` marker followed by a separate
  * plain `[PDF name](url)` link, since a highlight/mark span and a markdown link were
  * confirmed live not to compose in either nesting order. If any of these turn out wrong
@@ -70,7 +71,7 @@ describe("buildHighlightBlock", () => {
   // Scenario: THE core format - a colored marker (the highlight+HTML-comment syntax,
   // carrying no link) immediately followed by a plain link with the PDF's name, then the
   // quoted text, then the note, each on distinguishable lines.
-  test("builds the three-line block: colored marker + link, quote, note", () => {
+  test("builds the block: colored marker + link, nested quote, note one level out", () => {
     const block = buildHighlightBlock(
       "Suzuki Access Insurance 2025-2026.pdf",
       PLUGIN_UUID,
@@ -80,12 +81,15 @@ describe("buildHighlightBlock", () => {
       "note-42"
     );
     const lines = block.split("\n");
-    expect(lines).toHaveLength(3);
+    expect(lines).toHaveLength(4);
     expect(lines[0]).toBe(
       `==●<!-- {"cycleColor":"14"} -->== [Suzuki Access Insurance 2025-2026.pdf](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123&note=note-42)`
     );
-    expect(lines[1]).toBe('> "the highlighted text"');
-    expect(lines[2]).toBe("worth double-checking at renewal");
+    expect(lines[1]).toBe("> > the highlighted text");
+    // The bare `>` closes the inner quote. Without it, markdown's lazy continuation pulls
+    // the note back into the nested block and both render at the same depth.
+    expect(lines[2]).toBe(">");
+    expect(lines[3]).toBe("> worth double-checking at renewal");
   });
 
   // Scenario: a highlight with no note must not leave a stray empty third line - the
@@ -117,9 +121,10 @@ describe("buildHighlightBlock", () => {
   });
 
   // Scenario: the highlighted text and the note must be clearly distinguishable from
-  // each other - spec §4's explicit requirement. The quote is blockquoted AND literally
-  // quoted; the note is neither, so the two can never be visually confused.
-  test("keeps the quote and the note structurally distinct", () => {
+  // each other - spec §4's explicit requirement, and the shape the bounty's own diagram
+  // draws. The quote sits one blockquote level deeper than the note, so the two render as
+  // visibly different bars and can never be confused.
+  test("nests the quote one level deeper than the note", () => {
     const block = buildHighlightBlock(
       "paper.pdf",
       PLUGIN_UUID,
@@ -128,9 +133,12 @@ describe("buildHighlightBlock", () => {
       14
     );
     const lines = block.split("\n");
-    expect(lines[1]).toMatch(/^> "/); // the quote: blockquoted and double-quoted
-    expect(lines[2]).not.toMatch(/^>/); // the note: neither
-    expect(lines[2]).not.toMatch(/^"/);
+    expect(lines[1]).toBe("> > quoted material"); // inner blockquote
+    expect(lines[3]).toBe("> a plain remark"); // outer blockquote, one level out
+    // The earlier format wrapped the quote in literal " marks instead of nesting. The
+    // requirement's diagram shows no quote marks - "double" refers to the nesting depth -
+    // and the literal-quotes reading was reported wrong live.
+    expect(block).not.toContain('"quoted material"');
   });
 });
 
@@ -222,5 +230,56 @@ describe("createExportBuilder", () => {
   // script block early and breaks the whole viewer.
   test("has a source safe to inline in a script tag", () => {
     expect(createExportBuilder.toString()).not.toContain("</" + "script");
+  });
+});
+
+describe("multi-line quote and note text", () => {
+  // Scenario: a highlight spanning several lines of the PDF. The old format prefixed only
+  // the first line, so every following line fell out of the blockquote entirely and
+  // rendered as ordinary body text — silently, and only visible in the real app.
+  test("keeps every line of a multi-line quote inside the nested blockquote", () => {
+    const block = buildHighlightBlock(
+      "paper.pdf",
+      PLUGIN_UUID,
+      ATT_UUID,
+      highlight({ quoteText: "first line\nsecond line\nthird line", note: null }),
+      14
+    );
+
+    const quoteLines = block.split("\n").slice(1);
+    expect(quoteLines).toEqual(["> > first line", "> > second line", "> > third line"]);
+  });
+
+  // Scenario: a user note with a line break in it — same hazard, one level out.
+  test("keeps every line of a multi-line note inside the outer blockquote", () => {
+    const block = buildHighlightBlock(
+      "paper.pdf",
+      PLUGIN_UUID,
+      ATT_UUID,
+      highlight({ quoteText: "quoted", note: "remark one\nremark two" }),
+      14
+    );
+
+    expect(block.split("\n")).toEqual([
+      expect.stringContaining("plugin://"),
+      "> > quoted",
+      ">",
+      "> remark one",
+      "> remark two",
+    ]);
+  });
+
+  // Scenario: a blank line inside the text. `> ` with nothing after it is trailing
+  // whitespace that some editors strip, which would break the quote at that point.
+  test("emits a bare > for a blank line rather than a trailing space", () => {
+    const block = buildHighlightBlock(
+      "paper.pdf",
+      PLUGIN_UUID,
+      ATT_UUID,
+      highlight({ quoteText: "para one\n\npara two", note: null }),
+      14
+    );
+
+    expect(block.split("\n")[2]).toBe("> >");
   });
 });
