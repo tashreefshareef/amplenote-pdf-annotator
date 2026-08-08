@@ -1455,6 +1455,23 @@ export function viewerMain() {
       // The editor handles its own Escape, so this only reaches the other contexts.
       if (event.key === "Escape" && !state.noteEditing) closePopover();
     });
+    // Click-outside-closes for anywhere that ISN'T the page area (the toolbar, blank
+    // space, etc.) - onPagesClick above already covers clicks inside the pages.
+    //
+    // mousedown, not click: a click that OPENS a popover (e.g. clicking the More button,
+    // or a highlight) is still a click outside the popover at the moment it fires, since
+    // the popover doesn't exist yet - a same-event "click" listener here would immediately
+    // close what that click just opened. mousedown always fires before the click that
+    // opens something, so by the time this runs the popover still reflects its PREVIOUS
+    // state - closing it here, then letting the upcoming click open a fresh one, same
+    // gesture a user already expects from any other dropdown/menu.
+    document.addEventListener("mousedown", function (event) {
+      if (!els.popover.classList.contains("pdfa-open")) return;
+      if (els.popover.contains(event.target)) return;
+      // Unforced - an incidental outside click must not discard a half-typed note, same
+      // protection scroll and Escape already have (see closePopover's own doc comment).
+      closePopover();
+    });
 
     mountColorButtons();
     renderPanel();
