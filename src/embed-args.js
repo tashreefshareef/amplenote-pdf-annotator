@@ -11,7 +11,16 @@
  * Coordinates are PDF user-space (origin bottom-left), matching the storage model in
  * spec section 3 - never screen pixels.
  */
-import { ATTACHMENT_SCHEME } from "./constants.js";
+import {
+  ATTACHMENT_SCHEME,
+  COLLAPSED_ASPECT_RATIO,
+  EXPANDED_ASPECT_RATIO,
+} from "./constants.js";
+
+/** The box proportions that match a given collapsed state - see constants.js. */
+export function aspectRatioFor(collapsed) {
+  return collapsed ? COLLAPSED_ASPECT_RATIO : EXPANDED_ASPECT_RATIO;
+}
 
 /**
  * Parse the argument Amplenote hands to `renderEmbed`.
@@ -39,6 +48,7 @@ export function parseEmbedArgs(arg) {
     y: null,
     highlightId: null,
     noteUUID: null,
+    collapsed: false,
   };
   if (!arg || typeof arg !== "string") return empty;
 
@@ -67,6 +77,10 @@ export function parseEmbedArgs(arg) {
     y: num("y"),
     highlightId: params.get("hl") || null,
     noteUUID: params.get("note") || null,
+    // The viewer's collapsed state has to live in the tag, not just in the embed's DOM:
+    // shrinking the box means rewriting the tag anyway, and a re-render must come back up
+    // in the state the user left it in rather than springing open again.
+    collapsed: params.get("c") === "1",
   };
 }
 
@@ -74,9 +88,10 @@ export function parseEmbedArgs(arg) {
  * Build the query string for an embed. Omits empty values so a plain viewer link stays
  * short and readable.
  */
-export function buildEmbedArgs({ attachmentUUID, page, x, y, highlightId } = {}) {
+export function buildEmbedArgs({ attachmentUUID, page, x, y, highlightId, collapsed } = {}) {
   const params = new URLSearchParams();
   if (attachmentUUID) params.set("att", attachmentUUID);
+  if (collapsed) params.set("c", "1");
   if (Number.isFinite(page) && page >= 1) params.set("page", String(Math.floor(page)));
   if (Number.isFinite(x)) params.set("x", String(x));
   if (Number.isFinite(y)) params.set("y", String(y));
@@ -91,8 +106,12 @@ export function buildEmbedArgs({ attachmentUUID, page, x, y, highlightId } = {})
  * Viewer, which requires a Pro subscription and shows an upgrade prompt on Personal
  * plans. See docs/api-notes.md.
  */
-export function buildEmbedMarkup(pluginUUID, args = {}, aspectRatio = 1.2) {
+export function buildEmbedMarkup(pluginUUID, args = {}, aspectRatio = null) {
   if (!pluginUUID) throw new Error("buildEmbedMarkup: pluginUUID required");
+  // Defaults to whichever ratio matches the collapsed flag, so the box and the state it
+  // encodes can never disagree - an explicit ratio is only for tests and callers that
+  // genuinely want a one-off size.
+  if (aspectRatio === null) aspectRatio = aspectRatioFor(args.collapsed);
   const query = buildEmbedArgs(args);
   const target = query ? `plugin://${pluginUUID}?${query}` : `plugin://${pluginUUID}`;
   return `<object data="${target}" data-aspect-ratio="${aspectRatio}" />`;
@@ -190,8 +209,13 @@ export function removeEmbedMarkup(noteContent, pluginUUID, attachmentUUID) {
  * Matched by attachment uuid, same as `removeEmbedMarkup` - never touches a different
  * embed for a different PDF on the same note.
  *
- * @param updates {{page?: number, highlightId?: string}} merged over the embed's
- *   existing args - anything not passed here (notably `attachmentUUID`) is preserved.
+ * Also rewrites `data-aspect-ratio` to match the merged `collapsed` flag. The box size and
+ * the state it encodes are two representations of one thing, and letting them drift apart
+ * would leave a collapsed viewer in a full-height box or vice versa.
+ *
+ * @param updates {{page?: number, highlightId?: string, collapsed?: boolean}} merged over
+ *   the embed's existing args - anything not passed here (notably `attachmentUUID`) is
+ *   preserved.
  * @returns {string|null} the updated note content, or null if no matching embed line was
  *   found - the caller's cue to fall back to navigating without a scroll target, rather
  *   than silently doing nothing.
@@ -214,10 +238,35 @@ export function updateEmbedArgs(noteContent, pluginUUID, attachmentUUID, updates
   const queryIndex = target.indexOf("?");
   const currentQuery = queryIndex === -1 ? "" : target.slice(queryIndex + 1);
   const current = parseEmbedArgs(currentQuery);
-  const mergedQuery = buildEmbedArgs({ ...current, attachmentUUID, ...updates });
+  const merged = { ...current, attachmentUUID, ...updates };
+  const mergedQuery = buildEmbedArgs(merged);
   const newTarget = mergedQuery ? `plugin://${pluginUUID}?${mergedQuery}` : `plugin://${pluginUUID}`;
 
   const next = lines.slice();
-  next[idx] = line.replace(dataMatch[0], `data="${newTarget}"`);
+  let updatedLine = line.replace(dataMatch[0], `data="${newTarget}"`);
+
+  // The box has to be resized here too, or the collapsed flag is decorative - an embed
+  // cannot resize itself (see constants.js). Hand-edited tags may have lost the attribute
+  // entirely, so append it rather than assuming a replace will match.
+  const ratio = aspectRatioFor(merged.collapsed);
+  const ratioMatch = updatedLine.match(/data-aspect-ratio="[^"]*"/);
+  updatedLine = ratioMatch
+    ? updatedLine.replace(ratioMatch[0], `data-aspect-ratio="${ratio}"`)
+    : updatedLine.replace(/\s*\/>\s*$/, ` data-aspect-ratio="${ratio}" />`);
+
+  next[idx] = updatedLine;
   return next.join("\n");
+}
+
+/**
+ * Collapse or expand ONE viewer, by rewriting its tag's args AND its box proportions.
+ *
+ * The whole reason this round-trips to the plugin instead of staying inside the embed:
+ * the embed cannot resize its own iframe, so hiding the DOM alone leaves the title bar
+ * floating above a tall blank rectangle - the reported bug. See constants.js.
+ *
+ * @returns {string|null} updated content, or null if this viewer's tag wasn't found.
+ */
+export function setEmbedCollapsed(noteContent, pluginUUID, attachmentUUID, collapsed) {
+  return updateEmbedArgs(noteContent, pluginUUID, attachmentUUID, { collapsed: !!collapsed });
 }

@@ -60,11 +60,14 @@ const STYLES = `
   * { box-sizing: border-box; }
   body { margin: 0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg); }
-  /* A MANUAL toggle, applied by viewer.js's collapseViewer/openViewer - never present on
-     initial render (see buildEmbedHtml's own comment on why a default-collapsed embed,
-     tried first, was explicitly rejected: it added a forced extra click before every
+  /* A MANUAL toggle, applied by viewer.js's collapseViewer/openViewer, and re-applied on
+     initial render when the tag says the user left this viewer collapsed - but never a
+     default (see buildEmbedHtml's own comment on why a default-collapsed embed, tried
+     first, was explicitly rejected: it added a forced extra click before every
      annotation). height:auto here (not the 100vh above) so the collapsed bar takes only
-     its own natural height, not a nearly-empty full-height box. */
+     its own natural height. That alone is NOT enough to close the gap: the iframe's own
+     height comes from the tag's data-aspect-ratio, which only the plugin side can change
+     - see constants.js. */
   #pdfa-root.pdfa-collapsed-mode { height: auto; }
   #pdfa-root.pdfa-collapsed-mode .pdfa-toolbar,
   #pdfa-root.pdfa-collapsed-mode .pdfa-filename-bar,
@@ -257,6 +260,8 @@ const THEMES = {
  *   the `plugin://` deep link in an exported highlight (src/export.js).
  * @param {string} options.noteUUID        The note THIS embed lives in, captured by
  *   plugin.js at renderEmbed time - see the config field below for why.
+ * @param {boolean} options.collapsed      Whether the user last left this viewer
+ *   collapsed, read from the embed tag's own args.
  */
 export function buildEmbedHtml({
   attachmentUUID,
@@ -266,6 +271,7 @@ export function buildEmbedHtml({
   lightDarkMode = "light",
   pluginUUID = null,
   noteUUID = null,
+  collapsed = false,
 } = {}) {
   const theme = THEMES[lightDarkMode] || THEMES.light;
   // The library URL travels in the config because the viewer loads PDF.js itself -
@@ -300,16 +306,19 @@ export function buildEmbedHtml({
       cycleIndex: c.cycleIndex,
     })),
     defaultColorId: DEFAULT_COLOR_ID,
+    // Lets the viewer skip booting PDF.js while collapsed - nothing it renders is visible.
+    collapsed,
   };
 
-  // Always starts EXPANDED - a default-collapsed embed that made every annotation start
-  // with an extra "Open" click was tried and explicitly rejected live. Collapsing is a
-  // MANUAL action from inside the toolbar's overflow menu instead (see viewer.js's
-  // collapseViewer) - the same collapsed bar markup below, just reached by choice rather
-  // than forced on every open.
+  // Starts expanded UNLESS this user collapsed this viewer themselves. Defaulting every
+  // embed to collapsed - so annotating always began with an extra "Open" click - was
+  // tried and explicitly rejected live; honouring a collapse the user chose is the
+  // opposite case. The state has to be re-applied here rather than kept in the embed
+  // because collapsing rewrites the tag to shrink the box, and that re-renders the embed
+  // from scratch.
   return `<link rel="stylesheet" href="${CDN.pdfViewerCss}">
 <style>:root{${theme}}${STYLES}</style>
-<div id="pdfa-root">
+<div id="pdfa-root"${collapsed ? ' class="pdfa-collapsed-mode"' : ""}>
   <div class="pdfa-collapsed">
     <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
     <span class="pdfa-collapsed-name">${escapeHtml(attachmentName)}</span>

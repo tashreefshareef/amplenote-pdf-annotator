@@ -39,6 +39,25 @@ export const STORAGE_SECTION_HEADING = "PDF Annotator data";
 export const ATTACHMENT_SCHEME = "attachment://";
 
 /**
+ * Embed box proportions, as `data-aspect-ratio` (width / height - confirmed by measuring
+ * a rendered viewer: 1.2 produces a box noticeably taller than it is wide).
+ *
+ * These exist because an embed CANNOT resize itself. Amplenote's docs are explicit:
+ * "Embeds are fully isolated from the hosting application, so they can't be sized
+ * dynamically based on the content of the embed." The iframe's height comes from this
+ * attribute in the note markup and nothing else - so collapsing the DOM inside the embed
+ * shrinks the content but leaves the box, i.e. a title bar above a tall blank rectangle
+ * (reported live). The only lever is rewriting the attribute in the note and letting
+ * Amplenote re-render, which is what setEmbedCollapsed does.
+ *
+ * COLLAPSED is a compromise, not a computed fit: the box's height is width/ratio, and the
+ * embed's width depends on the reader's window, so no single ratio yields exactly the
+ * title bar's height everywhere. 16 gives roughly 45px at a typical desktop note width.
+ */
+export const EXPANDED_ASPECT_RATIO = 1.2;
+export const COLLAPSED_ASPECT_RATIO = 16;
+
+/**
  * Pinned CDN versions (spec section 3 requires recording these for reproducibility).
  *
  * VERIFIED LOADING inside a live Amplenote embed on 2026-08-06 - these exact URLs

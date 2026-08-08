@@ -13,6 +13,7 @@ import {
   hasEmbedFor,
   insertEmbedAfterChip,
   removeEmbedMarkup,
+  setEmbedCollapsed,
   updateEmbedArgs,
 } from "../src/embed-args.js";
 
@@ -28,6 +29,7 @@ describe("parseEmbedArgs", () => {
       y: 250.25,
       highlightId: "h7",
       noteUUID: null,
+      collapsed: false,
     });
   });
 
@@ -48,6 +50,7 @@ describe("parseEmbedArgs", () => {
       y: null,
       highlightId: null,
       noteUUID: null,
+      collapsed: false,
     };
     expect(parseEmbedArgs(undefined)).toEqual(empty);
     expect(parseEmbedArgs("")).toEqual(empty);
@@ -93,7 +96,11 @@ describe("buildEmbedArgs", () => {
     };
     // buildEmbedArgs never sets `note` - the embed tag gets its own note from
     // app.context.noteUUID, not from its own args (see parseEmbedArgs's doc comment).
-    expect(parseEmbedArgs(buildEmbedArgs(original))).toEqual({ ...original, noteUUID: null });
+    expect(parseEmbedArgs(buildEmbedArgs(original))).toEqual({
+      ...original,
+      noteUUID: null,
+      collapsed: false,
+    });
   });
 
   // Scenario: a plain "open this PDF" link carries no position, and shouldn't be
@@ -294,5 +301,72 @@ describe("insertEmbedAfterChip", () => {
     expect(insertEmbedAfterChip(null, "att-1", TAG)).toBeNull();
     expect(insertEmbedAfterChip(chip("att-1"), null, TAG)).toBeNull();
     expect(insertEmbedAfterChip(chip("att-1"), "att-1", "")).toBeNull();
+  });
+});
+
+describe("collapsed state in the embed tag", () => {
+  // Scenario: an embed cannot resize its own iframe — Amplenote's docs are explicit that
+  // embeds "can't be sized dynamically based on the content of the embed". So the box
+  // size lives in the tag, and collapsing must rewrite it. Without this, collapsing left
+  // a title bar floating above a tall blank rectangle (reported live).
+  test("shrinks the box and records the state when collapsing", () => {
+    const content = `<object data="plugin://plug-1?att=att-1" data-aspect-ratio="1.2" />`;
+
+    const result = setEmbedCollapsed(content, "plug-1", "att-1", true);
+
+    expect(result).toContain("c=1");
+    expect(result).toContain('data-aspect-ratio="16"');
+    expect(result).not.toContain('data-aspect-ratio="1.2"');
+  });
+
+  // Scenario: expanding again must restore the full-height box, not just clear the flag.
+  test("restores the box when expanding", () => {
+    const collapsed = `<object data="plugin://plug-1?att=att-1&c=1" data-aspect-ratio="16" />`;
+
+    const result = setEmbedCollapsed(collapsed, "plug-1", "att-1", false);
+
+    expect(result).not.toContain("c=1");
+    expect(result).toContain('data-aspect-ratio="1.2"');
+  });
+
+  // Scenario: the flag and the box are two representations of one thing. A tag saying
+  // "collapsed" inside a full-height box is the original bug wearing a different hat.
+  test("keeps the ratio consistent with the flag through an unrelated update", () => {
+    const collapsed = `<object data="plugin://plug-1?att=att-1&c=1" data-aspect-ratio="16" />`;
+
+    const result = updateEmbedArgs(collapsed, "plug-1", "att-1", { page: 4 });
+
+    expect(result).toContain("page=4");
+    expect(result).toContain("c=1");
+    expect(result).toContain('data-aspect-ratio="16"');
+  });
+
+  // Scenario: a hand-edited tag that lost the attribute entirely still has to end up
+  // sized, or collapsing it silently does nothing.
+  test("adds the attribute when the tag has none", () => {
+    const bare = `<object data="plugin://plug-1?att=att-1" />`;
+    expect(setEmbedCollapsed(bare, "plug-1", "att-1", true)).toContain('data-aspect-ratio="16"');
+  });
+
+  // Scenario: the flag round-trips, so a re-render after the rewrite comes back up in the
+  // state the user left it in rather than springing open again.
+  test("round-trips the collapsed flag through build and parse", () => {
+    expect(parseEmbedArgs(buildEmbedArgs({ attachmentUUID: "a", collapsed: true })).collapsed).toBe(true);
+    expect(parseEmbedArgs(buildEmbedArgs({ attachmentUUID: "a" })).collapsed).toBe(false);
+  });
+
+  // Scenario: markup built for a collapsed viewer must be born at the collapsed size.
+  test("builds markup at the size matching its collapsed flag", () => {
+    expect(buildEmbedMarkup("plug-1", { attachmentUUID: "a", collapsed: true })).toContain(
+      'data-aspect-ratio="16"'
+    );
+    expect(buildEmbedMarkup("plug-1", { attachmentUUID: "a" })).toContain(
+      'data-aspect-ratio="1.2"'
+    );
+  });
+
+  // Scenario: nothing to resize — same "not found" contract as the other tag rewriters.
+  test("returns null when the viewer's tag is not in the note", () => {
+    expect(setEmbedCollapsed("prose only", "plug-1", "att-1", true)).toBeNull();
   });
 });

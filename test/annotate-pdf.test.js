@@ -239,3 +239,103 @@ describe("embed bridge wire format", () => {
     expect(parsed.error).toMatch(/No attachment/);
   });
 });
+
+describe("setCollapsed and getViewerSummary embed calls", () => {
+  const PLUG = "plug-uuid";
+  const tag = (extra = "", ratio = "1.2") =>
+    `<object data="plugin://${PLUG}?att=att-1${extra}" data-aspect-ratio="${ratio}" />`;
+
+  const app = (content) => {
+    const a = appWith([pdf("paper.pdf", "att-1")], content);
+    a.context.noteUUID = "note-1";
+    return a;
+  };
+
+  // Scenario: the reported bug — collapsing hid the DOM but left a tall blank box, since
+  // an embed cannot resize its own iframe. The fix has to reach the note markup.
+  test("rewrites the tag's box size when the viewer collapses", async () => {
+    const a = app(`prose\n\n${tag()}\n\nmore`);
+
+    const result = await handleEmbedCall(a, {
+      action: "setCollapsed",
+      collapsed: true,
+      attachmentUUID: "att-1",
+      pluginUUID: PLUG,
+    });
+
+    expect(result.ok).toBe(true);
+    const content = a._notes.get("note-1").content;
+    expect(content).toContain('data-aspect-ratio="16"');
+    expect(content).toContain("c=1");
+    // The user's own content must survive the whole-note rewrite.
+    expect(content).toContain("prose");
+    expect(content).toContain("more");
+  });
+
+  test("restores the box size when the viewer expands", async () => {
+    const a = app(tag("&c=1", "16"));
+
+    await handleEmbedCall(a, {
+      action: "setCollapsed",
+      collapsed: false,
+      attachmentUUID: "att-1",
+      pluginUUID: PLUG,
+    });
+
+    expect(a._notes.get("note-1").content).toContain('data-aspect-ratio="1.2"');
+  });
+
+  // Scenario: a note with two viewers. Resizing one must not touch the other.
+  test("resizes only the viewer that asked", async () => {
+    const other = `<object data="plugin://${PLUG}?att=att-2" data-aspect-ratio="1.2" />`;
+    const a = app(`${tag()}\n\n${other}`);
+
+    await handleEmbedCall(a, {
+      action: "setCollapsed",
+      collapsed: true,
+      attachmentUUID: "att-1",
+      pluginUUID: PLUG,
+    });
+
+    expect(a._notes.get("note-1").content).toContain(other);
+  });
+
+  // Scenario: the tag is gone (hand-deleted). The embed has already hidden its own DOM,
+  // so surfacing an error over a leftover gap would be more confusing than the gap.
+  test("reports a quiet failure rather than an error when the tag is missing", async () => {
+    const a = app("no embed here");
+
+    const result = await handleEmbedCall(a, {
+      action: "setCollapsed",
+      collapsed: true,
+      attachmentUUID: "att-1",
+      pluginUUID: PLUG,
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(result.error).toBeUndefined();
+  });
+
+  test("refuses without the ids needed to locate the viewer", async () => {
+    const a = app(tag());
+    expect((await handleEmbedCall(a, { action: "setCollapsed" })).error).toMatch(/No attachment/);
+    expect(
+      (await handleEmbedCall(a, { action: "setCollapsed", attachmentUUID: "att-1" })).error
+    ).toMatch(/plugin id/);
+  });
+
+  // Scenario: a viewer that loads collapsed never fetches the PDF, so the collapsed bar
+  // would be unlabelled without this — useless on a note holding several viewers.
+  test("labels a collapsed viewer without loading the PDF", async () => {
+    const a = app(tag("&c=1", "16"));
+
+    const result = await handleEmbedCall(a, {
+      action: "getViewerSummary",
+      attachmentUUID: "att-1",
+    });
+
+    expect(result.name).toBe("paper.pdf");
+    expect(result.count).toBe(0);
+    expect(a.getAttachmentURL).not.toHaveBeenCalled();
+  });
+});

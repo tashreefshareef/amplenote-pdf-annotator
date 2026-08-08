@@ -45,6 +45,10 @@ export async function linkTarget(app, queryString) {
     const updated = updateEmbedArgs(content, app.context.pluginUUID, attachmentUUID, {
       page,
       highlightId,
+      // Landing on a collapsed viewer would defeat the link entirely - the whole promise
+      // is "click this and see the highlight". Expanding also restores the box's full
+      // height, since the two are rewritten together (see updateEmbedArgs).
+      collapsed: false,
     });
     // null means no matching embed line was found - nothing to rewrite, not an error.
     // Still navigate; the user lands on the note even without a scroll target.

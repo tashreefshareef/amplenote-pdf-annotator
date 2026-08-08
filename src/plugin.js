@@ -56,7 +56,7 @@ const plugin = {
    * Amplenote passes embed parameters as a single query string, e.g. "att=abc&page=3".
    */
   renderEmbed: function (app, ...args) {
-    const { attachmentUUID, page, highlightId } = parseEmbedArgs(args[0]);
+    const { attachmentUUID, page, highlightId, collapsed } = parseEmbedArgs(args[0]);
 
     if (!attachmentUUID) {
       return `<p style="font:13px sans-serif;padding:12px">
@@ -68,6 +68,10 @@ const plugin = {
       attachmentUUID,
       page,
       highlightId,
+      // Carried in the tag rather than held in the embed, because collapsing rewrites the
+      // tag anyway (to shrink the box) and that rewrite re-renders the embed - so the
+      // viewer has to come back up collapsed, not spring open again.
+      collapsed,
       lightDarkMode: app.context.lightDarkMode,
       // Needed to build the `plugin://` deep link in an exported highlight - see
       // src/export.js. Available here the same way annotate-pdf.js already gets it.

@@ -58,7 +58,20 @@ export function viewerMain() {
     more: document.getElementById("pdfa-more"),
     open: document.getElementById("pdfa-open"),
     collapsedCount: document.getElementById("pdfa-collapsed-count"),
+    // The collapsed bar carries its own copy of the filename - renderEmbed has no name to
+    // put in the markup (it only knows the attachment uuid), so both name slots start
+    // empty and are filled once the name is actually resolved.
+    collapsedName: document.querySelector(".pdfa-collapsed-name"),
+    name: document.querySelector(".pdfa-name"),
   };
+
+  /** Fill BOTH name slots. Setting only the toolbar's left the collapsed bar unlabelled. */
+  function setAttachmentName(name) {
+    if (!name) return;
+    state.attachmentName = name;
+    if (els.name) els.name.textContent = name;
+    if (els.collapsedName) els.collapsedName.textContent = name;
+  }
 
   var state = {
     doc: null,
@@ -1401,6 +1414,31 @@ export function viewerMain() {
     var n = state.highlights.length;
     els.collapsedCount.textContent = n ? n + (n === 1 ? " highlight" : " highlights") : "";
     els.root.classList.add("pdfa-collapsed-mode");
+    setCollapsedInNote(true);
+  }
+
+  /**
+   * Ask the plugin to shrink (or restore) the embed's box in the note markup.
+   *
+   * Hiding the DOM is only half of collapsing: the iframe's height comes from the tag's
+   * data-aspect-ratio and an embed cannot resize itself ("Embeds are fully isolated from
+   * the hosting application, so they can't be sized dynamically based on the content of
+   * the embed" - Amplenote's own docs). Without this, collapsing left the title bar
+   * floating above a tall blank rectangle, which is what was reported.
+   *
+   * Fire-and-forget: the class is already applied, so the visible state is correct even if
+   * the note write fails. Rewriting the tag also re-renders the embed, which is why the
+   * collapsed flag lives in the tag's args - see buildEmbedHtml.
+   */
+  function setCollapsedInNote(collapsed) {
+    callPlugin({
+      action: "setCollapsed",
+      collapsed: collapsed,
+      attachmentUUID: cfg.attachmentUUID,
+      pluginUUID: cfg.pluginUUID,
+    })["catch"](function () {
+      // A failed resize is cosmetic - never surface it over the user's actual click.
+    });
   }
 
   /**
@@ -1412,6 +1450,7 @@ export function viewerMain() {
   function openViewer() {
     els.root.classList.remove("pdfa-collapsed-mode");
     if (!state.doc) boot();
+    setCollapsedInNote(false);
   }
 
   function boot() {
@@ -1426,10 +1465,7 @@ export function viewerMain() {
         if (!result || !result.url) {
           throw new Error((result && result.error) || "Could not resolve the PDF URL");
         }
-        if (result.name) {
-          state.attachmentName = result.name;
-          document.querySelector(".pdfa-name").textContent = result.name;
-        }
+        setAttachmentName(result.name);
         return fetch(result.url);
       })
       .then(function (response) {
@@ -1508,10 +1544,31 @@ export function viewerMain() {
     renderPanel();
     els.open.onclick = openViewer;
 
-    // Always boots immediately - a default-collapsed embed, requiring an "Open" click
-    // before every annotation, was tried and explicitly rejected live. Collapsing is
-    // available afterward, on demand, from the toolbar's overflow menu (collapseViewer).
-    boot();
+    // Boots immediately UNLESS the user left this viewer collapsed. Defaulting every
+    // embed to collapsed, so annotating always began with an "Open" click, was tried and
+    // explicitly rejected live - but a collapse the user chose is theirs to keep, and
+    // fetching and rendering a PDF nobody can see would be wasted work on every note
+    // load. openViewer boots on the first expand.
+    if (cfg.collapsed) {
+      // Nothing has loaded, so the collapsed bar has no name or count to show yet. Ask
+      // for just those two - not the PDF - or the bar reads "PDF Annotator" with a blank
+      // filename, which is useless on a note holding several viewers.
+      callPlugin({
+        action: "getViewerSummary",
+        attachmentUUID: cfg.attachmentUUID,
+      })
+        .then(function (result) {
+          if (!result || result.error) return;
+          setAttachmentName(result.name);
+          var n = result.count || 0;
+          els.collapsedCount.textContent = n ? n + (n === 1 ? " highlight" : " highlights") : "";
+        })
+        ["catch"](function () {
+          // Cosmetic only - the Expand button still works with an unlabelled bar.
+        });
+    } else {
+      boot();
+    }
   } catch (err) {
     status("Viewer failed to start: " + (err && err.message ? err.message : err), true);
   }

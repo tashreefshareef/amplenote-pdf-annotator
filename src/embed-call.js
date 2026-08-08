@@ -11,7 +11,7 @@
  */
 import { fetchableAttachmentURL } from "./attachments.js";
 import { loadHighlights, saveHighlights, deleteHighlights } from "./storage.js";
-import { removeEmbedMarkup } from "./embed-args.js";
+import { removeEmbedMarkup, setEmbedCollapsed } from "./embed-args.js";
 import {
   createHighlight,
   removeHighlight,
@@ -212,6 +212,49 @@ export async function handleEmbedCall(app, payload) {
         return { ok: true };
       } catch (err) {
         return { error: `Could not remove this viewer: ${err.message}` };
+      }
+    }
+
+    case "getViewerSummary": {
+      // What the collapsed bar needs to label itself: the PDF's name and how many
+      // highlights it holds. Deliberately does NOT resolve the attachment URL - a viewer
+      // that loads collapsed never fetches the PDF, and this is the whole reason it can
+      // still say which PDF it is.
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      const noteUUID = resolveNoteUUID(app, request);
+      const name = await attachmentName(app, noteUUID, request.attachmentUUID);
+      try {
+        const highlights = await loadHighlights(app, noteUUID, request.attachmentUUID);
+        return { name, count: highlights.length };
+      } catch {
+        // A missing count is cosmetic; the name alone still identifies the viewer.
+        return { name, count: 0 };
+      }
+    }
+
+    case "setCollapsed": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate this viewer." };
+      try {
+        const noteUUID = resolveNoteUUID(app, request);
+        const content = await app.getNoteContent({ uuid: noteUUID });
+        const updated = setEmbedCollapsed(
+          content,
+          request.pluginUUID,
+          request.attachmentUUID,
+          request.collapsed
+        );
+        // Not an error the user needs to see: the embed has already hidden its own DOM,
+        // so the only loss is the box not shrinking with it. Reporting a failed note
+        // write for what looks like a toggle would be more confusing than the leftover
+        // space.
+        if (updated === null) return { ok: false };
+        // Whole-note replace, same as removeViewer - the tag sits wherever the user left
+        // it, which since chip anchoring is anywhere in the body.
+        await app.replaceNoteContent({ uuid: noteUUID }, updated);
+        return { ok: true };
+      } catch (err) {
+        return { error: `Could not resize this viewer: ${err.message}` };
       }
     }
 
