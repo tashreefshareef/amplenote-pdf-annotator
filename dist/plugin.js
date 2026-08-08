@@ -239,25 +239,20 @@ ${buildEmbedMarkup(pluginUUID, { attachmentUUID: attachment.uuid })}
   }
 
   // src/storage.js
+  var FENCE_LANG = "json";
   var SECTION_INTRO = "*Managed automatically by the PDF Annotator plugin - safe to ignore, don't edit.*";
-  var COMMENT_OPEN = "<!-- PDFA-DATA";
-  var COMMENT_CLOSE = "-->";
-  var JSON_STRING_TOKEN = /"(?:[^"\\]|\\.)*"/g;
   function serialize(payload) {
-    const json = JSON.stringify(payload).replace(
-      JSON_STRING_TOKEN,
-      (token) => token.replace(/-/g, "\\u002d")
-    );
+    const json = JSON.stringify(payload, null, 0).replace(/`/g, "\\u0060");
     return `${SECTION_INTRO}
-${COMMENT_OPEN}
+\`\`\`${FENCE_LANG}
 ${json}
-${COMMENT_CLOSE}`;
+\`\`\``;
   }
   function deserialize(sectionContent) {
     if (!sectionContent) return null;
-    const hidden = sectionContent.match(/<!--\s*PDFA-DATA\s*\n?([\s\S]*?)-->/);
-    const fenced = !hidden && sectionContent.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    const raw = (hidden ? hidden[1] : fenced ? fenced[1] : sectionContent).trim();
+    const fenced = sectionContent.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    const hidden = !fenced && sectionContent.match(/<!--\s*PDFA-DATA\s*\n?([\s\S]*?)-->/);
+    const raw = (fenced ? fenced[1] : hidden ? hidden[1] : sectionContent).trim();
     if (!raw) return null;
     try {
       return JSON.parse(raw);

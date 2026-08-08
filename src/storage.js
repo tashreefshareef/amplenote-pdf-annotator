@@ -11,57 +11,58 @@
 import { STORAGE_SECTION_HEADING } from "./constants.js";
 import { createHighlight } from "./highlights.js";
 
-// A one-line, visible label so the heading doesn't read as an empty/broken section once
-// the payload itself is hidden below it - see the comment on serialize().
+const FENCE_LANG = "json";
+// A one-line, visible label above the fence, so the section reads as "plugin-managed
+// data" at a glance instead of an unexplained code block. Plain text, no JSON inside it,
+// so it carries none of the corruption risk described on serialize().
 const SECTION_INTRO =
   "*Managed automatically by the PDF Annotator plugin - safe to ignore, don't edit.*";
-const COMMENT_OPEN = "<!-- PDFA-DATA";
-const COMMENT_CLOSE = "-->";
-// Matches one complete JSON string token (key or value), escapes included, so the
-// hyphen-escaping in serialize() can be scoped to string content only. Never applied to
-// the surrounding JSON syntax, which is where a bare "-" legitimately means a negative
-// number (PDF-space coordinates can be negative).
-const JSON_STRING_TOKEN = /"(?:[^"\\]|\\.)*"/g;
 
 /**
- * Wrap the payload in an HTML comment instead of a visible fenced code block, so it
- * doesn't render as a wall of raw JSON in the middle of the user's note. Amplenote
- * strips HTML comments from rendered output - already relied on for the exact same
- * behaviour in src/export.js's cycle-color trick (`==text<!-- {...} -->==`), confirmed
- * there against the live app. Worth the same live sanity check here, since this is a new
- * placement for the same trick (directly under a heading, not nested in a `==...==`
- * span) - not yet separately confirmed.
+ * Wrap the payload in a fenced code block so it round-trips through Amplenote's editor
+ * byte-for-byte.
  *
- * Every hyphen inside a JSON STRING is escaped to its \u002d form first - scoped via
- * JSON_STRING_TOKEN so JSON's own negative-number syntax is never touched. This is the
- * same hazard, and the same fix, as the backtick-in-a-fenced-block bug this format
- * replaces (docs/bugs-found.md): user note text is stored inside this wrapper, and a
- * note containing "-->" would close the comment early, corrupting every highlight on the
- * note, not just the one with the awkward note. `JSON.parse` turns \u002d back into a
- * literal "-" automatically, so nothing downstream needs to know this happened.
+ * An HTML-comment wrapper was tried instead of the fence, to stop this rendering as a
+ * wall of raw JSON in the note - it relied on the same trick src/export.js uses to hide
+ * a cycle-color marker inside a highlight span. Confirmed live NOT to generalize:
+ * outside that specific span context Amplenote does not strip the comment at all - it
+ * rendered as plain visible text, "<!--" and all, arguably worse-looking than a code
+ * block. Worse, moving the JSON out of a code fence into ordinary paragraph content is
+ * suspected of exposing it to Amplenote's rich-text normalization - the kind of
+ * reformatting that only touches "normal" text, never a code block's contents - and is
+ * the likely cause of a real bug where recoloring or adding a note made an existing
+ * highlight disappear, i.e. silently corrupted JSON by the next time it was read. A code
+ * fence is the one construct several editors (Amplenote's own Plugin Builder code block
+ * included, per docs/api-notes.md) treat as verbatim, so it stays the only trusted
+ * format for this payload.
+ *
+ * Backticks are escaped to their JSON \u escape. This is not cosmetic: user note text is
+ * stored inside this fence, and a note containing a triple backtick would close the
+ * fence early. The reader's non-greedy match would then stop at that inner fence, parse
+ * a truncated string, fail, and treat the whole section as corrupt - silently discarding
+ * every highlight on the note. `JSON.parse` turns ` back into a backtick on the way
+ * in, so nothing downstream needs to know this happened.
  */
 function serialize(payload) {
-  const json = JSON.stringify(payload).replace(JSON_STRING_TOKEN, (token) =>
-    token.replace(/-/g, "\\u002d")
-  );
-  return `${SECTION_INTRO}\n${COMMENT_OPEN}\n${json}\n${COMMENT_CLOSE}`;
+  const json = JSON.stringify(payload, null, 0).replace(/`/g, "\\u0060");
+  return `${SECTION_INTRO}\n\`\`\`${FENCE_LANG}\n${json}\n\`\`\``;
 }
 
 /**
  * Pull the JSON payload out of the section's rendered content.
  *
- * Tries the hidden-comment format first (current). Falls back to the older visible
- * fenced-code-block format - everything this plugin ever saved before the hidden format
- * existed - so a note saved by an earlier version keeps loading correctly; the very next
- * save upgrades it to the hidden format automatically. Bare JSON with neither wrapper
- * (a fresh, empty section) is handled too, same as before.
+ * Tries the fenced-code-block format first (current, and the only format proven safe
+ * against Amplenote's editor - see serialize()). Falls back to the short-lived
+ * hidden-comment format, in case a note was saved by that version and its JSON is still
+ * intact, so it isn't lost outright - the very next save rewrites it in the fenced
+ * format. Bare JSON with no wrapper at all (a fresh, empty section) is handled too.
  */
 function deserialize(sectionContent) {
   if (!sectionContent) return null;
 
-  const hidden = sectionContent.match(/<!--\s*PDFA-DATA\s*\n?([\s\S]*?)-->/);
-  const fenced = !hidden && sectionContent.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  const raw = (hidden ? hidden[1] : fenced ? fenced[1] : sectionContent).trim();
+  const fenced = sectionContent.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  const hidden = !fenced && sectionContent.match(/<!--\s*PDFA-DATA\s*\n?([\s\S]*?)-->/);
+  const raw = (fenced ? fenced[1] : hidden ? hidden[1] : sectionContent).trim();
   if (!raw) return null;
   try {
     return JSON.parse(raw);

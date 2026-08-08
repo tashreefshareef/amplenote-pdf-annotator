@@ -124,20 +124,17 @@ describe("saveHighlights", () => {
     expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([]);
   });
 
-  // Scenario: THE data-loss bug, current shape. The stored payload lives inside an HTML
-  // comment now (see storage.js's serialize), not a fenced code block - but the same
-  // class of bug applies: a note containing "-->" would close the comment early, and the
-  // reader's non-greedy match would stop there, fail to parse, and treat the whole
-  // section as corrupt - discarding EVERY highlight on the note, not just the one with
-  // the awkward text. Hyphens inside JSON string values are escaped for exactly this
-  // reason. A stray backtick is also included since it's free-form user text and used to
-  // be the hazard under the old format - it should just pass through untouched now.
-  test("survives a note containing an HTML comment closer and a markdown code fence", async () => {
+  // Scenario: THE data-loss bug. Notes are user-typed free text stored inside a fenced
+  // code block. A note containing a triple backtick would close that fence early; the
+  // reader's non-greedy match would stop at the inner fence, fail to parse, and treat
+  // the whole section as corrupt - silently discarding EVERY highlight on the note, not
+  // just the one with the awkward note. Backticks are escaped for exactly this reason.
+  test("survives a note containing a markdown code fence", async () => {
     const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
     const tricky = sampleHighlight({
       id: "hl-fence",
-      note: "close a comment --> if you can, or run ```npm test```",
-      quoteText: "quote with ` backtick and a --> sequence",
+      note: "run ```npm test``` first",
+      quoteText: "quote with ` backtick",
     });
     const plain = sampleHighlight({ id: "hl-plain" });
 
@@ -146,57 +143,47 @@ describe("saveHighlights", () => {
 
     // Both highlights survive, and the note text comes back byte-identical.
     expect(loaded).toHaveLength(2);
-    expect(loaded[0].note).toBe("close a comment --> if you can, or run ```npm test```");
-    expect(loaded[0].quoteText).toBe("quote with ` backtick and a --> sequence");
-    // No raw "--" is left inside the stored comment body to close it early.
+    expect(loaded[0].note).toBe("run ```npm test``` first");
+    expect(loaded[0].quoteText).toBe("quote with ` backtick");
+    // No raw backtick is left inside the stored block to break the fence.
     const stored = app._notes.get(NOTE).content;
-    const commentBody = stored.match(/<!-- PDFA-DATA\n([\s\S]*?)\n-->/)[1];
-    expect(commentBody).not.toContain("--");
+    const fenceBody = stored.match(/```json\n([\s\S]*?)\n```/)[1];
+    expect(fenceBody).not.toContain("`");
   });
 
-  // Scenario: the actual point of the hidden-comment format - the payload must not
-  // render as visible text in the note (raw JSON dumped in the middle of a reading view).
-  test("stores the payload inside a hidden HTML comment, not a visible code block", async () => {
-    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
-    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
-
-    const stored = app._notes.get(NOTE).content;
-    expect(stored).toContain("<!-- PDFA-DATA");
-    expect(stored).not.toContain("```json");
-  });
-
-  // Scenario: back-compat - a note saved by the earlier, visible fenced-block version of
-  // this plugin must keep loading correctly. Losing highlights on a format change would
-  // be worse than the visible-JSON ugliness the new format fixes.
-  test("still loads highlights saved in the old visible fenced-block format", async () => {
+  // Scenario: a short HTML-comment-wrapped format was tried briefly to hide the payload
+  // from the reading view, then reverted (see storage.js's serialize doc comment) after
+  // it turned out not to render as hidden in the live app and is suspected of exposing
+  // the JSON to Amplenote's rich-text normalization - a real bug where recoloring or
+  // adding a note made an existing highlight silently disappear. A note saved by that
+  // short-lived version must still load, so nothing written during that window is lost;
+  // the very next save rewrites it in the safe fenced format.
+  test("still loads highlights saved in the short-lived hidden-comment format", async () => {
     const h = sampleHighlight({ id: "hl-legacy" });
     const payload = { [ATT_A]: [h] };
-    const content = `# ${STORAGE_SECTION_HEADING}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``;
+    const content = `# ${STORAGE_SECTION_HEADING}\n\n<!-- PDFA-DATA\n${JSON.stringify(payload)}\n-->`;
     const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content }] });
 
     expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([h]);
   });
 
-  // Scenario: an old note upgrades itself the moment any highlight action saves again -
-  // no separate migration step required.
-  test("upgrades a note from the old visible format to the hidden format on next save", async () => {
+  test("upgrades a note from the hidden-comment format to the fenced format on next save", async () => {
     const h = sampleHighlight({ id: "hl-legacy" });
     const payload = { [ATT_A]: [h] };
-    const content = `# ${STORAGE_SECTION_HEADING}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``;
+    const content = `# ${STORAGE_SECTION_HEADING}\n\n<!-- PDFA-DATA\n${JSON.stringify(payload)}\n-->`;
     const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content }] });
 
     await saveHighlights(app, NOTE, ATT_A, [h]);
 
     const stored = app._notes.get(NOTE).content;
-    expect(stored).toContain("<!-- PDFA-DATA");
-    expect(stored).not.toContain("```json");
+    expect(stored).toContain("```json");
+    expect(stored).not.toContain("<!-- PDFA-DATA");
     expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([h]);
   });
 
-  // Scenario: negative PDF-space coordinates are common (PDF origin is bottom-left) and
-  // must not be mistaken for escapable string content - the hyphen-escaping in
-  // serialize() is scoped to JSON string tokens specifically so it never touches a
-  // genuine negative-number sign.
+  // Scenario: negative PDF-space coordinates are common (PDF origin is bottom-left) -
+  // plain JSON.stringify/parse handles these natively, but worth pinning as a regression
+  // guard given how much this file's serialization has churned.
   test("round-trips negative coordinates without corrupting them", async () => {
     const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
     const h = sampleHighlight({ id: "hl-neg", rects: [{ x: -12.5, y: -3, width: 20, height: 10 }] });
