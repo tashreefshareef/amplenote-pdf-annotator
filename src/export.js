@@ -17,10 +17,10 @@
  *      marker using the exact syntax Amplenote's own docs show working standalone -
  *      `==●<!-- {"cycleColor":"14"} -->==`, the character being disposable filler
  *      text, not a link - immediately followed by a plain, separate `[PDF name](url)`
- *      link. Each piece individually is the one thing proven, more than once, to render
- *      correctly on its own; nothing here asks Amplenote to do the one thing it won't.
- *      Still needs a final live check once shipped - the marker itself was never
- *      isolated and tested alone, only ever in combination with a link.
+ *      link. CONFIRMED LIVE working: the marker renders in the highlight's own color
+ *      (distinct dot colors visible per highlight, cycle-color mapping visually
+ *      consistent across coral and yellow in the same export), the link stays plain and
+ *      clickable next to it.
  *   2. The bounty's "double-quoted block" has no worked example anywhere - not in the
  *      spec, not in the live requirements note (checked directly). Interpreted here as
  *      literally both senses at once: a markdown blockquote (`>`, matching Amplenote's

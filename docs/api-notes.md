@@ -79,6 +79,29 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    embed-side behaves differently than a normal web page would, "cross-origin iframe
    restriction" should be an early hypothesis, not a last resort.
 
+7. **Manually pasting text into Amplenote's note editor does NOT reliably trigger
+   markdown parsing.** Testing a markdown-formatting question by typing/pasting a test
+   string into a scratch note and eyeballing the result is a natural first instinct - it
+   is NOT reliable evidence either way here. Confirmed live: pasted lines using
+   well-documented, definitely-real syntax (a plain `[text](url)` link, straight from
+   Amplenote's own worked example) rendered as inert, unstyled raw text, identically to
+   syntax that actually doesn't work. **To test how Amplenote renders markdown, write the
+   content through the plugin's own real path instead** - `app.insertNoteContent` /
+   `app.replaceNoteContent` (e.g. via a "Send to note" or "Export" action, or any action
+   that writes note content) - and look at the result, not a manual paste into the editor.
+
+8. **A highlight/mark span (`==text==`) cannot contain a markdown link, in EITHER nesting
+   order.** Tried both live, through the real write path (see #7 - paste is not valid
+   evidence for this either): `==[text](url)<!--json-->==` (mark wrapping a link) and
+   `[==text<!--json-->==](url)` (link wrapping a mark) both rendered as a plain,
+   completely uncolored link - the mark's color silently dropped in both cases, no error,
+   no partial styling. If a plugin needs both a color-coded marker AND a clickable link on
+   the same line, DECOUPLE them into two separate constructs next to each other -
+   `==●<!-- {"cycleColor":"N"} -->== [text](url)`, a colored throwaway character
+   immediately followed by a plain link - rather than trying to make one construct do
+   both. Confirmed live: the decoupled form renders correctly, marker in color, link
+   plain and clickable.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and
@@ -372,8 +395,8 @@ Practical workarounds when pasting/typing code in:
 | ~~Reading attachment bytes~~ | — | ✅ Resolved: go through `plugins.amplenote.com/cors-proxy`. |
 | ~~PDF.js worker loading~~ | — | ✅ Resolved: worker loads; a 7-page document parsed. |
 | ~~Writing the annotated PDF back~~ | — | ✅ Resolved as download-only: `attachNoteMedia` rejects PDFs, and §4's actual requirement is "offer a way to export/download" - upload-back was the spec's own suggestion, not the requirement. Implemented via `URL.createObjectURL` + a throwaway `<a download>`, client-side in the embed. Not yet clicked through in live Amplenote (verified in the dev harness against a real pdf-lib CDN load and a re-parsed, correctly-annotated PDF) - still needs a real-app pass to confirm the download dialog itself behaves the same inside Amplenote's iframe. |
-| ~~"Double-quoted block" markdown~~ | — | ✅ Resolved: doc 4 confirms Amplenote has no colored-link syntax — a cycle color is markdown-native, `==highlighted text<!-- {"cycleColor": "N"} -->==` (or `backgroundCycleColor`). Implemented in `src/export.js` as `==[name](url)<!-- {"cycleColor":"N"} -->==` followed by a `> "quote"` blockquote line, which is what "double-quoted block" turned out to mean — not literally two double-quote characters. |
-| **Cycle-color indices 12/14/15/18** | A wrong index means every exported link is the wrong color — a visible acceptance failure. | Still genuinely unverified. Implemented on the bounty's own stated indices (coral=12, yellow=14, green=15, blue=18) per `src/colors.js`, confirmed by direct pixel-reading against Amplenote's own color chart to be inconclusive for indices 14/18 (see session notes) — needs a live sanity check: export one highlight of each color in real Amplenote and confirm the link's rendered color matches its highlight's color. |
+| ~~"Double-quoted block" markdown~~ | — | ✅ Resolved: doc 4 confirms Amplenote has no colored-link syntax — a cycle color is markdown-native, `==highlighted text<!-- {"cycleColor": "N"} -->==` (or `backgroundCycleColor`). Original implementation wrapped the link itself in the highlight span; confirmed live that a highlight/mark span and a markdown link do NOT compose at all, in either nesting order (see "A highlight/mark span cannot contain a markdown link" below). `src/export.js` now emits a colored `==●<!-- {"cycleColor":"N"} -->==` marker immediately followed by a plain `[name](url)` link, then a `> "quote"` blockquote line — confirmed live, the marker renders in color and the link stays clickable. |
+| ~~Cycle-color indices 12/14/15/18~~ | A wrong index means every exported link is the wrong color — a visible acceptance failure. | ✅ Mechanism confirmed live: distinct marker colors visibly rendered for coral and yellow in the same export (screenshot), consistent with `src/colors.js`'s mapping. Green (15) and blue (18) weren't independently pixel-checked in that pass - worth a quick glance next time either color is exported, but the mechanism itself (not just the guessed indices) is no longer in doubt. |
 | **`prompt` radio input shape** | Needed for the "which PDF?" picker. | Check doc 2's `inputs` array detail. |
 
 ## Corrections log
