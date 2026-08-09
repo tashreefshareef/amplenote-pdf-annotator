@@ -163,21 +163,21 @@ export function createExportBuilder() {
    * Structure mirrors the markdown exactly - marker + plain link, the quote nested twice,
    * the note one level out - so a pasted block and an exported one look the same.
    *
-   * CONFIRMED LIVE: `<mark>` with an inline background-color survives the paste and
-   * renders in the highlight's own color, and the blockquote nesting and link render too.
+   * CONFIRMED LIVE: the paste renders - blockquote nesting, a clickable `plugin://`
+   * anchor, and inline `color` AND `background-color` on a `<mark>` are all honoured.
    *
-   * The marker sets `color` to the SAME hex as the background on purpose. The `●` is
-   * disposable filler that exists only to give the mark something to wrap (see
-   * buildHighlightBlock) - left at the default text color it draws as a black dot sitting
-   * inside a colored rectangle, which reads as a rendering fault rather than a swatch.
-   * Painting the glyph in the background's own color hides it and leaves a clean solid
-   * chip. If an editor honours background-color but drops color, this degrades to exactly
-   * the black-dot-on-color it replaced - never to something worse.
+   * The marker colors the GLYPH and explicitly clears the background, which is what
+   * matches the markdown path: `==●<!-- {"cycleColor":"N"} -->==` renders as a small
+   * colored DOT, so Amplenote's cycle-color mark paints the text, not a background behind
+   * it. Setting background-color instead produced a colored rectangle here while an
+   * exported block a few lines above it showed a plain dot - same plugin, same highlight,
+   * two different-looking markers. `background-color:transparent` is not redundant:
+   * `<mark>` carries a default yellow background of its own that would otherwise show.
    */
   function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
     var marker = hex
-      ? '<mark style="background-color:' + escapeHtml(hex) + ";color:" + escapeHtml(hex) + '">&#9679;</mark>'
+      ? '<mark style="background-color:transparent;color:' + escapeHtml(hex) + '">&#9679;</mark>'
       : "<mark>&#9679;</mark>";
     var heading =
       "<p>" + marker + ' <a href="' + escapeHtml(url) + '">' + escapeHtml(pdfName || "PDF") + "</a></p>";

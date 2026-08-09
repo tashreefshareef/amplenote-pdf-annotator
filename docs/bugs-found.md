@@ -500,11 +500,20 @@ entirely: either `ClipboardItem` + `navigator.clipboard.write`, or a one-shot `c
 event listener calling `setData` for each flavor and `preventDefault()`, with the
 offscreen textarea kept only because `execCommand("copy")` needs a real selection to fire.
 
-Confirmed live afterwards, with one cosmetic follow-up: the color marker is a `●` inside
-a `<mark>`, and the glyph kept the *default text color*, so it rendered as a black dot
-inside a colored rectangle. The fix is to paint the glyph in the background's own hex —
-a filler character that exists only to give a span something to wrap should never be
-legible.
+Confirmed live afterwards, and it took two more passes to make the pasted marker match
+the exported one. The marker is a `●` in a `<mark>`; the HTML flavor styled its
+`background-color`, so it rendered as a colored rectangle — while an *exported* block a
+few lines above it, built from the same highlight, showed a small colored dot. The
+markdown form (`==●<!-- {"cycleColor":"N"} -->==`) colors the **text**, not a background
+behind it. Styling the background also left the glyph at the default text color, i.e. a
+black dot inside a colored block, which briefly looked like the whole bug.
+
+**Second general lesson:** when one feature renders through a platform's markdown and
+another through pasted HTML, the two are only consistent if the HTML styles *the same CSS
+property the markdown form does* — and "highlight" is exactly the word that makes
+`background-color` the wrong intuitive guess. The tell was having both outputs visible in
+one note: a discrepancy nobody would notice from either screenshot alone was obvious the
+moment they sat a few lines apart.
 
 **General lesson:** "copy" and "write through the app's own API" are two different
 destinations with two different parsers, and evidence from one says nothing about the

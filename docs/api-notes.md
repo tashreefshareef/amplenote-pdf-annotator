@@ -101,9 +101,17 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    `buildHighlightHtml` in src/export.js and `copyToClipboard` in src/embed/viewer.js.
 
    Confirmed live for the HTML flavor: Amplenote's editor accepts pasted `<blockquote>`
-   nesting, a plain `<a href="plugin://...">`, and `<mark style="background-color:...">`,
-   which renders in that exact color. It does NOT restyle the mark's text color to suit,
-   so set `color` alongside `background-color` for anything meant to read as a swatch.
+   nesting, a plain `<a href="plugin://...">`, and a `<mark>` carrying inline `color`
+   and/or `background-color` - it honours both exactly as given and restyles neither.
+
+   **When matching a pasted element to one the plugin also writes as markdown, check which
+   property the markdown form actually paints.** `==x<!-- {"cycleColor":"N"} -->==` colors
+   the *text*, not a background behind it - a cycle-colored `●` renders as a small colored
+   dot. Reaching for `background-color` in the HTML flavor (the intuitive guess for
+   anything named "highlight") produced a colored rectangle sitting a few lines away from
+   an exported block showing a plain dot: same plugin, same highlight, two different-
+   looking markers. Note also that `<mark>` has a default yellow background of its own, so
+   a foreground-only marker needs an explicit `background-color:transparent`.
 
 8. **A highlight/mark span (`==text==`) cannot contain a markdown link, in EITHER nesting
    order.** Tried both live, through the real write path (see #7 - paste is not valid

@@ -167,10 +167,11 @@ describe("buildHighlightHtml", () => {
       "#F4DE6C",
       "note-42"
     );
-    // Foreground matches the background deliberately - the `●` is filler, and left at the
-    // default text color it renders live as a black dot inside a colored rectangle
-    // rather than as a swatch. See buildHighlightHtml's comment.
-    expect(html).toContain('<mark style="background-color:#F4DE6C;color:#F4DE6C">&#9679;</mark>');
+    // The GLYPH is colored and the background explicitly cleared, because that is what
+    // the markdown path renders: `==●<!-- {"cycleColor" -->==` shows a colored dot, not a
+    // colored rectangle. Coloring the background instead made a pasted marker look
+    // different from an exported one. See buildHighlightHtml's comment.
+    expect(html).toContain('<mark style="background-color:transparent;color:#F4DE6C">&#9679;</mark>');
     expect(html).toContain(
       `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">paper.pdf</a>`
     );
