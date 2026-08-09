@@ -1870,22 +1870,75 @@ export function viewerMain() {
         );
       })
       .then(function (bytes) {
-        var blob = new Blob([bytes], { type: "application/pdf" });
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = downloadFilename();
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        // Not revoked immediately - some browsers start the download asynchronously,
-        // and an immediate revoke can race that start.
-        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-        status("");
+        return deliverPdf(bytes, downloadFilename());
       })
       .catch(function (err) {
         status("Could not prepare the download: " + (err.message || err), true);
       });
+  }
+
+  /**
+   * Hand the finished PDF to the user, by whichever route this device actually has.
+   *
+   * Confirmed live: the anchor below downloads correctly on desktop and does NOTHING in
+   * the Amplenote mobile app - no file, no error, no dialog. A `download` attribute needs
+   * the host application to handle it, and an app embedding a webview generally does not,
+   * least of all for a cross-origin iframe inside it.
+   *
+   * The share sheet is how a phone saves a file anyway, so it is tried first where it
+   * exists. It can still be refused - Web Share has to be delegated to an iframe by the
+   * host, and this one may not be - which is why every path falls through to the anchor
+   * rather than depending on it.
+   */
+  function deliverPdf(bytes, filename) {
+    var blob = new Blob([bytes], { type: "application/pdf" });
+    var file = null;
+    try {
+      file = new File([blob], filename, { type: "application/pdf" });
+    } catch {
+      // No File constructor - fall through to the anchor, which only needs a Blob.
+    }
+
+    if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      return navigator
+        .share({ files: [file], title: filename })
+        .then(function () {
+          status("");
+        })
+        ["catch"](function (err) {
+          // Dismissing the sheet is a decision, not a failure - do not then shove a
+          // download at someone who just cancelled one.
+          if (err && err.name === "AbortError") return status("");
+          return anchorDownload(blob, filename);
+        });
+    }
+    return anchorDownload(blob, filename);
+  }
+
+  function anchorDownload(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // Not revoked immediately - some browsers start the download asynchronously, and an
+    // immediate revoke can race that start.
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+
+    // Nothing here can detect whether that click did anything: it neither throws nor
+    // reports. On a device where it is known to do nothing, silence is the worst possible
+    // answer - the annotated PDF was built, it just has nowhere to go - so say where it
+    // CAN be saved instead of clearing the status bar and leaving someone waiting for a
+    // file that is never coming.
+    var touch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    status(
+      touch
+        ? "Built the annotated PDF, but this app blocks saving files. Open the note on a computer to download it."
+        : ""
+    );
+    return Promise.resolve();
   }
 
   /**
