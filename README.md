@@ -31,18 +31,32 @@ Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty
 > [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan
 > and [`docs/bugs-found.md`](docs/bugs-found.md) for what went wrong on the way.
 
-## Known limitation on mobile
+## Known limitations on mobile
 
-A deep link opens the right note and the viewer lands on the right highlight, but on the
-mobile apps **you scroll down to the viewer yourself** — the note doesn't jump to it the
-way it does on desktop.
+Everything else works on a phone — selecting, highlighting, notes, the panel, export and
+deep links. These two don't, and both are the same wall: an embed is a sandboxed
+cross-origin iframe, so the host application decides what it may do.
 
-An embed is a cross-origin iframe, so it can't scroll its host with script. Focusing an
-element inside the frame does move the host on the desktop web app, which is what makes
-the desktop behaviour work; neither that nor `scrollIntoView` moves it in the Android app.
-The likely reason is that the mobile note isn't a scrollable DOM document at all, and
-there's no plugin-side scroll API to fall back on. Recorded in
-[`docs/api-notes.md`](docs/api-notes.md) so it isn't re-litigated as a bug.
+**Downloading the annotated PDF is desktop-only.** The Download menu item builds the
+annotated file correctly on every platform, but a `download` attribute needs the host app
+to act on it and the mobile app doesn't; the Web Share API, which is how a phone would
+normally save a file, isn't delegated to the embed either. Rather than appear to succeed
+and produce nothing, the viewer says the PDF was built and to open the note on a computer
+to save it. Copy, Send to note and Export all work fine on mobile — it's specifically the
+file that can't leave.
+
+**Dragging doesn't scroll the viewer, and a deep link doesn't scroll the note to it.**
+The host note claims the vertical drag inside the embed; `overscroll-behavior`, a
+non-passive `touchmove` calling `preventDefault()`, and focus were each tried against it
+on a real device and none of them moved it. Use the ▲/▼ controls on the right edge of the
+viewer instead — hold one to keep scrolling. A deep link still opens the right note and
+lands the viewer on the right highlight; you scroll down to the viewer yourself.
+
+Both are recorded in [`docs/api-notes.md`](docs/api-notes.md) with what was tried, so they
+aren't re-litigated as bugs. Worth knowing why a first-party viewer can do these things
+and a plugin can't: it renders in the note's own document, with no boundary to arbitrate.
+The sandbox that makes third-party plugins safe to install is the same thing that costs
+them the gesture and the file.
 
 ## Why there's a build step
 
