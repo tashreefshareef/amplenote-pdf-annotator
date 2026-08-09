@@ -538,23 +538,18 @@ describe("buildEmbedHtml", () => {
     expect(out).toMatch(/classList\.remove\("pdfa-hl-flash"\)/);
   });
 
-  // Scenario: on a narrow embed a 40px toolbar row is ~11% of the whole box, and zoom is
-  // the one control that got cheaper to bury - the viewer now opens already fitted to the
-  // box's width, so zoom is an occasional adjustment rather than the first thing you
-  // touch. It must be hidden in the toolbar and present in the menu at the SAME
-  // breakpoint, or it ends up in both places or neither.
-  test("moves zoom into the overflow menu only where the toolbar hides it", () => {
+  // Scenario: zoom was moved into the overflow menu for one release, to buy back a 40px
+  // toolbar row on a phone. Reverted after use on a real device - a stepper reached
+  // through a menu is worse than a second toolbar row, and the row costs proportionally
+  // less now the box is taller. Pinned because the saving is tempting enough to be
+  // re-proposed: every control stays reachable directly from the toolbar at every width.
+  test("keeps zoom in the toolbar at every width", () => {
     const out = html();
     const narrow = out.match(/@media \(max-width: 520px\)[\s\S]*?\n {2}\}/)[0];
-    expect(narrow).toMatch(/#pdfa-zoom-in, #pdfa-zoom-out, #pdfa-zoom-label\s*\{\s*display:\s*none/);
-    // The viewer asks matchMedia for the same query rather than hardcoding a width, so
-    // the breakpoint has one definition. If this literal ever diverges from the CSS
-    // above, zoom silently disappears entirely at some widths.
-    expect(out).toContain('matchMedia("(max-width: 520px)")');
-    expect(out).toContain("buildMenuZoomRow");
-    // The page controls are NOT part of this - they stay in the toolbar.
-    expect(narrow).not.toContain("#pdfa-prev");
-    expect(narrow).not.toContain("#pdfa-next");
+    for (const id of ["#pdfa-zoom-in", "#pdfa-zoom-out", "#pdfa-zoom-label", "#pdfa-prev", "#pdfa-next"]) {
+      expect(narrow).not.toContain(id);
+    }
+    expect(out).not.toContain("pdfa-menu-zoom");
   });
 
   // Scenario: the collapsed bar's box is width/COLLAPSED_ASPECT_RATIO, and the note

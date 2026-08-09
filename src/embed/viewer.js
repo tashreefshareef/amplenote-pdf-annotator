@@ -1318,8 +1318,19 @@ export function viewerMain() {
       // the tab order, so keyboard users' tab sequence is unchanged.
       els.root.setAttribute("tabindex", "-1");
       els.root.focus();
+      // A SECOND, independent browser-level route to the same place. Confirmed live that
+      // focus alone moves the note on the desktop web app but not in the Android app -
+      // plausibly because the note there is not a scrollable DOM document at all, in
+      // which case nothing from inside this iframe can move it. scrollIntoView is worth
+      // the two lines anyway because it is a genuinely different mechanism rather than a
+      // retry: the spec's "scroll an element into view" walks up through ancestor scroll
+      // containers and continues out through the frame's owner element, and the element
+      // asks for it rather than script reaching into the parent, so cross-origin does not
+      // block it. Targets the root, which sits OUTSIDE .pdfa-scroll, so it can never
+      // fight the in-document scroll to the linked page.
+      if (els.root.scrollIntoView) els.root.scrollIntoView({ block: "nearest" });
     } catch {
-      // A host that blocks this just means no auto-scroll - the deep link still landed
+      // A host that blocks both just means no auto-scroll - the deep link still landed
       // on the right note and the viewer is still on the right highlight.
     }
   }
@@ -1675,16 +1686,6 @@ export function viewerMain() {
 
     var children = [name];
 
-    // Zoom moves in here on a narrow embed, where the toolbar has hidden it. It is the
-    // one control that got cheaper to bury rather than more expensive: the viewer now
-    // opens already fitted to the box's width, so changing zoom went from "the first
-    // thing you do" to an occasional adjustment - which is the same test the rest of
-    // this menu's contents pass. Asked of the media query itself rather than of the
-    // window width, so the breakpoint has exactly one definition, in the stylesheet.
-    if (window.matchMedia && window.matchMedia("(max-width: 520px)").matches) {
-      children.push(buildMenuZoomRow(clientX, clientY));
-    }
-
     children.push(
       button("Collapse", "", function () {
         closePopover(true);
@@ -1702,46 +1703,6 @@ export function viewerMain() {
       })
     );
     showPopover(children, clientX, clientY, "menu");
-  }
-
-  /**
-   * The zoom stepper shown inside the overflow menu on a narrow embed.
-   *
-   * Re-opens the menu after each step instead of closing it. Zooming is inherently
-   * repetitive - you press it until the text is the size you want - and renderAll closes
-   * every popover (it has to: the popover is positioned in fixed coordinates over content
-   * that is about to be replaced). Without the reopen, each press would cost three taps:
-   * open the menu, zoom once, watch the menu vanish.
-   */
-  function buildMenuZoomRow(clientX, clientY) {
-    var row = document.createElement("div");
-    row.className = "pdfa-menu-zoom";
-
-    var label = document.createElement("span");
-    label.className = "pdfa-menu-zoom-label";
-    label.textContent = Math.round(state.scale * 100) + "%";
-
-    var step = function (delta) {
-      return function () {
-        setZoom(state.scale + delta).then(function () {
-          openMoreMenu(clientX, clientY);
-        });
-      };
-    };
-
-    var out = button("−", "", step(-0.25));
-    var into = button("+", "", step(0.25));
-    out.title = "Zoom out";
-    into.title = "Zoom in";
-    // A stepper at its limit that still looks live reads as a broken control - the same
-    // reasoning as the scroll buttons, and setZoom clamps to exactly these bounds.
-    out.disabled = state.scale <= 0.4;
-    into.disabled = state.scale >= 4;
-
-    row.appendChild(out);
-    row.appendChild(label);
-    row.appendChild(into);
-    return row;
   }
 
   /**
