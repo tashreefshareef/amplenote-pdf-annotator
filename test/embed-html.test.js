@@ -451,36 +451,31 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("scrollByScreen");
   });
 
-  // Scenario: the host note claims the vertical drag inside the embed, and CSS cannot
-  // take it back - but a NON-PASSIVE touchmove listener can, by calling preventDefault
-  // before the browser commits to scrolling. Whether that beats the host is a device
-  // question, so the buttons stay: this is an upgrade over them, never a replacement.
+  // Scenario: the host note owns the vertical drag inside the embed and will not give it
+  // up - CSS (overscroll-behavior), a non-passive touchmove calling preventDefault, and
+  // focus were each tried on a real device and none of them moved it, which puts the
+  // arbitration above the iframe and out of reach. So these buttons are not a stopgap,
+  // they are how scrolling works on touch, and a tap per screenful would BE the reading
+  // experience. Holding has to scroll continuously.
   //
-  // The risk is not panning, it is panning when the user meant to SELECT. Touch selection
-  // was hard-won and uses the same finger, so every rule here is biased toward declining,
-  // and an undecided gesture is left to the browser - which lands back on the previous
-  // behaviour rather than on something broken.
-  test("claims a touch drag for scrolling only when it cannot be a selection", () => {
+  // The click handler still fires at the end of a hold, so it has to know one happened -
+  // otherwise every hold ends with an extra screenful jump past what you stopped at.
+  test("scrolls continuously while a scroll button is held", () => {
     const out = html();
-    expect(out).toContain("enableTouchPan");
-    const fn = out.match(/function enableTouchPan\(el\)[\s\S]*?\n {2}\}/)[0];
-    // Non-passive, or preventDefault is a no-op and the whole approach does nothing at
-    // all - silently, which is the worst way for this to fail.
-    // Matched loosely: this source is serialized through Jest's own transform, which
-    // re-wraps it, so anything asserted on exact formatting here breaks for no reason.
-    expect(fn).toMatch(/["']touchmove["']/);
-    expect(fn).toMatch(/passive:\s*false/);
-    expect(fn).toMatch(/preventDefault\(\)/);
-    // The four declines. A long press is the browser starting a selection; an existing
-    // selection means a handle is being dragged; two fingers is a pinch; a horizontal
-    // drag already works natively so there is nothing to win.
-    expect(fn).toMatch(/Date\.now\(\) - startedAt <= HOLD_MS/);
-    expect(fn).toMatch(/!\(sel && !sel\.isCollapsed\)/);
-    expect(fn).toMatch(/event\.touches\.length !== 1/);
-    expect(fn).toMatch(/Math\.abs\(dy\) > Math\.abs\(dx\)/);
-    // Applied to both scrollable regions - the panel is claimed by the host too.
-    expect(out).toContain("enableTouchPan(scroller())");
-    expect(out).toContain("enableTouchPan(els.panel)");
+    expect(out).toContain("bindHoldToScroll");
+    const fn = out.match(/function bindHoldToScroll\(btn, direction\)[\s\S]*?\n {2}\}/)[0];
+    // Pointer events, so a finger, a mouse and a stylus all take one path.
+    expect(fn).toMatch(/["']pointerdown["']/);
+    expect(fn).toMatch(/["']pointerup["']/);
+    // A repeat that is smaller than a tap's jump - it has to be readable while moving.
+    expect(fn).toMatch(/setInterval/);
+    expect(fn).toMatch(/scrollByScreen\(direction \* 0\.\d+\)/);
+    // Stops at the end of the document rather than spinning against a dead scrollTop.
+    expect(fn).toMatch(/if \(btn\.disabled\) return stop\(\)/);
+    // And the click after a hold is swallowed.
+    expect(fn).toMatch(/if \(held\)/);
+    expect(out).toContain("bindHoldToScroll(els.scrollUp, -1)");
+    expect(out).toContain("bindHoldToScroll(els.scrollDown, 1)");
   });
 
   // Scenario: reported live. With the highlights panel open on a phone, any highlight

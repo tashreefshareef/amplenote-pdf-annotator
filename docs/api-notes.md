@@ -211,6 +211,23 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       This applies to **every** scrollable region in the embed, not just the main one —
       the highlights panel hit it too, and a panel whose contents cannot be reached is
       useless the moment it holds more than a couple of entries. Enumerate them.
+
+      **Three things were tried against this and all three failed**, so treat it as
+      settled rather than re-deriving it: `overscroll-behavior: contain` (governs only
+      what happens once the inner element hits its end, never who owns the gesture); a
+      **non-passive `touchmove` listener calling `preventDefault()`** — the strongest
+      lever a page has over gesture ownership, and the host still won; and focus, which
+      does not move the mobile note either. Arbitration happens above the iframe and is
+      not reachable from inside it. Plan for on-screen controls from the start, and make
+      them hold-to-repeat: if a tap is a screenful, a tap per screenful *is* the reading
+      experience.
+
+      Worth knowing why a first-party viewer (Obsidian's, say) can drag-scroll and a
+      plugin cannot: that viewer renders in the note's own document, with no boundary to
+      arbitrate. The sandbox that makes third-party plugins safe to install is the same
+      thing that costs them the gesture. It is a trade, not an oversight — but it does
+      cap how native an embed can feel on mobile, and that is worth saying out loud to
+      anyone scoping an embed-heavy plugin.
     - **An embed cannot scroll the mobile app's note to itself. Accepted limitation.**
       Focusing an element inside the frame scrolls the host document on the desktop web
       app (this is how a deep link lands on the right PDF there), but does nothing in the
