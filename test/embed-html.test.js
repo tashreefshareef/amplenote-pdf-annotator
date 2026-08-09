@@ -454,6 +454,47 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("scrollByScreen");
   });
 
+  // Scenario: reported live. Clicking an exported highlight's link lands on the right
+  // note but leaves the reader where they were - at the bottom, among the exports, with
+  // the PDF far above. Scrolling to the embed by hand showed it ALREADY on the right
+  // highlight, which is the tell: the deep link arrives and works, and the only missing
+  // step is moving the host note.
+  //
+  // The embed is a cross-origin iframe, so it cannot scroll its parent with script. Focus
+  // is the exception - the browser scrolls a frame into view in every ancestor document
+  // when something inside it is focused, across origins. Verified in the harness with the
+  // embed 1500px down a tall page: focus moved the parent, focus({preventScroll:true})
+  // did not, which is what proves the scroll came from the focus call.
+  test("can pull the host note down to itself when opened by a deep link", () => {
+    const out = html();
+    expect(out).toContain("revealSelfInHostNote");
+    // Focusable programmatically without joining the tab order.
+    expect(out).toMatch(/setAttribute\("tabindex", "-1"\)/);
+    // Only ever for a deep link. Stealing focus on an ordinary note load would yank the
+    // page around for a reader who never asked to go anywhere - worse with several
+    // viewers on one note, which would then fight over it.
+    expect(out).toMatch(/if \(target \|\| cfg\.page\) revealSelfInHostNote\(\);/);
+    // The browser's own focus ring would be a meaningless full-viewer outline.
+    expect(out).toMatch(/#pdfa-root:focus\s*\{\s*outline:\s*none/);
+  });
+
+  // Scenario: the other half of the same report - "it doesn't highlight the actual note".
+  // Scrolling to a highlight does not say WHICH one when a page holds several, possibly
+  // adjacent and the same color. The cue is an outline rather than a color or opacity
+  // change: those already carry meaning on a highlight, and opacity would feed into the
+  // multiply blend the rects composite through.
+  test("flashes the highlight a deep link pointed at, without restyling it permanently", () => {
+    const out = html();
+    expect(out).toContain("flashHighlight");
+    expect(out).toMatch(/@keyframes pdfa-flash/);
+    expect(out).toMatch(/\.pdfa-hl-flash \.pdfa-hl\s*\{[^}]*outline:/);
+    // Not a color or opacity change - see above.
+    const flash = out.match(/\.pdfa-hl-flash \.pdfa-hl\s*\{[^}]*\}/)[0];
+    expect(flash).not.toMatch(/background|opacity/);
+    // And it is removed again, so no highlight is left mysteriously marked.
+    expect(out).toMatch(/classList\.remove\("pdfa-hl-flash"\)/);
+  });
+
   // Scenario: on a narrow embed a 40px toolbar row is ~11% of the whole box, and zoom is
   // the one control that got cheaper to bury - the viewer now opens already fitted to the
   // box's width, so zoom is an occasional adjustment rather than the first thing you

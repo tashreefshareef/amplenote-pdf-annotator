@@ -315,6 +315,45 @@ bearing even when they look arbitrary.
 
 ---
 
+## A deep link can arrive correctly and still look completely broken
+
+**Symptom:** clicking an exported highlight's link opened the right note but appeared to
+do nothing else — no scroll to the PDF, no indication of which highlight was meant. The
+diagnostic detail came from the report itself: *scrolling to the embed by hand showed it
+already sitting on the correct highlight.*
+
+**Cause:** two different things, both invisible from inside the component that "worked".
+
+1. The link's job was split across a boundary. The plugin rewrote the embed's arguments
+   and navigated to the note; the embed then scrolled **its own** pages to the highlight.
+   Both halves succeeded. Nobody scrolled the **host document** to the embed, so the
+   reader stayed where they were — at the bottom of the note, where the exports are.
+2. Arriving at the right highlight is not the same as *identifying* it. A page can hold
+   several highlights, adjacent and in the same color; the reader came from a link
+   promising one specific quote and had no way to tell which one it meant.
+
+**Fix:** focus. The embed is a cross-origin iframe, so it cannot touch its parent with
+script — no `scrollIntoView`, no access to the parent scroller. But focus is handled by
+the browser rather than by script: focusing an element inside a frame makes every ancestor
+document scroll that frame into view, across origins. `tabindex="-1"` makes the container
+focusable without joining the tab order, and the focus ring is suppressed since it would
+be a meaningless viewer-sized outline. Only ever on a deep-link boot — stealing focus on
+an ordinary load would yank the page around for a reader who never asked to go anywhere.
+Plus a brief outline animation on the target highlight, so "here" is answerable.
+
+**General lesson:** when a feature spans a boundary — iframe, process, service — each side
+can be individually correct while the *handoff* is missing entirely, and each side's tests
+and logs will look clean. The symptom then presents as "nothing happened", which sends you
+hunting for something broken instead of something absent. The tell is any report of the
+form "it works if I do X manually first": that X is the missing handoff, named precisely.
+
+Second: cross-origin isolation blocks *script*, not the *browser*. Focus, anchor
+navigation, and form submission all still cross the boundary because the user agent
+performs them. When script access is denied, ask which browser-level behaviours already
+do what you need.
+
+---
+
 ## Two writers that both mean "the end of the note" will eventually eat each other
 
 **Symptom:** every highlight the user had exported with "Send to note" vanished the

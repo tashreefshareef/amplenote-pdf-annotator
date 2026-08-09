@@ -192,6 +192,22 @@ const STYLES = `
      (No backticks anywhere in this comment - STYLES is itself a template literal.) */
   .pdfa-hl-group { position: absolute; inset: 0; }
   .pdfa-hl { position: absolute; border-radius: 2px; }
+  /* The cue for "this is the highlight your link pointed at". Scrolling to it does not
+     say WHICH one on a page that holds several, possibly adjacent and the same color.
+     An outline, not a color or opacity change: those are what a highlight already uses
+     to mean something, so borrowing them would read as "this highlight is different"
+     rather than "look here". outline also does not affect layout or feed into the
+     multiply blend the rects composite through. */
+  @keyframes pdfa-flash {
+    0%, 100% { outline-color: transparent; }
+    15%, 60% { outline-color: var(--pdfa-accent); }
+  }
+  .pdfa-hl-flash .pdfa-hl { outline: 2px solid transparent; outline-offset: 1px;
+    animation: pdfa-flash 1.3s ease-in-out 2; }
+  /* Focused only to make the host note scroll this embed into view (see
+     revealSelfInHostNote) - the outline the browser would draw would be a full-viewer
+     ring that means nothing to the reader. */
+  #pdfa-root:focus { outline: none; }
 
   /* The four colors are top-level toolbar buttons, single click, no submenu - an
      explicit spec requirement, not a layout preference. The bare .pdfa-color selector is

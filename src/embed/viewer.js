@@ -1118,6 +1118,60 @@ export function viewerMain() {
   // Returns renderAll's promise so a caller can act once the new scale is on screen -
   // the overflow menu's own zoom controls need it, because renderAll closes the popover
   // and they have to put it back.
+  /**
+   * Scroll the HOST NOTE down to this embed.
+   *
+   * Reported live: clicking an exported highlight's link lands on the right note but
+   * leaves the reader wherever they were - typically at the bottom of the note, where the
+   * exports are, with the PDF far above. Scroll to the embed by hand and it is already
+   * sitting on the right highlight, which is the tell: the deep link arrives and works,
+   * and the only missing step is moving the note itself.
+   *
+   * The embed cannot do that with script. It is a cross-origin iframe, so the parent
+   * document is untouchable - no scrollIntoView, no access to its scroller. But FOCUS is
+   * handled by the browser, not by script: focusing an element inside a frame makes every
+   * ancestor document scroll that frame into view, across origins. Verified in the
+   * harness with the embed 1500px down a tall page - focus moved the parent to it, and
+   * focus({preventScroll:true}) left the parent at 0, which is what proves the scroll came
+   * from here rather than from something else.
+   *
+   * Only ever called when this embed was opened BY a deep link, never on an ordinary
+   * load: stealing focus and yanking the page around would be hostile on a note that
+   * merely happens to contain a viewer, and worse on one containing several.
+   */
+  function revealSelfInHostNote() {
+    try {
+      // tabindex -1 makes a container programmatically focusable without putting it in
+      // the tab order, so keyboard users' tab sequence is unchanged.
+      els.root.setAttribute("tabindex", "-1");
+      els.root.focus();
+    } catch {
+      // A host that blocks this just means no auto-scroll - the deep link still landed
+      // on the right note and the viewer is still on the right highlight.
+    }
+  }
+
+  /**
+   * Briefly outline the highlight a deep link pointed at.
+   *
+   * Scrolling to it is not enough to answer "which one?" - a page can hold several
+   * highlights, sometimes adjacent and in the same color, and the reader arrived from a
+   * link that promised one specific quote. Reported as "it doesn't highlight the actual
+   * note" even in the cases where the scroll did work.
+   */
+  function flashHighlight(highlight) {
+    if (!highlight || !highlight.id) return;
+    var group = els.pages.querySelector('.pdfa-hl-group[data-id="' + highlight.id + '"]');
+    if (!group) return;
+    group.classList.add("pdfa-hl-flash");
+    // Removed again so the highlight goes back to looking like every other one - this is
+    // a pointer, not a permanent state, and a viewer left with one highlight
+    // mysteriously outlined would be worse than no cue at all.
+    setTimeout(function () {
+      group.classList.remove("pdfa-hl-flash");
+    }, 2600);
+  }
+
   function setZoom(scale) {
     state.scale = Math.min(Math.max(0.4, scale), 4);
     return renderAll();
@@ -1722,8 +1776,13 @@ export function viewerMain() {
         // Deep-link target from the embed args (spec section 7.3). A highlight id is
         // more precise than a page, so it wins when both are present.
         var target = cfg.highlightId ? findHighlight(cfg.highlightId) : null;
-        if (target) goToHighlight(target);
-        else if (cfg.page) goToPage(cfg.page);
+        if (target) {
+          goToHighlight(target);
+          flashHighlight(target);
+        } else if (cfg.page) {
+          goToPage(cfg.page);
+        }
+        if (target || cfg.page) revealSelfInHostNote();
       })
       .catch(function (err) {
         status(err.message || String(err), true);
