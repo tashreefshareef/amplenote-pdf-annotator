@@ -100,6 +100,18 @@ const STYLES = `
   .pdfa-popover.pdfa-menu .pdfa-menu-name { font-size: 11px; opacity: .6; padding: 2px 8px 5px;
     margin-bottom: 2px; border-bottom: 1px solid var(--pdfa-border);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The zoom stepper the same menu grows on a narrow embed. A row, not stacked buttons:
+     it is a single control with two directions, and it has to stay distinguishable from
+     the one-action-per-line items below it. */
+  .pdfa-menu-zoom { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px;
+    margin-bottom: 4px; border-bottom: 1px solid var(--pdfa-border); }
+  /* Outranks ".pdfa-popover.pdfa-menu .pdfa-btn" above, which strips the border and
+     left-aligns its items so they read as menu entries. These two are not menu entries -
+     they are a stepper - so they have to keep looking like buttons. */
+  .pdfa-popover.pdfa-menu .pdfa-menu-zoom .pdfa-btn { flex: 0 0 auto; min-width: 42px;
+    text-align: center; border-color: var(--pdfa-border); background: var(--pdfa-btn); }
+  .pdfa-menu-zoom-label { flex: 1 1 auto; text-align: center; opacity: .8;
+    font-variant-numeric: tabular-nums; }
   /* No align-items: center here on purpose - see the .pdfa-page comment below.
 
      overscroll-behavior is for touch: the embed is an iframe inside a note that
@@ -297,6 +309,14 @@ const STYLES = `
     .pdfa-toolbar .pdfa-brand { display: none; }
     .pdfa-toolbar { gap: 4px; padding: 5px 6px; justify-content: center; }
     .pdfa-label { min-width: 44px; }
+    /* Zoom moves into the overflow menu here, freeing a whole 40px row of a box that
+       only has ~358px to give. It is the one control that got CHEAPER to bury: the
+       viewer now opens already fitted to the box's width (see fitInitialZoom), so zoom
+       went from the first thing you touch to an occasional adjustment - the same test
+       Download and Export already pass. The page controls stay put; those are still
+       used constantly. viewer.js reads this same breakpoint via matchMedia, so the
+       button row and the menu can never both show zoom, or both hide it. */
+    #pdfa-zoom-in, #pdfa-zoom-out, #pdfa-zoom-label { display: none; }
     /* Full width, since the row it shares is no longer competing with a page. */
     .pdfa-panel { width: 100%; max-width: 100%; }
   }

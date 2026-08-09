@@ -1115,9 +1115,12 @@ export function viewerMain() {
     updateLabels();
   }
 
+  // Returns renderAll's promise so a caller can act once the new scale is on screen -
+  // the overflow menu's own zoom controls need it, because renderAll closes the popover
+  // and they have to put it back.
   function setZoom(scale) {
     state.scale = Math.min(Math.max(0.4, scale), 4);
-    renderAll();
+    return renderAll();
   }
 
   /**
@@ -1436,8 +1439,19 @@ export function viewerMain() {
     name.textContent = state.attachmentName || "PDF Annotator";
     name.title = name.textContent;
 
-    var children = [
-      name,
+    var children = [name];
+
+    // Zoom moves in here on a narrow embed, where the toolbar has hidden it. It is the
+    // one control that got cheaper to bury rather than more expensive: the viewer now
+    // opens already fitted to the box's width, so changing zoom went from "the first
+    // thing you do" to an occasional adjustment - which is the same test the rest of
+    // this menu's contents pass. Asked of the media query itself rather than of the
+    // window width, so the breakpoint has exactly one definition, in the stylesheet.
+    if (window.matchMedia && window.matchMedia("(max-width: 520px)").matches) {
+      children.push(buildMenuZoomRow(clientX, clientY));
+    }
+
+    children.push(
       button("Collapse", "", function () {
         closePopover(true);
         collapseViewer();
@@ -1451,9 +1465,49 @@ export function viewerMain() {
       }),
       button("Remove viewer...", "pdfa-remove", function () {
         openRemoveViewerPopover(clientX, clientY);
-      }),
-    ];
+      })
+    );
     showPopover(children, clientX, clientY, "menu");
+  }
+
+  /**
+   * The zoom stepper shown inside the overflow menu on a narrow embed.
+   *
+   * Re-opens the menu after each step instead of closing it. Zooming is inherently
+   * repetitive - you press it until the text is the size you want - and renderAll closes
+   * every popover (it has to: the popover is positioned in fixed coordinates over content
+   * that is about to be replaced). Without the reopen, each press would cost three taps:
+   * open the menu, zoom once, watch the menu vanish.
+   */
+  function buildMenuZoomRow(clientX, clientY) {
+    var row = document.createElement("div");
+    row.className = "pdfa-menu-zoom";
+
+    var label = document.createElement("span");
+    label.className = "pdfa-menu-zoom-label";
+    label.textContent = Math.round(state.scale * 100) + "%";
+
+    var step = function (delta) {
+      return function () {
+        setZoom(state.scale + delta).then(function () {
+          openMoreMenu(clientX, clientY);
+        });
+      };
+    };
+
+    var out = button("−", "", step(-0.25));
+    var into = button("+", "", step(0.25));
+    out.title = "Zoom out";
+    into.title = "Zoom in";
+    // A stepper at its limit that still looks live reads as a broken control - the same
+    // reasoning as the scroll buttons, and setZoom clamps to exactly these bounds.
+    out.disabled = state.scale <= 0.4;
+    into.disabled = state.scale >= 4;
+
+    row.appendChild(out);
+    row.appendChild(label);
+    row.appendChild(into);
+    return row;
   }
 
   /**

@@ -454,6 +454,25 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("scrollByScreen");
   });
 
+  // Scenario: on a narrow embed a 40px toolbar row is ~11% of the whole box, and zoom is
+  // the one control that got cheaper to bury - the viewer now opens already fitted to the
+  // box's width, so zoom is an occasional adjustment rather than the first thing you
+  // touch. It must be hidden in the toolbar and present in the menu at the SAME
+  // breakpoint, or it ends up in both places or neither.
+  test("moves zoom into the overflow menu only where the toolbar hides it", () => {
+    const out = html();
+    const narrow = out.match(/@media \(max-width: 520px\)[\s\S]*?\n {2}\}/)[0];
+    expect(narrow).toMatch(/#pdfa-zoom-in, #pdfa-zoom-out, #pdfa-zoom-label\s*\{\s*display:\s*none/);
+    // The viewer asks matchMedia for the same query rather than hardcoding a width, so
+    // the breakpoint has one definition. If this literal ever diverges from the CSS
+    // above, zoom silently disappears entirely at some widths.
+    expect(out).toContain('matchMedia("(max-width: 520px)")');
+    expect(out).toContain("buildMenuZoomRow");
+    // The page controls are NOT part of this - they stay in the toolbar.
+    expect(narrow).not.toContain("#pdfa-prev");
+    expect(narrow).not.toContain("#pdfa-next");
+  });
+
   // Scenario: the collapsed bar's box is width/COLLAPSED_ASPECT_RATIO, and the note
   // markup carrying that ratio is shared across every device - so a bar tuned to 45px at
   // a desktop note width gets 22px on a phone and was being cut in half. The box cannot
