@@ -73,6 +73,26 @@ const page2 = pdf.addPage([612, 792]);
 page2.drawText("Page two exists to test per-page coordinates", { x: 72, y: 700, size: 14, font: bold });
 page2.drawText("Identical coordinates on another page must not collide.", { x: 72, y: 660, size: 12, font });
 
+// A LANDSCAPE page, deliberately in the middle of portrait ones. Sizing every page
+// placeholder from page 1 would be cheaper than measuring them all, and this page is why
+// that shortcut is wrong: it would reflow the document as pages render, moving text out
+// from under a reader mid-selection.
+const wide = pdf.addPage([792, 612]);
+wide.drawText("A landscape page among portrait ones", { x: 72, y: 520, size: 14, font: bold });
+
+// Enough pages that lazy rendering is measurable at all - with only the three above,
+// every page is on screen at once and "render just the visible ones" proves nothing.
+for (let n = 4; n <= 30; n++) {
+  const p = pdf.addPage([612, 792]);
+  p.drawText(`Page ${n}`, { x: 72, y: 700, size: 14, font: bold });
+  p.drawText(`Body text on page ${n}, so every page has selectable text.`, {
+    x: 72,
+    y: 660,
+    size: 12,
+    font,
+  });
+}
+
 writeFileSync(join(OUT, "sample.pdf"), await pdf.save());
 
 // --- the bridge -------------------------------------------------------------

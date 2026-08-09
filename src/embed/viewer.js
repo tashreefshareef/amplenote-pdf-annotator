@@ -84,7 +84,20 @@ export function viewerMain() {
     textSpans: 0,
     // Per-page PDF.js viewport at the CURRENT scale. Rebuilt on every render, and the
     // only thing allowed to convert between PDF space and screen pixels.
+    //
+    // Populated for EVERY page up front, including ones not yet rendered - deep links,
+    // hit-testing and the highlights panel all need a page's geometry whether or not its
+    // canvas exists yet. It therefore no longer answers "has this page rendered?", which
+    // is what `rendered` below is for. That distinction is load-bearing: the selection
+    // capture used to test `viewports[n]` to mean "the text layer is ready", and with
+    // viewports now filled in early that test would silently pass for a page that has no
+    // text layer at all.
     viewports: {},
+    // page number -> true once its canvas AND text layer are actually built.
+    rendered: {},
+    // page number -> true while its render is in flight, so a burst of scroll events
+    // cannot start the same page several times over.
+    renderingPage: {},
     highlights: [],
     // The SOURCE pdf's own bytes, kept for Download. A deliberately SEPARATE copy from
     // whatever gets handed to pdf.js's getDocument(): some versions transfer ownership
@@ -239,15 +252,56 @@ export function viewerMain() {
 
   // ---- rendering -----------------------------------------------------------
 
-  function renderPage(page, index) {
-    var viewport = page.getViewport({ scale: state.scale });
-    state.viewports[index] = viewport;
+  /**
+   * Measure every page without rasterizing any of them.
+   *
+   * `getPage` only parses a page's dictionary - no canvas, no glyphs - so this is cheap
+   * next to rendering, and it is what lets every page box be created at its true size
+   * immediately. Sizing placeholders from page 1 instead would have been cheaper still,
+   * but any PDF that mixes page sizes or rotations (a landscape table dropped into a
+   * portrait report, a rotated scan) would then reflow under the reader as pages render,
+   * moving the text they are in the middle of selecting.
+   */
+  function collectViewports() {
+    var jobs = [];
+    for (var i = 1; i <= state.pageCount; i++) {
+      (function (num) {
+        jobs.push(
+          state.doc.getPage(num).then(function (page) {
+            state.viewports[num] = page.getViewport({ scale: state.scale });
+          })
+        );
+      })(i);
+    }
+    return Promise.all(jobs);
+  }
 
+  /** The empty, correctly-sized box a page occupies before (and after) it renders. */
+  function createPageBox(index) {
+    var viewport = state.viewports[index];
     var wrap = document.createElement("div");
     wrap.className = "pdfa-page";
     wrap.dataset.page = String(index);
     wrap.style.width = viewport.width + "px";
     wrap.style.height = viewport.height + "px";
+    return wrap;
+  }
+
+  /**
+   * Fill one page box in: canvas, highlight overlay, text layer.
+   *
+   * Split out from the box itself so the document's full height and every page's position
+   * exist from the start, while the expensive part happens only for pages someone can
+   * actually see. Before this, opening a PDF rendered every page up front and every zoom
+   * step re-rendered all of them - fine for the 3-page files this was built against,
+   * brutal for a 50-page one, and worst on a phone, which has both the least memory and
+   * (since zoom moved into the overflow menu) the most reason to re-render.
+   */
+  function renderPageContent(wrap, index) {
+    if (state.rendered[index] || state.renderingPage[index]) return Promise.resolve();
+    state.renderingPage[index] = true;
+
+    var viewport = state.viewports[index];
 
     var canvas = document.createElement("canvas");
     // Render at device resolution so text stays crisp; CSS keeps the layout size.
@@ -279,15 +333,18 @@ export function viewerMain() {
     textLayer.style.setProperty("--scale-factor", String(state.scale));
     wrap.appendChild(textLayer);
 
-    els.pages.appendChild(wrap);
-
     var ctx = canvas.getContext("2d");
     ctx.scale(dpr, dpr);
 
-    return page
-      .render({ canvasContext: ctx, viewport: viewport })
-      .promise.then(function () {
-        return page.getTextContent();
+    var pageRef = null;
+    return state.doc
+      .getPage(index)
+      .then(function (page) {
+        pageRef = page;
+        return page.render({ canvasContext: ctx, viewport: viewport }).promise;
+      })
+      .then(function () {
+        return pageRef.getTextContent();
       })
       .then(function (textContent) {
         var divs = [];
@@ -311,50 +368,127 @@ export function viewerMain() {
             }
             // Draw as each page lands rather than after the whole document, so
             // highlights on page 1 appear immediately in a long PDF.
+            state.rendered[index] = true;
+            state.renderingPage[index] = false;
             drawHighlights(index);
+            reportTextAvailability();
           });
+      })
+      ["catch"](function (err) {
+        // One page failing must not take the document with it - the rest stays readable,
+        // and this page can be retried simply by scrolling away and back.
+        state.renderingPage[index] = false;
+        status("Failed to render page " + index + ": " + (err.message || err), true);
       });
+  }
+
+  /**
+   * Render every page near the viewport, and nothing else.
+   *
+   * The margin is a full screenful on each side, so the next page is already there by the
+   * time it is scrolled to rather than appearing blank and filling in late.
+   *
+   * Positions come from getBoundingClientRect against the scroller's own rect, not
+   * offsetTop: nothing between a page and the scroller is positioned, so offsetParent is
+   * not the element it looks like it should be - the same trap goToHighlight documents.
+   */
+  function ensureVisiblePagesRendered() {
+    var box = scroller();
+    if (!box || !state.doc) return Promise.resolve();
+
+    var boxRect = box.getBoundingClientRect();
+    var margin = box.clientHeight;
+    var wraps = els.pages.querySelectorAll(".pdfa-page");
+    var started = [];
+
+    for (var i = 0; i < wraps.length; i++) {
+      var wrap = wraps[i];
+      var num = Number(wrap.dataset.page);
+      if (state.rendered[num] || state.renderingPage[num]) continue;
+
+      var rect = wrap.getBoundingClientRect();
+      var top = rect.top - boxRect.top;
+      var bottom = rect.bottom - boxRect.top;
+      if (bottom < -margin || top > box.clientHeight + margin) continue;
+
+      started.push(renderPageContent(wrap, num));
+    }
+    return Promise.all(started);
+  }
+
+  /**
+   * A PDF with no selectable text is a scan, not a failure of ours - say so, because
+   * "highlighting does nothing" is otherwise baffling.
+   *
+   * Judged only across the pages rendered SO FAR, which is all lazy rendering can know.
+   * That is also the more useful reading: it warns while you are looking at an imageless
+   * page and clears itself the moment any page with text arrives, rather than staying
+   * silent about a document whose first twenty pages are scans.
+   */
+  function reportTextAvailability() {
+    // Says nothing until at least one page has actually finished. Since renderAll now
+    // resolves on layout rather than on pixels, an unguarded check would fire while zero
+    // pages had rendered and accuse every PDF of being a scan for a moment.
+    var done = 0;
+    for (var k in state.rendered) {
+      if (state.rendered[k]) done++;
+    }
+    if (!done) return;
+    var isScan = state.textSpans === 0;
+    status(isScan ? "No selectable text found - this PDF may be a scan." : "", isScan);
   }
 
   function renderAll() {
     if (state.rendering) return Promise.resolve();
     state.rendering = true;
     closePopover(true);
-    els.pages.innerHTML = "";
-    state.viewports = {};
-    state.textSpans = 0;
     status("Rendering...");
 
-    var chain = Promise.resolve();
-    for (var i = 1; i <= state.pageCount; i++) {
-      (function (pageNum) {
-        chain = chain.then(function () {
-          return state.doc.getPage(pageNum).then(function (page) {
-            return renderPage(page, pageNum);
-          });
-        });
-      })(i);
-    }
+    // Where the reader was, as a fraction of the scrollable range. Emptying els.pages
+    // collapses the scroller to nothing, which resets scrollTop to 0 - so without this a
+    // zoom step dumped you back at page 1. Harmless when every page rendered anyway;
+    // actively bad now, because landing at the top also decides which pages get rendered.
+    var box = scroller();
+    var wasScrollable = box ? box.scrollHeight - box.clientHeight : 0;
+    var frac = wasScrollable > 0 ? box.scrollTop / wasScrollable : 0;
 
-    return chain
+    els.pages.innerHTML = "";
+    state.viewports = {};
+    state.rendered = {};
+    state.renderingPage = {};
+    state.textSpans = 0;
+
+    return collectViewports()
       .then(function () {
-        // A PDF with zero selectable spans is a scanned image, not a failure of ours -
-        // say so, because "highlighting does nothing" is otherwise baffling.
-        if (state.textSpans === 0) {
-          status("No selectable text found - this PDF may be a scan.", true);
-        } else {
-          status("");
+        for (var i = 1; i <= state.pageCount; i++) {
+          els.pages.appendChild(createPageBox(i));
         }
+        // Restore the reading position BEFORE choosing what to render, or the only pages
+        // built would be the ones at the top that nobody is looking at.
+        if (box) {
+          var nowScrollable = box.scrollHeight - box.clientHeight;
+          box.scrollTop = frac * (nowScrollable > 0 ? nowScrollable : 0);
+        }
+
         state.rendering = false;
         updateLabels();
         // The scrollable height just changed, so which of the two controls is at its
         // end may have changed with it - a zoom out can end a document that was
         // scrollable a moment ago.
         syncScrollNav();
+
+        // Resolves HERE, once the document's geometry is final - deliberately NOT after
+        // the pages rasterize. Everything downstream of a render (the deep-link jump to a
+        // page or highlight, scrolling, hit-testing) needs positions, not pixels, and all
+        // of those exist now. Waiting for pixels would put the deep link back behind the
+        // one operation that can stall indefinitely when the embed is off-screen, which
+        // is the trap this project has now hit three times. Rasterization continues in
+        // the background and each page draws itself in as it lands.
+        ensureVisiblePagesRendered();
       })
-      .catch(function (err) {
+      ["catch"](function (err) {
         state.rendering = false;
-        status("Failed to render: " + err.message, true);
+        status("Failed to render: " + (err.message || err), true);
       });
   }
 
@@ -643,7 +777,11 @@ export function viewerMain() {
     // before trusting a selection inside it. measureSelection no longer needs the
     // viewport itself: itemRelativeRect measures against each word's own text-content
     // item, not the page-level transform. See geometry.js for why.
-    if (!state.viewports[pageNum]) return setPending(null);
+    //
+    // Tests `rendered`, NOT `viewports`: since lazy rendering, every page has a viewport
+    // from the moment the document opens, so the old check would wave through a page
+    // whose text layer does not exist yet.
+    if (!state.rendered[pageNum]) return setPending(null);
 
     // Only this page's layer is walked, so rects from a page the drag spilled onto are
     // never collected. Comparing the layers is a more direct test of that than guessing
@@ -1085,10 +1223,39 @@ export function viewerMain() {
     return els.root.querySelector(".pdfa-scroll");
   }
 
+  /**
+   * Build one page immediately, by number.
+   *
+   * Jumping somewhere names its destination outright, so there is no reason to infer it
+   * from scroll positions afterwards - and good reason not to: a smooth scroll has not
+   * arrived yet when the caller returns, so measuring visibility then would render
+   * whatever is still on screen instead of where the reader is going.
+   */
+  function renderPageNow(pageNum) {
+    var wrap = els.pages.querySelector('.pdfa-page[data-page="' + pageNum + '"]');
+    if (wrap) renderPageContent(wrap, pageNum);
+  }
+
   function goToPage(pageNum) {
     var target = Math.min(Math.max(1, pageNum), state.pageCount);
-    var el = els.pages.querySelector('[data-page="' + target + '"]');
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    var wrap = els.pages.querySelector('.pdfa-page[data-page="' + target + '"]');
+    renderPageNow(target);
+
+    // Instant, and measured against the scroller's own rect - the same arithmetic
+    // goToHighlight uses, and for both of its reasons. Nothing between a page and the
+    // scroller is positioned, so offsetTop cannot be trusted; and this used to be
+    // a smooth-behaviour scrollIntoView, which silently never advances when the embed
+    // is not compositing. That is precisely the state a deep-linked embed is in - still
+    // off-screen in the note - so a page link set the page number and then didn't move,
+    // while a highlight link worked, because goToHighlight already assigned scrollTop
+    // directly. Third time this project has been bitten by a paint-coupled API; the rule
+    // by now is that anything on a critical path gets the instant form.
+    var box = scroller();
+    if (wrap && box) {
+      box.scrollTop += wrap.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    }
+    ensureVisiblePagesRendered();
+
     state.current = target;
     updateLabels();
   }
@@ -1110,6 +1277,12 @@ export function viewerMain() {
     var targetTop = wrap.getBoundingClientRect().top + vr.y;
     // A third of the way down reads better than flush to the top edge.
     box.scrollTop += targetTop - box.getBoundingClientRect().top - box.clientHeight / 3;
+
+    // The destination is named, so build it outright rather than waiting for a scroll
+    // event - this is the deep-link path, where the page being jumped to is exactly the
+    // one most likely never to have been rendered.
+    renderPageNow(highlight.page);
+    ensureVisiblePagesRendered();
 
     state.current = highlight.page;
     updateLabels();
@@ -1229,7 +1402,7 @@ export function viewerMain() {
    * 85% rather than a full screenful so a line or two carries over and you can tell
    * where you were, the same overlap a Page Down gives you.
    *
-   * Deliberately an INSTANT jump, not behavior:"smooth". Smooth scrolling is driven off
+   * Deliberately an INSTANT jump, not a smooth-behaviour scroll. Smooth scrolling runs off
    * the same requestAnimationFrame/compositor path that this project already has a
    * documented silent stall on (see docs/api-notes.md on PDF.js in a hidden tab) - and
    * measured here, a smooth scrollBy in a non-compositing context never advances at all,
@@ -1249,6 +1422,10 @@ export function viewerMain() {
     // (Measured in the harness: in a non-compositing context scrollTop changes while NO
     // scroll event fires at all, so this is not a hypothetical failure.)
     syncScrollNav();
+    // Same reasoning applied to rendering: these buttons are the only way to scroll on a
+    // phone, so a page reached by them cannot be left waiting on an event that may never
+    // arrive - it would present as scrolling into permanent blankness.
+    ensureVisiblePagesRendered();
   }
 
   /**
@@ -1269,6 +1446,9 @@ export function viewerMain() {
   // Keep the page indicator honest as the user scrolls.
   function trackScroll() {
     syncScrollNav();
+    // Pages are built as they come into range - this is what makes lazy rendering
+    // actually deliver the rest of the document.
+    ensureVisiblePagesRendered();
     // The popover is positioned in fixed client coordinates, so it would hang in place
     // over unrelated content once the page moves under it. Not while a note is being
     // typed, though - see closePopover.

@@ -454,6 +454,43 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("scrollByScreen");
   });
 
+  // Scenario: the viewer used to rasterize every page before showing anything, and
+  // re-rasterize all of them on every zoom step. Fine for the 3-page files it was built
+  // against; brutal for a 50-page one, and worst on a phone - least memory, and (since
+  // zoom moved into the overflow menu) the most re-rendering. Pages are now boxed at
+  // their true size up front, so the document's geometry is complete immediately, and
+  // only pages near the viewport are actually drawn.
+  test("sizes every page up front but only draws the ones near the viewport", () => {
+    const out = html();
+    expect(out).toContain("collectViewports");
+    expect(out).toContain("createPageBox");
+    expect(out).toContain("ensureVisiblePagesRendered");
+    // Measuring every page, rather than assuming page 1's size, is what stops a document
+    // with a landscape page or a rotated scan reflowing under the reader as pages land.
+    expect(out).toMatch(/for \(var i = 1; i <= state\.pageCount; i\+\+\)[\s\S]{0,200}getPage\(num\)/);
+  });
+
+  // Scenario: `viewports` used to mean BOTH "this page's geometry" and "this page has
+  // rendered", and the selection capture relied on the second meaning. Lazy rendering
+  // fills viewports in for every page at load, so that check would now wave through a
+  // page with no text layer at all - a silent break in the one path the whole plugin
+  // depends on. The two meanings are separate state now.
+  test("gates selection on a page having RENDERED, not merely having geometry", () => {
+    const out = html();
+    expect(out).toMatch(/if \(!state\.rendered\[pageNum\]\) return setPending\(null\)/);
+    expect(out).not.toMatch(/if \(!state\.viewports\[pageNum\]\) return setPending\(null\)/);
+  });
+
+  // Scenario: three separate bugs in this project have come from a paint-coupled API
+  // silently not running when the embed is not compositing - PDF.js's rAF render, a
+  // smooth scrollBy that never advanced, and a deep link that set the page number and
+  // then didn't move. An off-screen embed is exactly the state a deep-linked viewer is
+  // in, so nothing on a navigation path may depend on a scroll animation.
+  test("never uses smooth scrolling, which stalls when the embed is not compositing", () => {
+    const out = html();
+    expect(out).not.toMatch(/behavior:\s*["']smooth["']/);
+  });
+
   // Scenario: reported live. Clicking an exported highlight's link lands on the right
   // note but leaves the reader where they were - at the bottom, among the exports, with
   // the PDF far above. Scrolling to the embed by hand showed it ALREADY on the right
