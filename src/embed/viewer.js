@@ -1656,41 +1656,98 @@ export function viewerMain() {
     );
   }
 
-  /**
-   * Write to the clipboard, falling back to a hidden textarea + execCommand when the
-   * async Clipboard API is unavailable - cross-origin iframes (the embed's own
-   * situation, on plugins.amplenote.com) can have clipboard-write permission-gated by
-   * the EMBEDDING page in a way this plugin has no control over, and execCommand has
-   * historically worked in more restrictive iframe contexts than the modern API.
-   */
-  function copyToClipboard(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(text);
+  /** The same block as HTML - the clipboard's rich-text flavor. See copyToClipboard. */
+  function exportHtmlFor(highlight) {
+    if (!exportBuilder.buildHighlightHtml) return null;
+    var list = colorList();
+    var hex = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === highlight.color) hex = list[i].hex;
     }
-    return new Promise(function (resolve, reject) {
-      var ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      var ok = false;
+    return exportBuilder.buildHighlightHtml(
+      state.attachmentName,
+      cfg.pluginUUID,
+      cfg.attachmentUUID,
+      highlight,
+      hex,
+      cfg.noteUUID
+    );
+  }
+
+  /**
+   * The selection + `copy`-event + execCommand route, which is what lets ONE copy carry
+   * two flavors: the handler overrides both `text/plain` and `text/html` on the event's
+   * own clipboardData. `navigator.clipboard.writeText` cannot do this at all (plain text
+   * only), and it is the reason a copied highlight pasted into Amplenote as literal
+   * `==●<!-- ... -->==` and `> >` characters - see buildHighlightHtml in src/export.js.
+   *
+   * execCommand is deprecated but not replaced here for a reason beyond the flavors:
+   * cross-origin iframes (the embed's own situation, on plugins.amplenote.com) can have
+   * clipboard writes permission-gated by the EMBEDDING page, and this route has
+   * historically worked in more restrictive iframe contexts than the modern API. It also
+   * needs a real selection to fire at all, hence the offscreen textarea.
+   */
+  function copyViaCopyEvent(text, html) {
+    var onCopy = function (e) {
+      var data = e.clipboardData || window.clipboardData;
+      if (!data) return;
+      data.setData("text/plain", text);
+      if (html) data.setData("text/html", html);
+      e.preventDefault();
+    };
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    document.addEventListener("copy", onCopy, true);
+    var ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch (err) {
+      ok = false;
+    }
+    document.removeEventListener("copy", onCopy, true);
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  /**
+   * Put the block on the clipboard in both flavors - markdown for anything that reads
+   * plain text, HTML for a rich-text editor like Amplenote's, which does NOT parse
+   * markdown out of pasted text (docs/api-notes.md finding #7).
+   *
+   * `ClipboardItem` is tried first where it exists - it is the non-deprecated way to
+   * write two flavors - and everything else falls through to the copy-event route above,
+   * which is both more widely supported and more likely to survive the iframe.
+   */
+  function copyToClipboard(text, html) {
+    var fallback = function () {
+      return copyViaCopyEvent(text, html)
+        ? Promise.resolve()
+        : Promise.reject(new Error("Clipboard access is unavailable here."));
+    };
+
+    if (html && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem === "function") {
       try {
-        ok = document.execCommand("copy");
+        var item = new ClipboardItem({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        });
+        return navigator.clipboard.write([item]).catch(fallback);
       } catch (err) {
-        ok = false;
+        return fallback();
       }
-      document.body.removeChild(ta);
-      if (ok) resolve();
-      else reject(new Error("Clipboard access is unavailable here."));
-    });
+    }
+    return fallback();
   }
 
   /** "Copy" - spec section 4: copy a highlight, paste it into any note. */
   function copyHighlight(highlight) {
     closePopover(true);
-    copyToClipboard(exportBlockFor(highlight))
+    copyToClipboard(exportBlockFor(highlight), exportHtmlFor(highlight))
       .then(function () {
         status("Highlight copied - paste it into any note.");
       })

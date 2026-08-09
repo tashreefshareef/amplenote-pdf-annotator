@@ -90,6 +90,16 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    `app.replaceNoteContent` (e.g. via a "Send to note" or "Export" action, or any action
    that writes note content) - and look at the result, not a manual paste into the editor.
 
+   **Corollary, confirmed live: a plugin feature that copies markdown to the clipboard for
+   the user to paste in cannot work as markdown at all.** A correctly-formed export block
+   (verified rendering fine through `insertNoteContent`) pasted into a note as literal
+   `==●<!-- ... -->==` / `[text](url)` / `> >` characters. Amplenote's editor is a
+   rich-text editor: it reads `text/html` off the clipboard and treats `text/plain` as
+   literal text. Any "Copy" that expects to paste as formatted content has to write a
+   `text/html` flavor too - which rules out `navigator.clipboard.writeText` (plain-text
+   only); use `ClipboardItem` or a `copy`-event listener with `setData` per flavor. See
+   `buildHighlightHtml` in src/export.js and `copyToClipboard` in src/embed/viewer.js.
+
 8. **A highlight/mark span (`==text==`) cannot contain a markdown link, in EITHER nesting
    order.** Tried both live, through the real write path (see #7 - paste is not valid
    evidence for this either): `==[text](url)<!--json-->==` (mark wrapping a link) and

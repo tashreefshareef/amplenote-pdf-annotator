@@ -10,7 +10,13 @@
  * confirmed live not to compose in either nesting order. If any of these turn out wrong
  * once tested live, these are the tests to update alongside the fix.
  */
-import { createExportBuilder, buildDeepLink, buildHighlightBlock, buildExportAllContent } from "../src/export.js";
+import {
+  createExportBuilder,
+  buildDeepLink,
+  buildHighlightBlock,
+  buildHighlightHtml,
+  buildExportAllContent,
+} from "../src/export.js";
 import { parseEmbedArgs } from "../src/embed-args.js";
 
 const PLUGIN_UUID = "plugin-uuid-1";
@@ -139,6 +145,77 @@ describe("buildHighlightBlock", () => {
     // requirement's diagram shows no quote marks - "double" refers to the nesting depth -
     // and the literal-quotes reading was reported wrong live.
     expect(block).not.toContain('"quoted material"');
+  });
+});
+
+/**
+ * The clipboard's rich-text flavor. These exist because the markdown flavor alone was
+ * CONFIRMED LIVE not to work for Copy: pasting into Amplenote's editor produced literal
+ * `==●<!-- {"cycleColor":"12"} -->==` and `> >` characters, rendering nothing (the same
+ * "paste does not parse markdown" finding as docs/api-notes.md #7). What Amplenote does
+ * with `<mark>` versus the inline background-color is still unconfirmed; the structure
+ * below is what these tests pin.
+ */
+describe("buildHighlightHtml", () => {
+  // Scenario: the HTML mirrors the markdown block exactly - colored marker, plain link,
+  // quote nested twice, note one level out - so a paste and an export look the same.
+  test("mirrors the markdown block's structure as HTML", () => {
+    const html = buildHighlightHtml(
+      "paper.pdf",
+      PLUGIN_UUID,
+      ATT_UUID,
+      highlight({ note: "a plain remark" }),
+      "#F4DE6C",
+      "note-42"
+    );
+    expect(html).toContain('<mark style="background-color:#F4DE6C">&#9679;</mark>');
+    expect(html).toContain(
+      `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">paper.pdf</a>`
+    );
+    expect(html).toContain("<blockquote><blockquote><p>the highlighted text</p></blockquote></blockquote>");
+    expect(html).toContain("<blockquote><p>a plain remark</p></blockquote>");
+  });
+
+  // Scenario: no note means no empty blockquote left dangling after the quote.
+  test("omits the note blockquote entirely when there is no note", () => {
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), "#F4DE6C");
+    expect(html.match(/<blockquote>/g)).toHaveLength(2); // the nested quote only
+  });
+
+  // Scenario: PDF text routinely contains characters that are markup in HTML. Unescaped,
+  // a quote containing "<" would swallow the rest of the block when pasted.
+  test("escapes HTML-special characters in the quote, note and PDF name", () => {
+    const html = buildHighlightHtml(
+      "a<b> & c.pdf",
+      PLUGIN_UUID,
+      ATT_UUID,
+      highlight({ quoteText: "if x < y & y > z", note: 'she said "no"' }),
+      "#F4DE6C"
+    );
+    expect(html).toContain("a&lt;b&gt; &amp; c.pdf");
+    expect(html).toContain("if x &lt; y &amp; y &gt; z");
+    expect(html).toContain("she said &quot;no&quot;");
+  });
+
+  // Scenario: a multi-line PDF selection must not collapse into one run-on line - the
+  // markdown flavor prefixes each line, so the HTML needs the equivalent break.
+  test("keeps newlines in the quoted text as line breaks", () => {
+    const html = buildHighlightHtml(
+      "paper.pdf",
+      PLUGIN_UUID,
+      ATT_UUID,
+      highlight({ quoteText: "first line\nsecond line" }),
+      "#F4DE6C"
+    );
+    expect(html).toContain("<p>first line<br>second line</p>");
+  });
+
+  // Scenario: an unknown color id yields no hex - the marker must still be a mark, just
+  // without a background, rather than emitting `background-color:null`.
+  test("emits a plain mark when no hex is known", () => {
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), null);
+    expect(html).toContain("<mark>&#9679;</mark>");
+    expect(html).not.toContain("background-color");
   });
 });
 

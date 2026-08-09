@@ -478,7 +478,34 @@ deliberately-shortened container from CSS alone.
 
 ---
 
-## Cross-reference: general lessons that happened to surface via `docs/api-notes.md`
+## "Copy" produced perfect markdown that a rich-text editor pasted as literal characters
+
+**Symptom:** the Copy button on a highlight put a correctly-formed export block on the
+clipboard, and pasting it into an Amplenote note rendered *nothing* — the note showed
+literal `==●<!-- {"cycleColor":"12"} -->==`, a raw `[name](plugin://…)`, and `> >`
+characters as visible text. The exact same block written through `insertNoteContent`
+("Send to note", "Export all") renders correctly, so the format itself was never wrong.
+
+**Cause:** the clipboard only ever carried one flavor. `navigator.clipboard.writeText`
+and a `<textarea>` + `execCommand("copy")` both write `text/plain` and nothing else, and
+a rich-text editor pastes plain text *literally* — it reads `text/html` when it wants
+structure. The format was being validated against the wrong destination the whole time:
+every live confirmation of the markdown had gone through the plugin's own write path,
+where Amplenote parses markdown, never through a paste, where it does not.
+
+**Fix:** put both flavors on one clipboard write — the markdown as `text/plain` (still
+correct for anything that reads markdown), plus an equivalent `text/html` built by
+`buildHighlightHtml` in `src/export.js`. Writing two flavors rules out `writeText`
+entirely: either `ClipboardItem` + `navigator.clipboard.write`, or a one-shot `copy`
+event listener calling `setData` for each flavor and `preventDefault()`, with the
+offscreen textarea kept only because `execCommand("copy")` needs a real selection to fire.
+
+**General lesson:** "copy" and "write through the app's own API" are two different
+destinations with two different parsers, and evidence from one says nothing about the
+other. A format confirmed live via the write path is not confirmed for paste. More
+generally: a single-flavor clipboard write silently discards structure — if the target is
+a rich-text editor, the markup has to be on the clipboard *as* `text/html`, because the
+editor will never re-parse plain text into it.
 
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for

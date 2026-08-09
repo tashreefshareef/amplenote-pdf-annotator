@@ -136,6 +136,51 @@ export function createExportBuilder() {
     return lines.join("\n");
   }
 
+  function escapeHtml(text) {
+    return String(text == null ? "" : text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /** Newlines inside quoted PDF text / a note have to survive as line breaks in HTML. */
+  function htmlParagraph(text) {
+    return "<p>" + escapeHtml(text).replace(/\r?\n/g, "<br>") + "</p>";
+  }
+
+  /**
+   * The SAME block as buildHighlightBlock, as HTML rather than markdown - the clipboard
+   * flavor, not a second format anyone reads.
+   *
+   * WHY THIS EXISTS: Amplenote's editor does not parse markdown out of pasted plain text
+   * (docs/api-notes.md finding #7, confirmed again live for the Copy button specifically -
+   * the exported block pasted in as literal `==●<!-- ... -->== [name](plugin://...)` and
+   * `> >` characters, rendering nothing). Rich-text editors read `text/html` off the
+   * clipboard instead, so Copy now puts BOTH flavors there: markdown as `text/plain` for
+   * everything else, this as `text/html` for Amplenote.
+   *
+   * Structure mirrors the markdown exactly - marker + plain link, the quote nested twice,
+   * the note one level out - so a pasted block and an exported one look the same.
+   *
+   * `<mark>` is the element an editor is most likely to map onto its own highlight, and
+   * the inline background-color is the fallback for one that only understands styling.
+   * Which of the two Amplenote actually honours is NOT yet confirmed live; the blockquote
+   * nesting and the link are the parts that should be safe either way.
+   */
+  function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
+    var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
+    var marker = hex
+      ? '<mark style="background-color:' + escapeHtml(hex) + '">&#9679;</mark>'
+      : "<mark>&#9679;</mark>";
+    var heading =
+      "<p>" + marker + ' <a href="' + escapeHtml(url) + '">' + escapeHtml(pdfName || "PDF") + "</a></p>";
+
+    var quote = "<blockquote><blockquote>" + htmlParagraph(highlight.quoteText) + "</blockquote></blockquote>";
+    var note = highlight.note ? "<blockquote>" + htmlParagraph(highlight.note) + "</blockquote>" : "";
+    return heading + quote + note;
+  }
+
   /**
    * Sorted the way a reader moves through the document - page, then position on the
    * page - not creation order. Same ordering the highlights panel uses (viewer.js), and
@@ -186,6 +231,7 @@ export function createExportBuilder() {
   return {
     buildDeepLink: buildDeepLink,
     buildHighlightBlock: buildHighlightBlock,
+    buildHighlightHtml: buildHighlightHtml,
     buildExportAllContent: buildExportAllContent,
   };
 }
@@ -195,4 +241,5 @@ const exportBuilder = createExportBuilder();
 
 export const buildDeepLink = exportBuilder.buildDeepLink;
 export const buildHighlightBlock = exportBuilder.buildHighlightBlock;
+export const buildHighlightHtml = exportBuilder.buildHighlightHtml;
 export const buildExportAllContent = exportBuilder.buildExportAllContent;
