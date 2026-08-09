@@ -41,9 +41,11 @@ cross-origin iframe, so the host application decides what it may do.
 annotated file correctly on every platform, but a `download` attribute needs the host app
 to act on it and the mobile app doesn't; the Web Share API, which is how a phone would
 normally save a file, isn't delegated to the embed either. Rather than appear to succeed
-and produce nothing, the viewer says the PDF was built and to open the note on a computer
-to save it. Copy, Send to note and Export all work fine on mobile — it's specifically the
-file that can't leave.
+and produce nothing, the viewer says the PDF is ready and where to save it if no file
+appeared — conditionally, because a touch device is not proof of failure: Amplenote in a
+tablet browser downloads normally, and telling that user their download failed while it
+sits in their downloads folder would be worse than saying nothing. Copy, Send to note and
+Export all work fine on mobile — it's specifically the file that can't leave.
 
 **Dragging doesn't scroll the viewer, and a deep link doesn't scroll the note to it.**
 The host note claims the vertical drag inside the embed; `overscroll-behavior`, a
