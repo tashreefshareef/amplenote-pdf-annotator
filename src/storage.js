@@ -123,6 +123,17 @@ export async function saveHighlights(app, noteUUID, attachmentUUID, highlights) 
     });
   }
 
+  // Rescue path, taken only when the section is holding content this plugin did not put
+  // there. The section-scoped write below replaces everything under the heading, so
+  // anything trapped in there would be destroyed - which is precisely the reported bug,
+  // where creating one highlight erased every previously exported highlight. Lifting it
+  // out first turns that save into the thing that REPAIRS the note.
+  const repaired = liftStrayContentAboveSection(content, body);
+  if (repaired !== null) {
+    await app.replaceNoteContent(noteHandle, repaired);
+    return;
+  }
+
   await app.replaceNoteContent(noteHandle, body, {
     section: { heading: { text: STORAGE_SECTION_HEADING, level: 1 } },
   });
@@ -155,28 +166,103 @@ export async function deleteHighlights(app, noteUUID, attachmentUUID) {
 }
 
 /**
- * Find the content directly under a level-1 heading with this exact text, mirroring
- * the section-lookup semantics `replaceNoteContent`'s `section` option relies on -
- * needed here so load/save agree on what "the section" means without an extra API call.
- * Returns null if the heading doesn't exist in the note at all (as opposed to existing
- * and being empty, which returns "").
+ * Locate the managed section's heading line and the line after its last, mirroring the
+ * section semantics `replaceNoteContent`'s `section` option relies on. Returns null if
+ * the heading isn't in the note at all.
+ */
+function locateSection(lines, headingText) {
+  const headingRe = /^#\s+(.*)$/;
+  const start = lines.findIndex((l) => {
+    const m = l.match(headingRe);
+    return m && m[1].trim() === headingText;
+  });
+  if (start === -1) return null;
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^#\s+/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  return { start, end };
+}
+
+/**
+ * Find the content directly under a level-1 heading with this exact text - needed here
+ * so load/save agree on what "the section" means without an extra API call. Returns null
+ * if the heading doesn't exist in the note at all (as opposed to existing and being
+ * empty, which returns "").
  */
 function extractSection(noteContent, headingText) {
   if (!noteContent) return null;
   const lines = noteContent.split("\n");
-  const headingRe = /^#\s+(.*)$/;
-  const startIdx = lines.findIndex((l) => {
-    const m = l.match(headingRe);
-    return m && m[1].trim() === headingText;
-  });
-  if (startIdx === -1) return null;
+  const at = locateSection(lines, headingText);
+  if (!at) return null;
+  return lines.slice(at.start + 1, at.end).join("\n").trim();
+}
 
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/^#\s+/.test(lines[i])) {
-      endIdx = i;
-      break;
-    }
-  }
-  return lines.slice(startIdx + 1, endIdx).join("\n").trim();
+/**
+ * Whatever is inside the managed section that this plugin did NOT put there.
+ *
+ * The section is supposed to hold exactly the intro line and the fenced payload. Anything
+ * else got in by being appended to the END of the note while this section was the last
+ * heading in it - which is exactly what "Send to note" used to do, silently filing every
+ * exported highlight inside the one region that gets wholesale replaced on the next save.
+ */
+function extractStray(sectionContent) {
+  if (!sectionContent) return "";
+  let rest = sectionContent;
+  const fenced = rest.match(/```(?:json)?\s*\n?[\s\S]*?\n?```/);
+  if (fenced) rest = rest.replace(fenced[0], "");
+  // The short-lived hidden-comment format, in case an old note is being repaired.
+  rest = rest.replace(/<!--\s*PDFA-DATA[\s\S]*?-->/, "");
+  rest = rest.replace(SECTION_INTRO, "");
+  return rest.trim();
+}
+
+/**
+ * Put `markdown` immediately ABOVE the managed section, keeping that section last.
+ *
+ * Returns null when the note has no managed section yet, so the caller can use the
+ * cheaper `insertNoteContent(atEnd)` - with no section present, the end of the note is
+ * already the right place and there is nothing to write around.
+ */
+export function insertAboveManagedSection(noteContent, markdown) {
+  const lines = (noteContent || "").split("\n");
+  const at = locateSection(lines, STORAGE_SECTION_HEADING);
+  if (!at) return null;
+
+  const before = lines.slice(0, at.start).join("\n").replace(/\s+$/, "");
+  const rest = lines.slice(at.start).join("\n");
+  return `${before ? before + "\n\n" : ""}${markdown}\n\n${rest}`;
+}
+
+/**
+ * Repair a note whose managed section has swallowed the user's own content.
+ *
+ * Lifts that content back out, to just above the heading where it should have gone, and
+ * writes the fresh payload into the now-clean section. Returns null when there is nothing
+ * trapped - the overwhelming majority of saves - so the caller keeps using the cheap
+ * section-scoped write instead of rewriting the whole note on every highlight.
+ *
+ * This exists because the bug destroyed data that was already written: fixing the writer
+ * stops new exports being filed in the wrong place, but every export a user had already
+ * sent is still sitting in the blast radius, waiting for their next highlight.
+ */
+export function liftStrayContentAboveSection(noteContent, serializedBody) {
+  const lines = (noteContent || "").split("\n");
+  const at = locateSection(lines, STORAGE_SECTION_HEADING);
+  if (!at) return null;
+
+  const stray = extractStray(lines.slice(at.start + 1, at.end).join("\n").trim());
+  if (!stray) return null;
+
+  const before = lines.slice(0, at.start).join("\n").replace(/\s+$/, "");
+  const after = lines.slice(at.end).join("\n").replace(/^\s+/, "");
+  return (
+    `${before ? before + "\n\n" : ""}${stray}\n\n` +
+    `${lines[at.start]}\n\n${serializedBody}` +
+    `${after ? "\n\n" + after : ""}`
+  );
 }

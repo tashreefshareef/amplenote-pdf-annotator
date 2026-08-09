@@ -551,6 +551,43 @@ describe("sendToNote", () => {
     expect(result.error).toMatch(/nothing to send/i);
     expect(app.insertNoteContent).not.toHaveBeenCalled();
   });
+
+  // Scenario: DATA LOSS, reported live with a screenshot. The managed data section is
+  // created at the end of the note, and "send to note" also appended at the end - so
+  // every exported highlight landed INSIDE that section. saveHighlights replaces the
+  // whole section by heading, so the next highlight created silently wiped every export
+  // the user had sent. The two writes have to agree on an order: exports are the user's
+  // content and belong above the plugin's managed data, which stays last.
+  test("sends exports ABOVE the managed data section, not into it", async () => {
+    const app = appWithNote(
+      `# Reading notes\nmy own text\n\n# ${STORAGE_SECTION_HEADING}\n\n\`\`\`json\n{}\n\`\`\``
+    );
+
+    await call(app, { action: "sendToNote", content: '==[paper.pdf](url)==\n> "quote"' });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final).toContain("my own text");
+    expect(final).toContain('> "quote"');
+    // The export must sit before the managed heading, and the heading must stay last.
+    expect(final.indexOf('> "quote"')).toBeLessThan(final.indexOf(`# ${STORAGE_SECTION_HEADING}`));
+    expect(final.indexOf("my own text")).toBeLessThan(final.indexOf('> "quote"'));
+  });
+
+  // Scenario: the same bug's other half - an export that survives the send must also
+  // survive the NEXT highlight. This is the assertion that actually reproduces what was
+  // reported: create a highlight after exporting, and the export is gone.
+  test("keeps earlier exports when a new highlight is saved", async () => {
+    const app = appWithNote(
+      `# Reading notes\nmy own text\n\n# ${STORAGE_SECTION_HEADING}\n\n\`\`\`json\n{}\n\`\`\``
+    );
+
+    await call(app, { action: "sendToNote", content: '==[paper.pdf](url)==\n> "quote"' });
+    await call(app, { action: "addHighlight", attachmentUUID: ATT, highlight: draft() });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final).toContain('> "quote"');
+    expect(final).toContain("my own text");
+  });
 });
 
 describe("exportAll", () => {

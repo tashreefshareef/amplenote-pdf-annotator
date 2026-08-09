@@ -10,7 +10,12 @@
  * opaque failure, whereas `{ error }` can be shown to the user.
  */
 import { fetchableAttachmentURL } from "./attachments.js";
-import { loadHighlights, saveHighlights, deleteHighlights } from "./storage.js";
+import {
+  loadHighlights,
+  saveHighlights,
+  deleteHighlights,
+  insertAboveManagedSection,
+} from "./storage.js";
 import { removeEmbedMarkup, setEmbedCollapsed } from "./embed-args.js";
 import {
   createHighlight,
@@ -181,13 +186,27 @@ export async function handleEmbedCall(app, payload) {
     case "sendToNote": {
       if (!request.content) return { error: "Nothing to send." };
       try {
-        // atEnd - never disturbs the user's own content above it (spec §4: "probably
-        // appended at the bottom of the note").
-        await app.insertNoteContent(
-          { uuid: resolveNoteUUID(app, request) },
-          "\n" + request.content + "\n",
-          { atEnd: true }
-        );
+        const noteHandle = { uuid: resolveNoteUUID(app, request) };
+
+        // The bottom of the note (spec §4: "probably appended at the bottom") is NOT
+        // simply `atEnd` once this plugin has written its managed data section, because
+        // that section is created at the end and so becomes whatever is last. Appending
+        // then files the export INSIDE it - and saveHighlights replaces that section
+        // wholesale on the next highlight, so every export the user had sent silently
+        // disappeared the moment they highlighted anything else. Reported live.
+        //
+        // The user's exports are their content and belong in their note body; the
+        // managed section stays pinned last. Costs a read plus a whole-note write, but
+        // only on a note that HAS the section - a fresh note still takes the cheap path.
+        const content = await app.getNoteContent(noteHandle);
+        const rewritten = insertAboveManagedSection(content, request.content);
+        if (rewritten === null) {
+          await app.insertNoteContent(noteHandle, "\n" + request.content + "\n", {
+            atEnd: true,
+          });
+        } else {
+          await app.replaceNoteContent(noteHandle, rewritten);
+        }
         return { ok: true };
       } catch (err) {
         return { error: `Could not add this to the note: ${err.message}` };

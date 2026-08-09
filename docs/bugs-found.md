@@ -315,7 +315,49 @@ bearing even when they look arbitrary.
 
 ---
 
-## A control that learns its own state from an event breaks wherever the event is dropped
+## Two writers that both mean "the end of the note" will eventually eat each other
+
+**Symptom:** every highlight the user had exported with "Send to note" vanished the
+instant they created one new highlight. Reported with a screenshot showing a dozen
+exported blocks; one new highlight erased all of them.
+
+**Cause:** two independent features both wrote to "the bottom of the note".
+
+1. `saveHighlights` creates its managed `# PDF Annotator data` section with
+   `insertNoteContent(..., { atEnd: true })` — so that heading becomes the *last* thing in
+   the note.
+2. `sendToNote` appended each export with `insertNoteContent(..., { atEnd: true })` too —
+   which, because of (1), filed it *inside* that section.
+3. `saveHighlights` then persists with `replaceNoteContent(..., { section })`, which
+   replaces **everything** under the heading.
+
+Each step is individually correct and reads fine in isolation. The bug only exists in the
+composition, and only after the section has been created once — so it is invisible on a
+fresh note and on any note the user has not yet exported from.
+
+**Fix:** two halves, and the second is the one that matters most.
+
+- *Stop creating it:* exports are the user's content and now go immediately **above** the
+  managed section, which is pinned last.
+- *Repair what already happened:* fixing the writer does nothing for exports already
+  sitting in the blast radius, waiting for the next highlight. `saveHighlights` now
+  detects content in the section that the plugin did not put there, lifts it back into
+  the body above the heading, and only then writes its payload. The save that would have
+  destroyed the data is now the save that rescues it.
+
+**General lesson:** "append to the end" is not a location, it is a *race* — it resolves
+against whatever the document looks like at that moment, so two features using it will
+sooner or later interleave in an order neither anticipated. Any region a program
+rewrites wholesale needs an explicit invariant about what may live there (here: the
+managed section stays last, and holds nothing but its own payload), and that invariant
+has to be enforced by every writer, not just documented.
+
+The second lesson is about the shape of the fix. When a bug has already corrupted stored
+data, "stop doing the bad thing" is only half a fix, and it is the half that helps users
+who have not hit it yet. Existing damage needs an explicit repair path, and the natural
+place to put it is the operation that used to do the destroying — it already reads the
+data, it already knows the correct shape, and it runs exactly when the damage would
+otherwise be done.
 
 **Symptom:** the new touch scroll buttons moved the page correctly but their
 enabled/disabled state never updated — Up stayed greyed out after scrolling down, which

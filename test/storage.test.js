@@ -271,3 +271,72 @@ describe("deleteHighlights", () => {
     expect(await loadHighlights(app, NOTE, ATT_B)).toEqual([hB]);
   });
 });
+
+describe("repairing a section that swallowed the user's content", () => {
+  // Scenario: THE reported data-loss bug, from the writer's side. "Send to note" used to
+  // append exports at the very end of the note - and since the managed section is created
+  // at the end, it was whatever came last, so every export landed inside it. This
+  // section-scoped save replaces everything under the heading, so the next highlight the
+  // user created wiped every highlight they had exported. Screenshot-confirmed live.
+  //
+  // A save must now REPAIR such a note: lift the trapped content back into the body above
+  // the heading, and leave the managed section holding only its own payload.
+  test("lifts exported content out of the section instead of destroying it", async () => {
+    const trapped = '==[paper.pdf](url)==\n> "an exported quote"';
+    const content =
+      `# Reading notes\n\nmy own text\n\n# ${STORAGE_SECTION_HEADING}\n\n` +
+      "```json\n{}\n```\n\n" +
+      trapped;
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content }] });
+
+    const h = sampleHighlight();
+    await saveHighlights(app, NOTE, ATT_A, [h]);
+
+    const final = app._notes.get(NOTE).content;
+    // The export survived...
+    expect(final).toContain('> "an exported quote"');
+    // ...above the heading, not inside the section, so the NEXT save cannot hit it either.
+    expect(final.indexOf('> "an exported quote"')).toBeLessThan(
+      final.indexOf(`# ${STORAGE_SECTION_HEADING}`)
+    );
+    // The user's own content is untouched and still first.
+    expect(final).toContain("my own text");
+    expect(final.indexOf("my own text")).toBeLessThan(final.indexOf('> "an exported quote"'));
+    // And the highlight actually saved.
+    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([h]);
+  });
+
+  // Scenario: repeated saves must converge, not keep lifting the same block or duplicate
+  // it. Once repaired there is nothing stray left, so every later save takes the cheap
+  // section-scoped path again.
+  test("repairs once and then leaves the note alone", async () => {
+    const content =
+      `# Notes\n\n# ${STORAGE_SECTION_HEADING}\n\n\`\`\`json\n{}\n\`\`\`\n\nstray block`;
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content }] });
+
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+    const afterFirst = app._notes.get(NOTE).content;
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight({ id: "hl-2" })]);
+    const afterSecond = app._notes.get(NOTE).content;
+
+    expect((afterFirst.match(/stray block/g) || []).length).toBe(1);
+    expect((afterSecond.match(/stray block/g) || []).length).toBe(1);
+  });
+
+  // Scenario: content BELOW the managed section (a heading the user added later) is not
+  // part of the section and must survive a repair untouched - the repair rewrites the
+  // whole note, so everything outside the section is in its blast radius too.
+  test("preserves content that follows the managed section", async () => {
+    const content =
+      `# Notes\n\n# ${STORAGE_SECTION_HEADING}\n\n\`\`\`json\n{}\n\`\`\`\n\nstray\n\n` +
+      "# Afterwards\n\ntrailing text";
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content }] });
+
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+
+    const final = app._notes.get(NOTE).content;
+    expect(final).toContain("trailing text");
+    expect(final).toContain("# Afterwards");
+    expect(final.indexOf(`# ${STORAGE_SECTION_HEADING}`)).toBeLessThan(final.indexOf("# Afterwards"));
+  });
+});
