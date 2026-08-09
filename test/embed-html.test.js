@@ -437,21 +437,43 @@ describe("buildEmbedHtml", () => {
   // Scenario: on Android the host note claims the vertical drag, so the page area could
   // not be scrolled by dragging it at all - while horizontal dragging worked, since
   // nothing competes for that axis. That is decided outside this iframe, so the fix has
-  // to be a control that needs no gesture. They are touch-only (a wheel and a trackpad
-  // are uncontested) and must not float on top of the panel, which goes full width on a
-  // narrow embed.
-  test("offers gesture-free scroll controls on touch, out of the panel's way", () => {
+  // to be a control that needs no gesture. Touch-only: a wheel and a trackpad are
+  // uncontested.
+  test("offers gesture-free scroll controls on touch", () => {
     const out = html();
     const nav = out.match(/\.pdfa-scrollnav\s*\{[^}]*\}/)[0];
     expect(nav).toMatch(/display:\s*none/);
     expect(nav).toMatch(/position:\s*absolute/);
     const coarse = out.match(/@media \(pointer: coarse\)[\s\S]*?\n {2}\}/)[0];
     expect(coarse).toMatch(/\.pdfa-scrollnav\s*\{\s*display:\s*flex/);
-    // Beats the coarse rule on specificity, so it holds regardless of block order.
-    expect(out).toMatch(/\.pdfa-panel\.pdfa-open ~ \.pdfa-scrollnav\s*\{\s*display:\s*none/);
-    // Scrolls the page area itself - not scrollIntoView on a page, which would jump a
-    // whole page rather than a screenful.
+    // Scrolls the region itself - not scrollIntoView on a page, which would jump a whole
+    // page rather than a screenful.
     expect(out).toContain("scrollByScreen");
+  });
+
+  // Scenario: reported live. With the highlights panel open on a phone, any highlight
+  // below the fold was unreachable - the panel is a scrollable region inside the embed,
+  // so the host note claims its vertical drag for exactly the same reason it claims the
+  // pages'. A real problem the moment a PDF has more than two highlights.
+  //
+  // The two controls already on screen retarget instead of a second pair appearing: the
+  // panel covers the full width on a narrow embed, so dedicated buttons would have to
+  // live inside it, and "these scroll what you are looking at" is one idea rather than
+  // two. Which means they must sit ABOVE the panel, not be hidden behind it as they were.
+  test("points those controls at the highlights panel while it is open", () => {
+    const out = html();
+    expect(out).toContain("activeScroller");
+    // The old behaviour - hiding them behind the panel - would make the panel
+    // unscrollable again on the one platform that cannot drag it.
+    expect(out).not.toMatch(/\.pdfa-panel\.pdfa-open ~ \.pdfa-scrollnav\s*\{\s*display:\s*none/);
+    const nav = out.match(/\.pdfa-scrollnav\s*\{[^}]*\}/)[0];
+    const panel = out.match(/\.pdfa-panel\s*\{[^}]*\}/)[0];
+    const zOf = (rule) => Number((rule.match(/z-index:\s*(\d+)/) || [])[1]);
+    expect(zOf(nav)).toBeGreaterThan(zOf(panel));
+    // And a gutter so a highlight's text never runs under them - touch only, since a
+    // mouse never sees the buttons and must not pay for the space.
+    const coarse = out.match(/@media \(pointer: coarse\)[\s\S]*?\n {2}\}/)[0];
+    expect(coarse).toMatch(/\.pdfa-panel\.pdfa-open\s*\{[^}]*padding-right/);
   });
 
   // Scenario: the viewer used to rasterize every page before showing anything, and

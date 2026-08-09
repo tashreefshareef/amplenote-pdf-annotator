@@ -636,6 +636,11 @@ export function viewerMain() {
     els.panel.classList.toggle("pdfa-open", next);
     els.listToggle.setAttribute("aria-pressed", String(next));
     if (next) renderPanel();
+    // The buttons now point at a different region with a different scroll position, so
+    // their enabled state is stale the instant the panel opens or closes. Opening a panel
+    // that fits on screen must leave both greyed out, not leave Down looking live because
+    // the pages behind it happen to be scrollable.
+    syncScrollNav();
   }
 
   // ---- capturing a selection -----------------------------------------------
@@ -1224,6 +1229,23 @@ export function viewerMain() {
   }
 
   /**
+   * Whichever region the scroll buttons should move: the highlights panel while it is
+   * open, otherwise the pages.
+   *
+   * Reported live: with the panel open on a phone, any highlight below the fold was
+   * simply unreachable - a real problem the moment a PDF has more than two of them. Same
+   * cause as the pages themselves (the host note claims the vertical drag), so it wants
+   * the same answer, and the two controls already on screen are the answer. Retargeting
+   * them beats a second pair: the panel covers the full width on a narrow embed, so a
+   * dedicated set would have to live inside it, and "these scroll what you are looking
+   * at" is one idea to learn instead of two.
+   */
+  function activeScroller() {
+    if (els.panel && els.panel.classList.contains("pdfa-open")) return els.panel;
+    return scroller();
+  }
+
+  /**
    * Build one page immediately, by number.
    *
    * Jumping somewhere names its destination outright, so there is no reason to infer it
@@ -1423,7 +1445,7 @@ export function viewerMain() {
    * readable without the animation.
    */
   function scrollByScreen(direction) {
-    var box = scroller();
+    var box = activeScroller();
     if (!box) return;
     box.scrollTop += direction * Math.max(80, box.clientHeight * 0.85);
     // Re-synced HERE rather than left to the scroll listener. These buttons must never
@@ -1447,7 +1469,7 @@ export function viewerMain() {
    * that does nothing reads as a broken control rather than as the end.
    */
   function syncScrollNav() {
-    var box = scroller();
+    var box = activeScroller();
     if (!box || !els.scrollUp) return;
     var max = box.scrollHeight - box.clientHeight;
     els.scrollUp.disabled = box.scrollTop <= 1;
@@ -1963,6 +1985,9 @@ export function viewerMain() {
       openMoreMenu(event.clientX, event.clientY);
     };
     scroller().addEventListener("scroll", trackScroll);
+    // The panel scrolls independently - with a wheel on desktop, or by the buttons on
+    // touch - so its own position has to keep them in sync too.
+    els.panel.addEventListener("scroll", syncScrollNav);
 
     // Scoped to the page area on purpose. On `document` it would also fire when the user
     // releases the mouse on a toolbar button - and by then the browser has collapsed the

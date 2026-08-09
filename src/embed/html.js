@@ -277,17 +277,15 @@ const STYLES = `
      toolbar have kept working throughout. Buttons rather than a slider: a slider needs
      precise dragging on a track barely wider than a finger, and has to sit on top of
      the text it is scrolling. */
+  /* Above the highlights panel's own z-index, because these scroll the PANEL while it is
+     open - it is unreachable by dragging for exactly the same reason the pages are. */
   .pdfa-scrollnav { display: none; position: absolute; right: 6px; top: 50%;
-    transform: translateY(-50%); flex-direction: column; gap: 8px; z-index: 12; }
+    transform: translateY(-50%); flex-direction: column; gap: 8px; z-index: 16; }
   .pdfa-scrollnav button { width: 40px; height: 40px; border-radius: 50%; font: inherit;
     font-size: 13px; line-height: 1; cursor: pointer; color: inherit; padding: 0;
     border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); opacity: .85;
     box-shadow: 0 1px 4px rgba(0,0,0,.25); }
   .pdfa-scrollnav button:disabled { opacity: .35; }
-  /* Higher specificity than the coarse-pointer rule that reveals these, so it wins
-     wherever it applies without depending on which block comes last: on a narrow embed
-     the panel is full width, and these would otherwise float on top of it. */
-  .pdfa-panel.pdfa-open ~ .pdfa-scrollnav { display: none; }
 
   /* ---- NARROW EMBEDS -------------------------------------------------------
      Confirmed on a real Android phone running the Amplenote app: embeds DO render
@@ -331,6 +329,10 @@ const STYLES = `
     /* The only place these appear. A mouse has a wheel and a trackpad has two-finger
        scrolling, neither of which the host note competes for. */
     .pdfa-scrollnav { display: flex; }
+    /* Room for those buttons down the panel's right edge, so a highlight's text never
+       runs underneath them. Only on touch, and only while the panel is open - a mouse
+       never sees the buttons at all, so it must not pay for the gutter. */
+    .pdfa-panel.pdfa-open { padding-right: 54px; }
     /* :not(.pdfa-color) is load-bearing. The swatches ARE buttons in this toolbar, so
        without it they inherit min-height and render as 40x20 ellipses - caught by
        measuring, not by reading. They get their bigger hit area from ::after below,

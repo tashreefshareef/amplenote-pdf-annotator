@@ -31,6 +31,19 @@ Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty
 > [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan
 > and [`docs/bugs-found.md`](docs/bugs-found.md) for what went wrong on the way.
 
+## Known limitation on mobile
+
+A deep link opens the right note and the viewer lands on the right highlight, but on the
+mobile apps **you scroll down to the viewer yourself** — the note doesn't jump to it the
+way it does on desktop.
+
+An embed is a cross-origin iframe, so it can't scroll its host with script. Focusing an
+element inside the frame does move the host on the desktop web app, which is what makes
+the desktop behaviour work; neither that nor `scrollIntoView` moves it in the Android app.
+The likely reason is that the mobile note isn't a scrollable DOM document at all, and
+there's no plugin-side scroll API to fall back on. Recorded in
+[`docs/api-notes.md`](docs/api-notes.md) so it isn't re-litigated as a bug.
+
 ## Why there's a build step
 
 An Amplenote plugin is a single self-contained JavaScript expression pasted into one

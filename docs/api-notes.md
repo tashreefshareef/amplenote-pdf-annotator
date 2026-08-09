@@ -208,6 +208,20 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       reclaim it. **Budget for gesture-free navigation in any embed taller than its box.**
       Programmatic scrolling is entirely unaffected, so on-screen controls work fine.
 
+      This applies to **every** scrollable region in the embed, not just the main one —
+      the highlights panel hit it too, and a panel whose contents cannot be reached is
+      useless the moment it holds more than a couple of entries. Enumerate them.
+    - **An embed cannot scroll the mobile app's note to itself. Accepted limitation.**
+      Focusing an element inside the frame scrolls the host document on the desktop web
+      app (this is how a deep link lands on the right PDF there), but does nothing in the
+      Android app; `scrollIntoView`, a separate engine path that also crosses the frame
+      boundary, was tried alongside it. The likely explanation is that the mobile note is
+      not a scrollable DOM document at all, in which case nothing inside the iframe can
+      move it and there is no plugin-side scroll API to fall back on. **On mobile, a deep
+      link opens the right note and the embed lands on the right highlight, but the reader
+      scrolls down to the viewer themselves.** Don't design a mobile flow that depends on
+      an embed pulling the note's attention to it.
+
 14. **Rewriting a note's content does NOT re-mount an embed already on screen — so a
     plugin cannot "send" anything to a live embed by editing the note.** `renderEmbed`
     runs when the embed mounts; after that, changing the `<object>` tag's args underneath
