@@ -8,7 +8,8 @@ page and position.
 
 Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty_plugins).
 
-> **Status: Phase 5.** The PDF renders in the note with a working text layer, zoom and
+> **Status: Phase 6 (polish), submission not yet started.** The PDF renders in the note
+> with a working text layer, zoom and
 > page navigation (Phase 1). Highlights work end to end — select text and pick one of
 > four colors, either from the toolbar or from the popover that appears at the selection;
 > recolor or remove an existing highlight by clicking it (Phase 2). Each highlight takes
@@ -16,12 +17,19 @@ Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty
 > and note with click-to-jump (Phase 3). A Download button bakes every highlight and note
 > into the PDF as native annotations — real, selectable, reader-editable ones, not
 > painted-on rectangles — and downloads the result (Phase 4). A highlight can be copied
-> to the clipboard or sent straight to the bottom of the note as Amplenote's own
+> to the clipboard or sent to the note as Amplenote's own
 > `==highlight<!-- {"cycleColor":"N"} -->==` markdown, and an Export button builds a
 > "\<PDF name\> - Highlights" note from every highlight (optionally filtered by color),
 > each block carrying a `plugin://` deep-link back to its exact page and position
-> (Phase 5). See
-> [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan.
+> (Phase 5). Clicking one scrolls the note to the right PDF and flashes the highlight it
+> meant, whether the link is on this note or another.
+>
+> Phase 6 is done bar the plugin note's own instructions cell: the viewer is usable on a
+> phone (touch selection, fit-to-width, 40px targets, on-screen scroll controls — the
+> Amplenote apps do render embeds, and a desktop-only one is close to unusable there),
+> and pages render as they come into view rather than all at once. See
+> [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan
+> and [`docs/bugs-found.md`](docs/bugs-found.md) for what went wrong on the way.
 
 ## Why there's a build step
 
