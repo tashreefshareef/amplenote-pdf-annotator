@@ -18,11 +18,59 @@
  * exported before the source note's uuid was tracked - see docs/api-notes.md), the user
  * still lands on the correct note, just not scrolled to the exact spot.
  *
- * CONFIRMED LIVE, both halves: clicking an exported link navigates to the source note
- * AND lands on the exact page/highlight, not just the top of the PDF - the rewrite-then-
- * navigate mechanism above, which had no documented precedent anywhere, actually works.
+ * CONFIRMED LIVE: clicking an exported link navigates to the source note AND lands on the
+ * exact page/highlight, not just the top of the PDF - the rewrite-then-navigate mechanism
+ * above, which had no documented precedent anywhere, actually works.
+ *
+ * With one exception that took three attempts to pin down, because it is invisible unless
+ * you test both cases separately: the above only holds when the link leads to a DIFFERENT
+ * note. On the note the PDF already lives on there is no navigation, and a rewrite alone
+ * does not re-mount a mounted embed, so nothing re-reads the args. See remountEmbed.
  */
-import { parseEmbedArgs, updateEmbedArgs } from "../embed-args.js";
+import { parseEmbedArgs, updateEmbedArgs, removeEmbedMarkup } from "../embed-args.js";
+
+/**
+ * Make the embed mount again from scratch, for a link clicked on the note it already
+ * lives on.
+ *
+ * Confirmed live, and the sharpest clue in the whole investigation: a deep link works
+ * from an EXPORTED note but does nothing from a "Send to note" block at the bottom of the
+ * PDF's own note. Cross-note works because navigating loads the note fresh, so the embed
+ * mounts and its boot code runs. Same-note has no navigation - `app.navigate` to the note
+ * you are already on is a no-op - and rewriting the note's content underneath a mounted
+ * embed does NOT re-mount it. So the new args are never read, and the code that scrolls
+ * the note to the PDF never runs.
+ *
+ * Changing the args alone was already proven insufficient. The only lever left is to make
+ * the element genuinely go away and come back: write the note without its <object> line,
+ * then write it back carrying the new args. It costs a visible reload of the viewer, so
+ * it is confined to the case that is otherwise broken - navigating to a different note
+ * still takes the single-write path.
+ *
+ * The restore is not optional and not conditional. Losing a viewer would be a far worse
+ * outcome than a link that failed to scroll, so it runs whether or not the removal
+ * succeeded, and retries once if it fails.
+ */
+async function remountEmbed(app, noteUUID, updated, attachmentUUID) {
+  const handle = { uuid: noteUUID };
+  const without = removeEmbedMarkup(updated, app.context.pluginUUID, attachmentUUID);
+
+  if (without !== null) {
+    try {
+      await app.replaceNoteContent(handle, without);
+    } catch {
+      // Nothing was removed, so there is nothing to put back - but `updated` still has
+      // to be written, which is what the call below does either way.
+    }
+  }
+
+  try {
+    await app.replaceNoteContent(handle, updated);
+  } catch {
+    // The viewer MUST come back. One retry, then let the caller's own catch report it.
+    await app.replaceNoteContent(handle, updated);
+  }
+}
 
 /**
  * @param app         Amplenote app interface
@@ -53,7 +101,15 @@ export async function linkTarget(app, queryString) {
     // null means no matching embed line was found - nothing to rewrite, not an error.
     // Still navigate; the user lands on the note even without a scroll target.
     if (updated !== null) {
-      await app.replaceNoteContent({ uuid: noteUUID }, updated);
+      // Only the same-note case needs the expensive remount - see remountEmbed. A wrong
+      // answer here is not dangerous in either direction: guessing "same" when it isn't
+      // costs one extra write and a reload, and guessing "different" when it isn't just
+      // leaves the behaviour exactly as it is today.
+      if (app.context && app.context.noteUUID === noteUUID) {
+        await remountEmbed(app, noteUUID, updated, attachmentUUID);
+      } else {
+        await app.replaceNoteContent({ uuid: noteUUID }, updated);
+      }
     }
   } catch {
     // Best-effort only - landing on the right note beats landing nowhere at all.

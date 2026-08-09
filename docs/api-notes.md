@@ -208,6 +208,29 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       reclaim it. **Budget for gesture-free navigation in any embed taller than its box.**
       Programmatic scrolling is entirely unaffected, so on-screen controls work fine.
 
+14. **Rewriting a note's content does NOT re-mount an embed already on screen — so a
+    plugin cannot "send" anything to a live embed by editing the note.** `renderEmbed`
+    runs when the embed mounts; after that, changing the `<object>` tag's args underneath
+    it changes the note but not the running embed. `app.context.updateEmbedArgs` +
+    `renderEmbed` are no help either — they only work from *within* that embed's own
+    context (i.e. inside its `onEmbedCall`), not from an action.
+
+    This is invisible until you test both cases separately, because navigating to a
+    *different* note hides it completely: the note loads, the embed mounts for the first
+    time, and it reads the new args on the way up. Here the identical deep link worked
+    perfectly from an exported note and did nothing at all from the PDF's own note, which
+    is the shape of the bug — **an embed feature that works everywhere except at home.**
+
+    The only lever that reliably forces a fresh mount is making the element genuinely go
+    away and come back: write the note without its `<object>` line, then write it back.
+    That costs a visible reload of the embed, so confine it to the case that needs it.
+    Always restore unconditionally, including after a failed write — leaving a note
+    without its viewer is far worse than the feature not working.
+
+    **Design consequence, worth knowing before you need it:** there is no plugin→embed
+    push channel at all. If an embed must react to something outside itself, the embed has
+    to ask (`callAmplenotePlugin`), because nothing can tell it.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and

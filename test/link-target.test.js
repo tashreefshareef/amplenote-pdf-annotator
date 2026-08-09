@@ -104,3 +104,71 @@ describe("linkTarget", () => {
     expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}`]);
   });
 });
+
+describe("a link clicked on the note the PDF already lives on", () => {
+  // Scenario: reported live, and the sharpest clue in the whole investigation - a deep
+  // link works from an EXPORTED note but does nothing from a "Send to note" block at the
+  // bottom of the PDF's OWN note.
+  //
+  // Cross-note works because navigating loads the note fresh, so the embed mounts and its
+  // boot code runs. Same-note has no navigation at all: app.navigate to the note you are
+  // already on is a no-op. And rewriting the note's content underneath a mounted embed
+  // does NOT re-mount it - confirmed live - so nothing inside the embed ever re-reads the
+  // new args, and the code that scrolls the note to the PDF never runs.
+  //
+  // The only lever left is to make the embed genuinely go away and come back: write the
+  // note without its <object> line, then write it back carrying the new args.
+  test("takes the embed out and puts it back, to force a real re-mount", async () => {
+    const app = appWithEmbed();
+    app.context.noteUUID = NOTE; // the user is already looking at this note
+
+    await call(app, `att=${ATT}&note=${NOTE}&hl=hl-9`);
+
+    const writes = app.replaceNoteContent.mock.calls.map((c) => c[1]);
+    expect(writes.length).toBeGreaterThanOrEqual(2);
+    // One write in the middle with no viewer in it at all - that is what destroys the
+    // DOM node. A single write with different args was already proven insufficient.
+    expect(writes.some((w) => !w.includes("plugin://"))).toBe(true);
+    // ...and the LAST write must restore it, carrying the clicked highlight.
+    const final = writes[writes.length - 1];
+    expect(final).toContain("plugin://");
+    expect(final).toContain("hl=hl-9");
+    // The user's own content is never collateral.
+    expect(final).toContain("# Notes");
+    expect(final).toContain("more");
+  });
+
+  // Scenario: the note must never be left without its viewer. The removal write is only a
+  // means to an end, so a failure anywhere after it still has to put the embed back -
+  // losing a viewer would be a far worse outcome than a link that failed to scroll.
+  test("restores the viewer even if the intermediate write fails", async () => {
+    const app = appWithEmbed();
+    app.context.noteUUID = NOTE;
+    let call_n = 0;
+    const real = app.replaceNoteContent.getMockImplementation();
+    app.replaceNoteContent.mockImplementation(async (handle, content, opts) => {
+      call_n += 1;
+      if (call_n === 1) throw new Error("write rejected");
+      return real(handle, content, opts);
+    });
+
+    await call(app, `att=${ATT}&note=${NOTE}&hl=hl-9`);
+
+    expect(app._notes.get(NOTE).content).toContain("plugin://");
+    expect(app._notes.get(NOTE).content).toContain("hl=hl-9");
+  });
+
+  // Scenario: navigating to a DIFFERENT note already works - it mounts the embed fresh -
+  // so it must not pay for the remount dance. An extra write and a full PDF reload on the
+  // path that was never broken would be a regression.
+  test("does not disturb the embed when navigating to another note", async () => {
+    const app = appWithEmbed();
+    app.context.noteUUID = "some-other-note";
+
+    await call(app, `att=${ATT}&note=${NOTE}&hl=hl-9`);
+
+    const writes = app.replaceNoteContent.mock.calls.map((c) => c[1]);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toContain("hl=hl-9");
+  });
+});
