@@ -341,6 +341,25 @@ be a meaningless viewer-sized outline. Only ever on a deep-link boot — stealin
 an ordinary load would yank the page around for a reader who never asked to go anywhere.
 Plus a brief outline animation on the target highlight, so "here" is answerable.
 
+**That fix then shipped and did nothing at all**, which is the more interesting half.
+
+It had been sequenced at the *end* of the boot chain, after the PDF finished rendering.
+But PDF.js renders off `requestAnimationFrame`, which browsers pause in a non-compositing
+context — and an off-screen embed in a long note is exactly that context, which is
+precisely the case that needs scrolling to. The render stalled, and everything sequenced
+behind it, including the scroll, never ran. The condition the feature exists to handle was
+the same condition that disabled it.
+
+This is the *third* appearance of one root cause in this project, each with a different
+symptom: a viewer that hangs on "Rendering...", a smooth scroll that never advances, and
+now a feature that silently does nothing. Moving the call to the first line of `boot()`
+fixed it — scrolling the host needs no PDF, no highlights and no layout, only a DOM
+element that exists the moment the script runs.
+
+`spike/harness.mjs` now emits a page that deliberately omits its rAF shim, so PDF.js
+stalls there the way it does off-screen in the real app. The embed sits 1500px down a tall
+document; the host must scroll to it while the status still reads "Rendering...".
+
 **General lesson:** when a feature spans a boundary — iframe, process, service — each side
 can be individually correct while the *handoff* is missing entirely, and each side's tests
 and logs will look clean. The symptom then presents as "nothing happened", which sends you
@@ -351,6 +370,15 @@ Second: cross-origin isolation blocks *script*, not the *browser*. Focus, anchor
 navigation, and form submission all still cross the boundary because the user agent
 performs them. When script access is denied, ask which browser-level behaviours already
 do what you need.
+
+Third, and the one that cost an extra round trip: **do not sequence work behind an
+expensive operation it does not depend on.** A promise chain reads as "these steps belong
+together" when often it only means "I wrote them in this order" — and it converts any
+stall in an earlier step into the silent non-execution of every later one. Ask of each
+step what it actually needs. Here the answer was "a DOM element", available immediately,
+while it was queued behind a multi-megabyte parse and a canvas render. The give-away is a
+feature that works in every test and does nothing in production: check whether the thing
+in front of it in the chain ever completes under production conditions.
 
 ---
 

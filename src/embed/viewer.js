@@ -1736,6 +1736,22 @@ export function viewerMain() {
   function boot() {
     status("Loading PDF...");
 
+    // FIRST, before a single await. This used to sit at the end of the chain below, after
+    // renderAll, and it never fired in the live app for the case it exists to serve.
+    //
+    // The reason is already written down in docs/api-notes.md: PDF.js drives its render
+    // task off requestAnimationFrame, which browsers pause in a hidden or non-compositing
+    // context. An embed sitting off-screen in a long note IS that context - and being
+    // off-screen is precisely the situation where the reader needs to be scrolled to it.
+    // So the render stalled and everything sequenced after it, this call included, never
+    // ran. It is the same trap the harness already shims around; it just resurfaced with
+    // a different symptom, as a feature that silently did nothing.
+    //
+    // Scrolling the host note needs no PDF, no highlights and no layout - only the DOM
+    // element, which exists the moment this script runs. Nothing about it belongs behind
+    // the render.
+    if (cfg.highlightId || cfg.page) revealSelfInHostNote();
+
     loadPdfJs()
       .then(function (pdfjsLib) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = cfg.workerSrc;
@@ -1782,7 +1798,9 @@ export function viewerMain() {
         } else if (cfg.page) {
           goToPage(cfg.page);
         }
-        if (target || cfg.page) revealSelfInHostNote();
+        // No revealSelfInHostNote() here - it now runs at the top of boot(). Putting it
+        // back would also re-steal focus seconds later, dragging a reader who had
+        // deliberately scrolled away back to this embed.
       })
       .catch(function (err) {
         status(err.message || String(err), true);

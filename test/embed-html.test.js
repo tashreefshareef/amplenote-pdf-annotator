@@ -473,7 +473,13 @@ describe("buildEmbedHtml", () => {
     // Only ever for a deep link. Stealing focus on an ordinary note load would yank the
     // page around for a reader who never asked to go anywhere - worse with several
     // viewers on one note, which would then fight over it.
-    expect(out).toMatch(/if \(target \|\| cfg\.page\) revealSelfInHostNote\(\);/);
+    expect(out).toMatch(/if \(cfg\.highlightId \|\| cfg\.page\) revealSelfInHostNote\(\);/);
+    // AND it must run before the PDF work, not after it. Sequenced after renderAll this
+    // silently never fired in the live app: PDF.js renders off requestAnimationFrame,
+    // which is paused in a non-compositing context - an off-screen embed, i.e. exactly
+    // the case that needs scrolling to. Everything behind the render stalled with it.
+    const bootBody = out.match(/function boot\(\)[\s\S]*?loadPdfJs\(\)/)[0];
+    expect(bootBody).toContain("revealSelfInHostNote()");
     // The browser's own focus ring would be a meaningless full-viewer outline.
     expect(out).toMatch(/#pdfa-root:focus\s*\{\s*outline:\s*none/);
   });

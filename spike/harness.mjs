@@ -117,6 +117,41 @@ ${embed}
 </body></html>`
 );
 
+// --- the deep-link regression page -------------------------------------------
+// Reproduces a LIVE bug that nothing else here could catch. Clicking an exported
+// highlight's link opened the right note but never scrolled to the PDF, because the
+// embed asks the host to scroll to it - and that call was sequenced after the PDF
+// render, which stalls indefinitely when the embed is off-screen and therefore not
+// compositing (the rAF pause above, same root cause, different symptom).
+//
+// So this page deliberately OMITS the shim: PDF.js stalls here exactly as it does
+// off-screen in the real app. Anything that still works on this page is proven not to
+// depend on the render finishing - which is the whole property the fix needs. The
+// wrapper puts the embed far down a tall document, the way it sits in a real note.
+const deepLinkEmbed = buildEmbedHtml({
+  attachmentUUID: "attach-1",
+  attachmentName: "sample.pdf",
+  noteUUID: "note-1",
+  page: 2,
+});
+writeFileSync(
+  join(OUT, "deeplink.html"),
+  `<!doctype html><html><head><meta charset="utf-8"><title>deep-link target</title></head>
+<body>
+<script src="bridge.js"></script>
+${deepLinkEmbed}
+</body></html>`
+);
+writeFileSync(
+  join(OUT, "deeplink-probe.html"),
+  `<!doctype html><html><head><meta charset="utf-8"><title>deep-link scroll probe</title></head>
+<body style="margin:0">
+<div style="height:1500px;background:#eee;padding:12px">note body above the embed</div>
+<iframe id="f" src="deeplink.html" style="width:620px;height:520px;border:2px solid #333"></iframe>
+<div style="height:1500px;background:#eee">note body below</div>
+</body></html>`
+);
+
 // --- serve ------------------------------------------------------------------
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".pdf": "application/pdf" };
 
