@@ -100,6 +100,11 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    only); use `ClipboardItem` or a `copy`-event listener with `setData` per flavor. See
    `buildHighlightHtml` in src/export.js and `copyToClipboard` in src/embed/viewer.js.
 
+   Confirmed live for the HTML flavor: Amplenote's editor accepts pasted `<blockquote>`
+   nesting, a plain `<a href="plugin://...">`, and `<mark style="background-color:...">`,
+   which renders in that exact color. It does NOT restyle the mark's text color to suit,
+   so set `color` alongside `background-color` for anything meant to read as a swatch.
+
 8. **A highlight/mark span (`==text==`) cannot contain a markdown link, in EITHER nesting
    order.** Tried both live, through the real write path (see #7 - paste is not valid
    evidence for this either): `==[text](url)<!--json-->==` (mark wrapping a link) and

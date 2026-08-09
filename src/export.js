@@ -163,15 +163,21 @@ export function createExportBuilder() {
    * Structure mirrors the markdown exactly - marker + plain link, the quote nested twice,
    * the note one level out - so a pasted block and an exported one look the same.
    *
-   * `<mark>` is the element an editor is most likely to map onto its own highlight, and
-   * the inline background-color is the fallback for one that only understands styling.
-   * Which of the two Amplenote actually honours is NOT yet confirmed live; the blockquote
-   * nesting and the link are the parts that should be safe either way.
+   * CONFIRMED LIVE: `<mark>` with an inline background-color survives the paste and
+   * renders in the highlight's own color, and the blockquote nesting and link render too.
+   *
+   * The marker sets `color` to the SAME hex as the background on purpose. The `●` is
+   * disposable filler that exists only to give the mark something to wrap (see
+   * buildHighlightBlock) - left at the default text color it draws as a black dot sitting
+   * inside a colored rectangle, which reads as a rendering fault rather than a swatch.
+   * Painting the glyph in the background's own color hides it and leaves a clean solid
+   * chip. If an editor honours background-color but drops color, this degrades to exactly
+   * the black-dot-on-color it replaced - never to something worse.
    */
   function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
     var marker = hex
-      ? '<mark style="background-color:' + escapeHtml(hex) + '">&#9679;</mark>'
+      ? '<mark style="background-color:' + escapeHtml(hex) + ";color:" + escapeHtml(hex) + '">&#9679;</mark>'
       : "<mark>&#9679;</mark>";
     var heading =
       "<p>" + marker + ' <a href="' + escapeHtml(url) + '">' + escapeHtml(pdfName || "PDF") + "</a></p>";

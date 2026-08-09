@@ -500,6 +500,12 @@ entirely: either `ClipboardItem` + `navigator.clipboard.write`, or a one-shot `c
 event listener calling `setData` for each flavor and `preventDefault()`, with the
 offscreen textarea kept only because `execCommand("copy")` needs a real selection to fire.
 
+Confirmed live afterwards, with one cosmetic follow-up: the color marker is a `●` inside
+a `<mark>`, and the glyph kept the *default text color*, so it rendered as a black dot
+inside a colored rectangle. The fix is to paint the glyph in the background's own hex —
+a filler character that exists only to give a span something to wrap should never be
+legible.
+
 **General lesson:** "copy" and "write through the app's own API" are two different
 destinations with two different parsers, and evidence from one says nothing about the
 other. A format confirmed live via the write path is not confirmed for paste. More

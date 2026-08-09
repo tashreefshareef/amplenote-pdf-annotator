@@ -152,9 +152,8 @@ describe("buildHighlightBlock", () => {
  * The clipboard's rich-text flavor. These exist because the markdown flavor alone was
  * CONFIRMED LIVE not to work for Copy: pasting into Amplenote's editor produced literal
  * `==●<!-- {"cycleColor":"12"} -->==` and `> >` characters, rendering nothing (the same
- * "paste does not parse markdown" finding as docs/api-notes.md #7). What Amplenote does
- * with `<mark>` versus the inline background-color is still unconfirmed; the structure
- * below is what these tests pin.
+ * "paste does not parse markdown" finding as docs/api-notes.md #7). The HTML flavor was
+ * then confirmed live to render - colored marker, clickable link, nested quote.
  */
 describe("buildHighlightHtml", () => {
   // Scenario: the HTML mirrors the markdown block exactly - colored marker, plain link,
@@ -168,7 +167,10 @@ describe("buildHighlightHtml", () => {
       "#F4DE6C",
       "note-42"
     );
-    expect(html).toContain('<mark style="background-color:#F4DE6C">&#9679;</mark>');
+    // Foreground matches the background deliberately - the `●` is filler, and left at the
+    // default text color it renders live as a black dot inside a colored rectangle
+    // rather than as a swatch. See buildHighlightHtml's comment.
+    expect(html).toContain('<mark style="background-color:#F4DE6C;color:#F4DE6C">&#9679;</mark>');
     expect(html).toContain(
       `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">paper.pdf</a>`
     );
