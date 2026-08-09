@@ -1425,6 +1425,94 @@ export function viewerMain() {
   }
 
   /**
+   * Drag-to-scroll, implemented by hand, because the host will not hand the gesture over.
+   *
+   * The note claims the vertical drag inside the embed (horizontal is uncontested - see
+   * the CSS on .pdfa-scrollnav). CSS cannot take it back, but a NON-PASSIVE touchmove
+   * listener can: preventDefault on the first move of a gesture stops the browser
+   * treating it as a scroll, after which the scrolling is ours to do. Whether that beats
+   * the host to it is not something the harness can answer - it has no touch input at all
+   * - so the buttons stay exactly as they are. This is an upgrade over them, never a
+   * replacement.
+   *
+   * The hard part is not panning, it is knowing when NOT to. Text selection uses the same
+   * finger, and it took real work to get selection functioning on touch at all; claiming
+   * a gesture that was meant to select would break the plugin's whole purpose to gain
+   * some scrolling. So the rules below are all biased toward declining:
+   *
+   *   - two fingers is a pinch, never a pan
+   *   - an existing selection means the user is dragging a handle to adjust it
+   *   - a finger that rested before moving is a long-press, i.e. the browser is starting
+   *     a selection - the one gesture that must be left completely alone
+   *   - a mostly-horizontal drag already works natively, so there is nothing to win
+   *
+   * When any of those is unclear the gesture is left to the browser, which lands back on
+   * today's behaviour rather than on something broken.
+   */
+  function enableTouchPan(el) {
+    var startX = 0, startY = 0, lastY = 0, startedAt = 0;
+    var decided = false, panning = false;
+    // Below this, a drag has not declared a direction yet and deciding would be a coin
+    // flip. Above the ~10px browsers use to start their own scroll, so the decision is
+    // made on the same evidence the browser would use.
+    var SLOP = 6;
+    // A press held longer than this before moving is a selection gesture.
+    var HOLD_MS = 300;
+
+    el.addEventListener(
+      "touchstart",
+      function (event) {
+        decided = event.touches.length !== 1;
+        panning = false;
+        if (decided) return;
+        startX = event.touches[0].clientX;
+        startY = event.touches[0].clientY;
+        lastY = startY;
+        startedAt = Date.now();
+      },
+      { passive: true }
+    );
+
+    el.addEventListener(
+      "touchmove",
+      function (event) {
+        if (event.touches.length !== 1) return;
+        var t = event.touches[0];
+
+        if (!decided) {
+          var dx = t.clientX - startX;
+          var dy = t.clientY - startY;
+          if (Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return;
+          decided = true;
+          var sel = window.getSelection();
+          panning =
+            Math.abs(dy) > Math.abs(dx) &&
+            Date.now() - startedAt <= HOLD_MS &&
+            !(sel && !sel.isCollapsed);
+          lastY = t.clientY;
+        }
+        if (!panning) return;
+
+        // Non-passive, so this is allowed - and it is what stops the host scrolling the
+        // note out from under the gesture.
+        event.preventDefault();
+        el.scrollTop -= t.clientY - lastY;
+        lastY = t.clientY;
+        syncScrollNav();
+        ensureVisiblePagesRendered();
+      },
+      { passive: false }
+    );
+
+    var end = function () {
+      decided = false;
+      panning = false;
+    };
+    el.addEventListener("touchend", end, { passive: true });
+    el.addEventListener("touchcancel", end, { passive: true });
+  }
+
+  /**
    * Move the page area by most of a screenful.
    *
    * The touch scroll controls. See the CSS for why they exist at all: the host note
@@ -1988,6 +2076,10 @@ export function viewerMain() {
     // The panel scrolls independently - with a wheel on desktop, or by the buttons on
     // touch - so its own position has to keep them in sync too.
     els.panel.addEventListener("scroll", syncScrollNav);
+    // Both scrollable regions, since the host claims the drag in both. Touch events only
+    // exist on touch devices, so this costs a mouse nothing.
+    enableTouchPan(scroller());
+    enableTouchPan(els.panel);
 
     // Scoped to the page area on purpose. On `document` it would also fire when the user
     // releases the mouse on a toolbar button - and by then the browser has collapsed the

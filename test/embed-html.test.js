@@ -451,6 +451,38 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("scrollByScreen");
   });
 
+  // Scenario: the host note claims the vertical drag inside the embed, and CSS cannot
+  // take it back - but a NON-PASSIVE touchmove listener can, by calling preventDefault
+  // before the browser commits to scrolling. Whether that beats the host is a device
+  // question, so the buttons stay: this is an upgrade over them, never a replacement.
+  //
+  // The risk is not panning, it is panning when the user meant to SELECT. Touch selection
+  // was hard-won and uses the same finger, so every rule here is biased toward declining,
+  // and an undecided gesture is left to the browser - which lands back on the previous
+  // behaviour rather than on something broken.
+  test("claims a touch drag for scrolling only when it cannot be a selection", () => {
+    const out = html();
+    expect(out).toContain("enableTouchPan");
+    const fn = out.match(/function enableTouchPan\(el\)[\s\S]*?\n {2}\}/)[0];
+    // Non-passive, or preventDefault is a no-op and the whole approach does nothing at
+    // all - silently, which is the worst way for this to fail.
+    // Matched loosely: this source is serialized through Jest's own transform, which
+    // re-wraps it, so anything asserted on exact formatting here breaks for no reason.
+    expect(fn).toMatch(/["']touchmove["']/);
+    expect(fn).toMatch(/passive:\s*false/);
+    expect(fn).toMatch(/preventDefault\(\)/);
+    // The four declines. A long press is the browser starting a selection; an existing
+    // selection means a handle is being dragged; two fingers is a pinch; a horizontal
+    // drag already works natively so there is nothing to win.
+    expect(fn).toMatch(/Date\.now\(\) - startedAt <= HOLD_MS/);
+    expect(fn).toMatch(/!\(sel && !sel\.isCollapsed\)/);
+    expect(fn).toMatch(/event\.touches\.length !== 1/);
+    expect(fn).toMatch(/Math\.abs\(dy\) > Math\.abs\(dx\)/);
+    // Applied to both scrollable regions - the panel is claimed by the host too.
+    expect(out).toContain("enableTouchPan(scroller())");
+    expect(out).toContain("enableTouchPan(els.panel)");
+  });
+
   // Scenario: reported live. With the highlights panel open on a phone, any highlight
   // below the fold was unreachable - the panel is a scrollable region inside the embed,
   // so the host note claims its vertical drag for exactly the same reason it claims the
