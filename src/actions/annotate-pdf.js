@@ -23,9 +23,12 @@ export async function annotatePdf(app, noteUUID, pluginUUID) {
     const all = await app.getNoteAttachments({ uuid: noteUUID });
     const hasAny = Array.isArray(all) && all.length > 0;
     if (!hasAny || !all.some((a) => a && a.type === "application/pdf")) {
+      // Says WHAT to do, not which button to press: the note toolbar differs between the
+      // desktop and mobile apps, and naming a control the reader cannot see turns a
+      // helpful message into a confusing one.
       await app.alert(
         "No PDF attachments on this note.\n\n" +
-          "Attach a PDF with the paperclip button in the note toolbar, then run this again."
+          "Attach a PDF to this note, then run this again."
       );
     }
     return null;

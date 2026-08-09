@@ -1699,7 +1699,14 @@ export function viewerMain() {
       });
   }
 
-  /** "Send to note" - spec section 4: append to the bottom of the source note. */
+  /**
+   * "Send to note" - spec section 4.
+   *
+   * It no longer appends to the very bottom: the plugin places it above the managed data
+   * section, which stays last (see embed-call.js's sendToNote for why appending to the
+   * end destroyed exports). The message below has to match, or it tells the user to look
+   * somewhere the block is not.
+   */
   function sendHighlightToNote(highlight) {
     closePopover(true);
     callPlugin({ action: "sendToNote", content: exportBlockFor(highlight) })
@@ -1707,7 +1714,7 @@ export function viewerMain() {
         if (!result || result.error) {
           throw new Error((result && result.error) || "Could not send this to the note.");
         }
-        status("Sent to the bottom of this note.");
+        status("Added to this note, below the text.");
       })
       .catch(function (err) {
         status(err.message || String(err), true);
@@ -1935,14 +1942,14 @@ export function viewerMain() {
     // Deliberately CONDITIONAL, and that wording is the whole point. The only thing known
     // here is "this is a touch device", which is not the same as "the download failed":
     // the mobile app swallows it, but Amplenote in a tablet browser saves the file
-    // normally. An assertive message ("this app blocks saving files") is simply false for
-    // that second user, and telling someone their download failed while it sits in their
-    // downloads folder is worse than saying nothing. Phrased as a conditional it is true
-    // in both cases and only speaks up for the person it is actually about.
+    // normally. Stating the block outright would simply be false for that second reader,
+    // and telling someone their download failed while it sits in their downloads folder
+    // is worse than saying nothing. Phrased as a conditional it is true in both cases and
+    // only speaks up for the person it is actually about.
     var touch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
     status(
       touch
-        ? "Annotated PDF ready. If no file appeared, this app can't save files - open the note on a computer to download it."
+        ? "If no file appeared, this app can't save files - open the note on a computer to download it."
         : ""
     );
     return Promise.resolve();

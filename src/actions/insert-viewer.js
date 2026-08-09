@@ -39,10 +39,12 @@ export async function insertViewer(app, noteUUID, pluginUUID) {
     const all = await app.getNoteAttachments({ uuid: noteUUID });
     const hasAny = Array.isArray(all) && all.length > 0;
     if (!hasAny || !all.some((a) => a && a.type === "application/pdf")) {
+      // No named button - see the same message in annotate-pdf.js. The note toolbar is
+      // not the same on desktop and mobile.
       await app.alert(
         "No PDF attachments on this note.\n\n" +
-          "Attach a PDF with the paperclip button in the note toolbar, then type " +
-          "{PDF Annotator} again where you want the viewer."
+          "Attach a PDF to this note, then type {PDF Annotator} again where you want " +
+          "the viewer."
       );
     }
     return "";

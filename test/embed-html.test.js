@@ -451,6 +451,28 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain("scrollByScreen");
   });
 
+  // Scenario: two user-facing messages that told people something untrue, found by asking
+  // "who else reads this?" rather than by anything failing.
+  //
+  // The download fallback asserted "this app blocks saving files" on the strength of the
+  // pointer being coarse - but touch is not proof of failure. The mobile app swallows the
+  // download; Amplenote in a tablet browser saves the file normally, and that reader was
+  // being told their download failed while it sat in their downloads folder. Nothing can
+  // detect which happened, so the copy has to be conditional.
+  //
+  // And "Sent to the bottom of this note" stopped being true when exports moved ABOVE the
+  // managed data section - the fix for them being wiped by the next save. The message
+  // outlived the behaviour it described and sent people looking in the wrong place.
+  test("does not claim outcomes it cannot verify, or places it no longer puts things", () => {
+    const out = html();
+    // Conditional, not a diagnosis.
+    expect(out).toContain("If no file appeared");
+    expect(out).not.toContain("this app blocks saving files");
+    // The export goes above the managed section now, so nothing may promise "the bottom".
+    expect(out).not.toMatch(/Sent to the bottom/);
+    expect(out).toContain("Added to this note");
+  });
+
   // Scenario: the host note owns the vertical drag inside the embed and will not give it
   // up - CSS (overscroll-behavior), a non-passive touchmove calling preventDefault, and
   // focus were each tried on a real device and none of them moved it, which puts the
