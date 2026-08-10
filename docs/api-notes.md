@@ -211,14 +211,33 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    mechanism entirely, with its own action (`linkTarget(app, ...args)`, args being the
    query string, same shape as `renderEmbed`/`onEmbedCall`). Confirmed live the hard way:
    a plugin that builds deep-link markdown (e.g. "click to jump back to X") but never
-   defines `linkTarget` produces links that just sit there - Amplenote shows its own
-   generic "unrecognized link" popup instead of doing anything, no error, nothing to
-   suggest what's missing. **If a plugin generates ANY clickable `plugin://` link, it
-   MUST define `linkTarget` too, or the link is decorative.** Separately: `linkTarget`
-   can `app.navigate` to a note (`https://www.amplenote.com/notes/NOTE_UUID`, confirmed
-   real), but there is no documented way to pass embed arguments alongside that
-   navigation - if the goal is "jump to a specific state inside an embed on a different
-   note," the args have to already be baked into that note's OWN embed tag before
+   defines `linkTarget` produces links that just sit there - clicking does nothing, no
+   error, nothing to suggest what's missing. **If a plugin generates ANY clickable
+   `plugin://` link, it MUST define `linkTarget` too, or the link is decorative.**
+
+   **And the thing that fires `linkTarget` is the PUZZLE-PIECE ICON beside the link, not
+   the link's text.** Source 3 states it outright: the action runs when a plugin link is
+   "clicked/pressed, either via the link icon in a note or the link icon/text in a Rich
+   Footnote popup". Clicking the text of a `plugin://` link does what clicking the text of
+   ANY link in the editor does - it opens Amplenote's ordinary link-details popup, showing
+   the raw href (`plugin://<uuid>?att=...`) with EDIT DETAILS / CLOSE. That popup is not an
+   error and not an "unrecognized link" message: it appears whether or not `linkTarget` is
+   defined, so it is NOT the symptom that tells you the action is missing - a dead puzzle
+   icon is. Reported as a suspected bug on this plugin's own export links, which were
+   working correctly the whole time.
+
+   Consequence for any plugin that generates deep links: **the target the user has to hit
+   is a small icon Amplenote renders, not the text you wrote.** In the editor a deep link
+   is inherently a two-step gesture (or one precise click on a ~12px icon), and a user who
+   clicks the obvious thing gets a URL popup that reads like a malfunction. Word any UI
+   copy accordingly - "click the puzzle icon", not "click the link" - and don't design a
+   flow whose success depends on the text click doing anything.
+
+   Separately: `linkTarget` can `app.navigate` to a note
+   (`https://www.amplenote.com/notes/NOTE_UUID`, confirmed real), but there is no
+   documented way to pass embed arguments alongside that navigation - if the goal is "jump
+   to a specific state inside an embed on a different note," the args have to already be
+   baked into that note's OWN embed tag before
    navigating there (see `updateEmbedArgs` below), since `updateEmbedArgs`/`renderEmbed`
    only work "already operating within that embed's context" per Amplenote's own docs -
    there's no cross-note equivalent.
@@ -695,3 +714,7 @@ mock that drifts from reality makes green tests meaningless.
 - **2026-08-06** — `insertNoteContent` returns nothing; the mock returned `true`.
 - **2026-08-06** — `getNoteAttachments` takes a `noteHandle`, not a bare uuid string.
 - **2026-08-06** — `replaceNoteContent` gained `{ section }` support in the mock.
+- **2026-08-10** — finding #9 called the popup a clicked `plugin://` link shows an
+  "unrecognized link" popup, implying it signals a missing `linkTarget`. It doesn't: it's
+  Amplenote's ordinary link-details popup (the raw href + EDIT DETAILS / CLOSE), shown for
+  every link's text click regardless. `linkTarget` is fired by the puzzle-piece icon.
