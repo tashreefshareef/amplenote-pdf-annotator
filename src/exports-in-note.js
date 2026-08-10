@@ -27,8 +27,9 @@
  *   > the user's note, if any
  *
  * so it ends at the first line that is neither a blockquote line nor blank-inside-the-
- * quote. Plain functions over strings, no app object, so the whole thing is unit-testable.
+ * quote. Plain functions over strings apart from one constant, so it stays unit-testable.
  */
+import { STORAGE_SECTION_HEADING } from "./constants.js";
 
 /** A blockquote line, i.e. part of the block's body rather than the note around it. */
 function isQuoteLine(line) {
@@ -55,6 +56,20 @@ export function findExportBlock(lines, pluginUUID, attachmentUUID, highlightId) 
     if (!new RegExp(`hl=${escapeRegExp(highlightId)}(?![\\w-])`).test(line)) continue;
 
     let end = i + 1;
+    // ONE blank line between the heading and its quote is tolerated, because Amplenote
+    // does not store the block the way it was written: the builder emits the heading and
+    // the quote on consecutive lines, and the note comes back with a blank between them.
+    // Without this the block ended at the heading, so "Remove" deleted the link and left
+    // the quoted text sitting in the note under nothing. Reported live, with before and
+    // after screenshots.
+    //
+    // Exactly one, and only when a quote line actually follows. Skipping blanks freely
+    // would let the scan run on into a blockquote the USER wrote below the block, and
+    // this function deletes what it returns - the cost of over-reaching here is somebody
+    // else's writing, so it stays as tight as the observed formatting allows.
+    if (end < lines.length && lines[end].trim() === "" && end + 1 < lines.length && isQuoteLine(lines[end + 1])) {
+      end++;
+    }
     while (end < lines.length && isQuoteLine(lines[end])) end++;
     return { start: i, end };
   }
@@ -110,23 +125,36 @@ export function removeExportBlock(noteContent, pluginUUID, attachmentUUID, highl
 }
 
 /**
- * Remove the `---` that introduced the export section, once nothing follows it.
+ * Remove the `---` that introduced the export section, once it introduces nothing.
  *
- * Scans from the end for the last rule with no exported block after it. Anything else the
- * user wrote is left exactly where it is, including their own horizontal rules earlier in
- * the note - only a trailing one is a candidate.
+ * "Nothing" cannot mean "nothing to the end of the note", which is what an earlier version
+ * checked: the managed data section is pinned LAST (see storage.js), so in any note this
+ * plugin has written to, the final lines are that section and the rule is never the last
+ * thing. The separator would have survived every removal and left a rule dividing the
+ * user's writing from empty space.
+ *
+ * So the region examined runs from the rule to the managed heading, or to the end of the
+ * note when there is none. Only a rule with nothing but blank lines ahead of it in that
+ * region is a candidate, which is what keeps a horizontal rule the USER wrote earlier in
+ * their note - with their own text after it - out of scope.
  */
 function dropTrailingSeparator(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
+  let limit = lines.findIndex((line) => line.trim() === `# ${STORAGE_SECTION_HEADING}`);
+  if (limit === -1) limit = lines.length;
+
+  for (let i = limit - 1; i >= 0; i--) {
     const text = lines[i].trim();
     if (text === "") continue;
-    if (text === "---") {
-      const next = lines.slice(0, i).concat(lines.slice(i + 1));
-      // Collapse the blank line the rule was sitting on, so nothing accumulates.
-      while (next.length && next[next.length - 1].trim() === "") next.pop();
-      return next;
+    if (text !== "---") return lines;
+
+    const next = lines.slice(0, i).concat(lines.slice(i + 1));
+    // Collapse the blank lines the rule was sitting between, so repeated send/remove
+    // cycles do not leave a growing gap where the export section used to be.
+    let at = i;
+    while (at < next.length && next[at].trim() === "" && (at === 0 || next[at - 1].trim() === "")) {
+      next.splice(at, 1);
     }
-    return lines;
+    return next;
   }
   return lines;
 }

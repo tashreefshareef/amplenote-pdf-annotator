@@ -106,6 +106,21 @@ const STYLES = `
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
   .pdfa-toolbar button:disabled { opacity: .4; cursor: default; background: transparent; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
+  /* The zoom "label" is really an INPUT (see the markup for why), so it has to be talked
+     back down into looking like the span it replaced: a browser hands an input its own
+     font, border, background and width, none of which belong in this bar. width rather
+     than the min-width above, because an input does not size itself to its content -
+     .pdfa-label's min-width would leave it at the browser's ~170px default. */
+  .pdfa-zoom-field { font: inherit; width: 62px; padding: 5px 4px; border: 1px solid transparent;
+    border-radius: 6px; background: transparent; color: inherit; cursor: text; }
+  /* The one cue that it is typable at all, and deliberately the SAME hover the - and +
+     either side of it use: "these controls respond" stays one idea rather than two. */
+  .pdfa-zoom-field:hover { background: var(--pdfa-btn-hover); }
+  /* A border, not the browser's outline ring: the ring is drawn OUTWARD from the control
+     and this bar's height is set by its contents, so it was clipped by the toolbar edge -
+     the same problem the color swatches' selected state already solves this way. */
+  .pdfa-zoom-field:focus { outline: none; opacity: 1;
+    background: var(--pdfa-toolbar); border-color: var(--pdfa-accent); }
   /* The overflow menu's own trigger - a plain toolbar button. Its contents (Download,
      Export, Remove) render as ordinary popover buttons below, so a destructive one among
      them reuses the popover's own ".pdfa-remove" styling, not a toolbar-specific class. */
@@ -550,7 +565,18 @@ export function buildEmbedHtml({
     <button id="pdfa-next" title="Next page">&#8250;</button>
     <span class="pdfa-sep"></span>
     <button id="pdfa-zoom-out" title="Zoom out">&#8722;</button>
-    <span class="pdfa-label" id="pdfa-zoom-label">125%</span>
+    <!-- An input, not the label it looks like. The stepper moves in fixed 25% jumps from
+         wherever the initial fit-to-width landed, so an exact zoom - "100%" - was often
+         not reachable at all, only bracketed: from a fitted 83% the steps run 58/108/133.
+         It still READS as a label (transparent, centred, no spinner) until it is focused,
+         so nothing about the toolbar's shape changes for someone who only ever clicks the
+         buttons. type=text, not number: number brings spinner arrows this bar has no room
+         for and rejects the "%" people naturally type; inputmode gets the numeric keypad
+         on a phone anyway. -->
+    <input id="pdfa-zoom-label" class="pdfa-label pdfa-zoom-field" type="text"
+           inputmode="numeric" autocomplete="off" spellcheck="false"
+           aria-label="Zoom level in percent"
+           title="Zoom level - type a percentage and press Enter" value="125%">
     <button id="pdfa-zoom-in" title="Zoom in">+</button>
     <span class="pdfa-sep"></span>
     <!-- The four single-click highlight color buttons, mounted by the viewer from

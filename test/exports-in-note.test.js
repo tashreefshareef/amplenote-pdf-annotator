@@ -16,6 +16,7 @@ import {
   removeExportBlock,
   replaceExportBlock,
 } from "../src/exports-in-note.js";
+import { STORAGE_SECTION_HEADING } from "../src/constants.js";
 
 const PLUG = "plug-1";
 const ATT = "att-1";
@@ -38,6 +39,49 @@ describe("findExportBlock", () => {
       "more prose",
     ];
     expect(findExportBlock(lines, PLUG, ATT, "hl-abc")).toEqual({ start: 3, end: 7 });
+  });
+
+  // Scenario: THE reported bug. Amplenote does not store the block the way the builder
+  // writes it - the heading and its quote come back separated by a blank line - so a scan
+  // that stopped at the first non-blockquote line ended the block at the heading. "Remove"
+  // then deleted the link and left the quoted text in the note under nothing.
+  test("spans a quote that Amplenote has separated from its heading by a blank line", () => {
+    const lines = [
+      `[<mark>paper.pdf</mark>](plugin://${PLUG}?att=${ATT}&page=1&hl=hl-abc)`,
+      "",
+      "> > quoted material",
+      ">",
+      "> my own remark",
+      "",
+      "later prose",
+    ];
+    expect(findExportBlock(lines, PLUG, ATT, "hl-abc")).toEqual({ start: 0, end: 5 });
+  });
+
+  // Scenario: the limit on the above. This function deletes what it returns, so the blank
+  // -line tolerance must not let the scan run on into a blockquote the USER wrote under
+  // the block - the cost of over-reaching is somebody else's writing.
+  test("stops at the heading when the blank line is followed by prose, not a quote", () => {
+    const lines = [
+      `[<mark>paper.pdf</mark>](plugin://${PLUG}?att=${ATT}&page=1&hl=hl-abc)`,
+      "",
+      "a paragraph of my own",
+      "",
+      "> a blockquote of my own",
+    ];
+    expect(findExportBlock(lines, PLUG, ATT, "hl-abc")).toEqual({ start: 0, end: 1 });
+  });
+
+  // Scenario: only ONE blank is tolerated. Two means the quote below belongs to something
+  // else - a bigger gap is the user's own structure, not a serializer artifact.
+  test("does not reach across two blank lines to claim a quote", () => {
+    const lines = [
+      `[<mark>paper.pdf</mark>](plugin://${PLUG}?att=${ATT}&page=1&hl=hl-abc)`,
+      "",
+      "",
+      "> a blockquote of my own",
+    ];
+    expect(findExportBlock(lines, PLUG, ATT, "hl-abc")).toEqual({ start: 0, end: 1 });
   });
 
   // Scenario: THE collision that would silently edit the wrong block. Generated ids share
@@ -106,6 +150,34 @@ describe("removeExportBlock", () => {
     expect(out).toContain("before");
   });
 
+  // Scenario: the managed data section is pinned LAST, so in any note this plugin has
+  // written to, the separator is never the final thing. Scanning from the end of the note
+  // for it therefore never found it, and the rule outlived every block it introduced.
+  test("takes the separator even with the managed data section below it", () => {
+    const content = [
+      "# Notes",
+      "before",
+      "",
+      "---",
+      "",
+      block("hl-a"),
+      "",
+      `# ${STORAGE_SECTION_HEADING}`,
+      "",
+      "```json",
+      "{}",
+      "```",
+    ].join("\n");
+
+    const out = removeExportBlock(content, PLUG, ATT, "hl-a");
+
+    expect(out).not.toContain("---");
+    expect(out).toContain("before");
+    // The managed section itself is untouched - it is not this function's business.
+    expect(out).toContain(`# ${STORAGE_SECTION_HEADING}`);
+    expect(out).toContain("```json");
+  });
+
   // Scenario: the same rule must NOT eat a horizontal rule the user wrote themselves
   // earlier in the note - only a trailing one, left over from the export section.
   test("leaves the user's own horizontal rules alone", () => {
@@ -120,6 +192,31 @@ describe("removeExportBlock", () => {
   // note can be one edit stale - and must be distinguishable from a failed removal.
   test("returns null when the note holds no block for that highlight", () => {
     expect(removeExportBlock("# just prose", PLUG, ATT, "hl-a")).toBeNull();
+  });
+
+  // Scenario: the reported bug, end to end - removal against the note as AMPLENOTE stores
+  // it, blank line and all, rather than as the builder wrote it. The quoted text must go
+  // with its heading instead of being orphaned under a deleted link.
+  test("removes the quote too when the note has a blank line before it", () => {
+    const content = [
+      "# Notes",
+      "my own text",
+      "",
+      "---",
+      "",
+      `[<mark>paper.pdf</mark>](plugin://${PLUG}?att=${ATT}&page=1&hl=hl-a)`,
+      "",
+      "> > After years of clicking through menus",
+      "",
+      "later prose",
+    ].join("\n");
+
+    const out = removeExportBlock(content, PLUG, ATT, "hl-a");
+
+    expect(out).not.toContain("hl=hl-a");
+    expect(out).not.toContain("After years of clicking through menus");
+    expect(out).toContain("my own text");
+    expect(out).toContain("later prose");
   });
 });
 
