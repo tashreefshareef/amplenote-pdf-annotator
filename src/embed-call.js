@@ -18,11 +18,7 @@ import {
   withExportSeparator,
 } from "./storage.js";
 import { removeEmbedMarkup, setEmbedCollapsed, updateEmbedArgs } from "./embed-args.js";
-import {
-  listExportedHighlightIds,
-  removeExportBlock,
-  replaceExportBlock,
-} from "./exports-in-note.js";
+import { removeExportBlock, replaceExportBlock } from "./exports-in-note.js";
 import {
   createHighlight,
   removeHighlight,
@@ -160,17 +156,12 @@ export async function handleEmbedCall(app, payload) {
       if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
       try {
         const noteUUID = resolveNoteUUID(app, request);
-        const highlights = await loadHighlights(app, noteUUID, request.attachmentUUID);
-        // Which highlights the note already holds a block for, so the panel can offer
-        // "remove from note" ONLY on those. An action that silently does nothing on the
-        // rest would be worse than not offering it: the user cannot tell the difference
-        // between "removed" and "there was never anything there".
-        let sentIds = [];
-        if (request.pluginUUID) {
-          const content = await app.getNoteContent({ uuid: noteUUID });
-          sentIds = listExportedHighlightIds(content, request.pluginUUID, request.attachmentUUID);
-        }
-        return { highlights, sentIds };
+        // Just the highlights. This used to read the whole note as well, to report which
+        // ones already had an exported block, which existed only to decide where the
+        // panel drew its "remove from note" trash - and that control is gone (see the
+        // panel row in viewer.js for why). Nothing consumes the answer any more, so the
+        // second round-trip on every embed boot goes with it.
+        return { highlights: await loadHighlights(app, noteUUID, request.attachmentUUID) };
       } catch (err) {
         return { error: `Could not load highlights: ${err.message}` };
       }
@@ -247,31 +238,15 @@ export async function handleEmbedCall(app, payload) {
       }
     }
 
-    /**
-     * The Highlights panel's per-highlight "remove from note" - deletes the sent block
-     * while leaving the highlight itself in the PDF.
-     *
-     * A dedicated action rather than a flag on removeHighlight, because they are opposite
-     * intents: this one keeps the annotation and drops the write-up, and conflating them
-     * behind one call is how a click meant to tidy the note ends up erasing the highlight.
+    /*
+     * There is no "removeFromNote" action. The panel had a per-highlight trash that
+     * deleted a sent block while keeping the highlight, and it is gone - not because it
+     * failed, but because it was unreadable where it sat and very nearly redundant:
+     * removeHighlight above already takes the block with the highlight, and deleting the
+     * block's text by hand is a supported path, since nothing here treats a sent block as
+     * plugin-owned state. Do not reintroduce it without a place to put it where the label
+     * can say what it does.
      */
-    case "removeFromNote": {
-      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
-      if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate the block." };
-      if (!request.id) return { error: "No highlight specified." };
-      try {
-        const noteUUID = resolveNoteUUID(app, request);
-        const content = await app.getNoteContent({ uuid: noteUUID });
-        const updated = removeExportBlock(content, request.pluginUUID, request.attachmentUUID, request.id);
-        // Nothing to remove is a normal outcome, not a failure: the panel offers this only
-        // for highlights it believes are in the note, and that belief can be one edit old.
-        if (updated === null) return { ok: false };
-        await app.replaceNoteContent({ uuid: noteUUID }, updated);
-        return { ok: true };
-      } catch (err) {
-        return { error: `Could not remove it from the note: ${err.message}` };
-      }
-    }
 
     case "sendToNote": {
       if (!request.content) return { error: "Nothing to send." };

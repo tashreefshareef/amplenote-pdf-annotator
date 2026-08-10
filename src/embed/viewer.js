@@ -99,11 +99,6 @@ export function viewerMain() {
     // cannot start the same page several times over.
     renderingPage: {},
     highlights: [],
-    // Highlight ids the source note already holds an exported block for, from
-    // loadHighlights. Drives the panel's "remove from note" affordance, which must not
-    // appear on a highlight that was never sent - an action that silently does nothing
-    // reads as a broken button.
-    sentIds: [],
     // The SOURCE pdf's own bytes, kept for Download. A deliberately SEPARATE copy from
     // whatever gets handed to pdf.js's getDocument(): some versions transfer ownership
     // of the ArrayBuffer to their worker for performance, which would leave this one
@@ -670,55 +665,22 @@ export function viewerMain() {
 
     row.appendChild(body);
 
-    // "Remove from note", only on highlights the note actually holds a block for. The
-    // affordance a hover-trash ON the block itself would have been, placed where the
-    // plugin can actually own the UI: a sent block is ordinary note markdown rendered by
-    // Amplenote, and nothing inside this iframe can attach a control to it.
+    // A row does ONE thing: jump to its highlight. It used to carry a hover trash that
+    // un-sent the highlight's exported block while keeping the highlight itself - it
+    // worked, but a bare trash on a row can only be read as "delete this row", and its
+    // entire effect happened in the note far below the embed, so from here it looked like
+    // a no-op that just removed its own icon. Reported live on exactly those terms.
     //
-    // It removes the write-up and KEEPS the highlight, which is the whole point of it
-    // being separate from the popover's Remove. The row's own click jumps to the
-    // highlight, so this one has to stop propagating or tidying the note also scrolls
-    // the PDF somewhere.
-    if (state.sentIds.indexOf(highlight.id) !== -1) {
-      var unsend = document.createElement("button");
-      unsend.className = "pdfa-hl-unsend";
-      unsend.type = "button";
-      unsend.title = "Remove this from the note (keeps the highlight)";
-      unsend.setAttribute("aria-label", "Remove this highlight from the note");
-      unsend.textContent = "🗑";
-      unsend.onclick = function (e) {
-        e.stopPropagation();
-        removeFromNote(highlight);
-      };
-      row.appendChild(unsend);
-    }
-
+    // Removed rather than relabelled, because the capability was nearly redundant: the
+    // popover's Remove already deletes the block along with the highlight (see
+    // removeHighlight in embed-call.js), and deleting the block's text in the note by
+    // hand is a supported path - the plugin rescans the note and re-syncs by itself.
+    // What was left was one saved manual deletion, priced at the most confusing control
+    // in the viewer.
     row.onclick = function () {
       goToHighlight(highlight);
     };
     return row;
-  }
-
-  /** Delete this highlight's block from the note, leaving the highlight itself alone. */
-  function removeFromNote(highlight) {
-    callPlugin({
-      action: "removeFromNote",
-      attachmentUUID: cfg.attachmentUUID,
-      pluginUUID: cfg.pluginUUID,
-      id: highlight.id,
-    })
-      .then(function (result) {
-        if (result && result.error) throw new Error(result.error);
-        // Drop it from sentIds either way. ok:false means the block was already gone -
-        // the panel's belief was one edit stale, and the outcome the user wanted holds.
-        var at = state.sentIds.indexOf(highlight.id);
-        if (at !== -1) state.sentIds.splice(at, 1);
-        renderPanel();
-        status("Removed from the note. The highlight is still here.");
-      })
-      .catch(function (err) {
-        status(err.message || String(err), true);
-      });
   }
 
   function togglePanel(open) {
@@ -1994,7 +1956,6 @@ export function viewerMain() {
         if (!result || result.error) {
           throw new Error((result && result.error) || "Could not send this to the note.");
         }
-        if (state.sentIds.indexOf(highlight.id) === -1) state.sentIds.push(highlight.id);
         renderPanel();
         status(
           result.replaced
@@ -2254,11 +2215,9 @@ export function viewerMain() {
           throw new Error((result && result.error) || "No answer from the plugin");
         }
         state.highlights = result.highlights || [];
-        state.sentIds = result.sentIds || [];
       })
       .catch(function (err) {
         state.highlights = [];
-        state.sentIds = [];
         status("Could not load saved highlights: " + (err.message || err), true);
       });
   }

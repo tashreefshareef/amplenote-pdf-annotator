@@ -504,7 +504,7 @@ describe("loadHighlights", () => {
   // the viewer opens normally.
   test("returns an empty list for a note with no stored highlights", async () => {
     const result = await call(appWithNote("# Just notes"), { action: "loadHighlights", attachmentUUID: ATT });
-    expect(result).toEqual({ highlights: [], sentIds: [] });
+    expect(result).toEqual({ highlights: [] });
   });
 
   // Scenario: the user hand-edited the managed section into nonsense. The viewer must
@@ -512,7 +512,7 @@ describe("loadHighlights", () => {
   test("recovers from a corrupted managed section", async () => {
     const app = appWithNote(`# ${STORAGE_SECTION_HEADING}\n\nnot json {{{`);
     const result = await call(app, { action: "loadHighlights", attachmentUUID: ATT });
-    expect(result).toEqual({ highlights: [], sentIds: [] });
+    expect(result).toEqual({ highlights: [] });
   });
 });
 
@@ -684,58 +684,35 @@ describe("sent blocks follow their highlights", () => {
     expect(final).toContain("my own text");
   });
 
-  // Scenario: the panel's own action - drop the write-up, KEEP the annotation. Conflating
-  // it with removeHighlight is how a click meant to tidy the note erases a highlight.
-  test("removeFromNote deletes the block and leaves the highlight alone", async () => {
-    const app = appWithNote("# Reading notes\nmy own text");
-    const added = await call(app, { action: "addHighlight", attachmentUUID: ATT, highlight: draft() });
-    const id = added.highlights[0].id;
-    await call(app, {
-      action: "sendToNote",
-      content: blockFor(id),
-      highlightId: id,
-      attachmentUUID: ATT,
-      pluginUUID: PLUG,
-    });
-
-    const result = await call(app, {
-      action: "removeFromNote",
-      attachmentUUID: ATT,
-      pluginUUID: PLUG,
-      id,
-    });
-
-    expect(result).toEqual({ ok: true });
-    expect(app._notes.get(NOTE).content).not.toContain(`hl=${id}`);
-    expect(await loadHighlights(app, NOTE, ATT)).toHaveLength(1);
-  });
-
-  // Scenario: nothing to remove. The panel offers this only for highlights it believes
-  // are in the note, and that belief can be one edit old - a quiet no-op, not an error.
-  test("removeFromNote reports a quiet failure when the block is already gone", async () => {
-    const app = appWithNote("# Reading notes\nmy own text");
-    const result = await call(app, {
-      action: "removeFromNote",
-      attachmentUUID: ATT,
-      pluginUUID: PLUG,
-      id: "hl-missing",
-    });
-
-    expect(result).toEqual({ ok: false });
-    expect(result.error).toBeUndefined();
-  });
-
-  // Scenario: loadHighlights tells the panel which highlights it may offer the action
-  // for. Offering it where there is nothing to remove reads as a broken button.
-  test("loadHighlights reports which highlights the note holds a block for", async () => {
+  // Scenario: the panel used to carry a per-highlight "remove from note" - it dropped the
+  // sent block and kept the highlight, and it is gone. Removed on the strength of what it
+  // cost rather than of a failure: it worked, but a bare trash on a panel row reads as
+  // "delete this row", and its effect landed in the note far below the embed, so it
+  // looked like a no-op that removed its own icon (reported live in those words).
+  //
+  // The capability was nearly redundant besides - removeHighlight above already takes the
+  // block with the highlight, and deleting the block's text by hand is supported, since
+  // nothing here treats a sent block as plugin-owned state.
+  //
+  // Pinned as an ABSENCE, because the natural way to reintroduce it is to answer "the
+  // panel should be able to un-send" without knowing that was tried and withdrawn.
+  test("offers no removeFromNote action, and no longer reads the note to feed one", async () => {
     const app = await appWithSent("hl-a");
     const result = await call(app, {
-      action: "loadHighlights",
+      action: "removeFromNote",
       attachmentUUID: ATT,
       pluginUUID: PLUG,
+      id: "hl-a",
     });
+    // Falls through to the unknown-action branch rather than quietly succeeding.
+    expect(result.error).toBeDefined();
+    expect(app._notes.get(NOTE).content).toContain("hl=hl-a");
 
-    expect(result.sentIds).toEqual(["hl-a"]);
+    // And loadHighlights is back to one round-trip. It used to read the whole note as
+    // well, purely to report which highlights had a block, which only ever decided where
+    // that trash was drawn.
+    const loaded = await call(app, { action: "loadHighlights", attachmentUUID: ATT, pluginUUID: PLUG });
+    expect(Object.keys(loaded)).toEqual(["highlights"]);
   });
 
   // Scenario: a note write that fails must NOT fail the highlight operation that

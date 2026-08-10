@@ -115,6 +115,11 @@ const embed = buildEmbedHtml({
   // Matches harness-bridge.js's hardcoded in-memory note uuid, so the noteUUID actually
   // sent with every embed-call round-trips through the same wiring the live app uses.
   noteUUID: "note-1",
+  // Without this the export paths cannot be exercised here AT ALL: every sent block is
+  // addressed by the plugin's own uuid (see src/exports-in-note.js), so with a null one
+  // "Send to note" writes a block nothing can find again and "remove from note" fails on
+  // its own guard - which reads as a broken feature when it is only a missing fixture.
+  pluginUUID: "plugin-note-1",
 });
 
 // The rAF shim is harness-only. PDF.js drives its canvas render task off
@@ -152,6 +157,7 @@ const deepLinkEmbed = buildEmbedHtml({
   attachmentUUID: "attach-1",
   attachmentName: "sample.pdf",
   noteUUID: "note-1",
+  pluginUUID: "plugin-note-1",
   page: 2,
 });
 writeFileSync(
