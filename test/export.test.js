@@ -37,13 +37,13 @@ const highlight = (overrides = {}) => ({
   ...overrides,
 });
 
-// { cycleIndex, hex } per color, mirroring constants.js - the colored link needs the
-// index to name the color to Amplenote and the hex for the style it emits alongside.
+// { hex } per color, mirroring what viewer.js builds from config. The hex IS the marker:
+// the cycle index that used to sit beside it named the node that underlined the link.
 const CYCLE_TABLE = {
-  coral: { cycleIndex: 12, hex: "#F3998C" },
-  yellow: { cycleIndex: 14, hex: "#F4DE6C" },
-  green: { cycleIndex: 15, hex: "#BBE077" },
-  blue: { cycleIndex: 18, hex: "#84B6D9" },
+  coral: { hex: "#F3998C" },
+  yellow: { hex: "#F4DE6C" },
+  green: { hex: "#BBE077" },
+  blue: { hex: "#84B6D9" },
 };
 
 describe("buildDeepLink", () => {
@@ -94,14 +94,13 @@ describe("buildHighlightBlock", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ note: "worth double-checking at renewal" }),
-      14,
       "#F4DE6C",
       "note-42"
     );
     const lines = block.split("\n");
     expect(lines).toHaveLength(4);
     expect(lines[0]).toBe(
-      `[<mark style="background-color:#F4DE6C;">Suzuki Access Insurance 2025-2026.pdf<!-- {"backgroundCycleColor":"14"} --></mark>](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123&note=note-42)`
+      `[<mark style="background-color:#F4DE6C;">Suzuki Access Insurance 2025-2026.pdf</mark>](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123&note=note-42)`
     );
     expect(lines[1]).toBe("> > the highlighted text");
     // The bare `>` closes the inner quote. Without it, markdown's lazy continuation pulls
@@ -113,7 +112,7 @@ describe("buildHighlightBlock", () => {
   // Scenario: a highlight with no note must not leave a stray empty third line - the
   // note is genuinely absent, not present-and-blank.
   test("omits the note line entirely when there is no note", () => {
-    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), 14);
+    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), "#F4DE6C");
     expect(block.split("\n")).toHaveLength(2);
   });
 
@@ -122,35 +121,41 @@ describe("buildHighlightBlock", () => {
   // ELEMENT - the ==...== shorthand does not compose with a link, which is what drove an
   // earlier "marks and links never compose" reading and a colored-dot workaround. And the
   // key must be backgroundCycleColor: a TEXT color on a link is invisible, because the
-  // anchor's own color wins. Both read off Amplenote's own serialization via
-  // src/actions/dump-markdown.js after applying the formatting by hand.
-  test("wraps the link text in a background-colored mark, not a separate marker", () => {
-    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 18, "#84B6D9");
+  // anchor's own color wins - and it is carried by inline style ALONE. A
+  // `<!-- {"backgroundCycleColor":"N"} -->` comment inside the mark colors the link too,
+  // and is what this emitted until it turned out to be what UNDERLINES it: an exported
+  // block and a pasted one, same highlight in the same note, differed by that comment and
+  // by nothing else, and only the commented one was underlined. Both stored lines are in
+  // export.js's header, read back with src/actions/dump-markdown.js.
+  test("wraps the link text in a background-colored mark, with no cycle-color comment", () => {
+    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#84B6D9");
     const heading = block.split("\n")[0];
-    expect(heading).toMatch(/^\[<mark style="background-color:#84B6D9;">paper\.pdf<!-- /);
-    expect(heading).toContain('{"backgroundCycleColor":"18"} --></mark>](plugin://');
-    expect(heading).not.toContain("cycleColor\":\"18\"} -->==" ); // not the == shorthand
+    expect(heading).toBe(
+      `[<mark style="background-color:#84B6D9;">paper.pdf</mark>](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123)`
+    );
+    expect(heading).not.toContain("backgroundCycleColor"); // the underline
+    expect(heading).not.toContain("<!--");
     expect(heading).not.toContain("●"); // the dot workaround is gone
   });
 
-  // Scenario: an unknown color leaves nothing to name a color with. An uncolored link
-  // beats emitting `backgroundCycleColor: undefined` and breaking the whole heading.
-  test("falls back to a plain link when there is no cycle index", () => {
-    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), undefined, undefined);
+  // Scenario: an unknown color leaves nothing to color the link with. An uncolored link
+  // beats a mark wrapped around an undefined background and a broken heading.
+  test("falls back to a plain link when there is no color", () => {
+    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), undefined);
     expect(block.split("\n")[0]).toMatch(/^\[paper\.pdf\]\(plugin:\/\//);
   });
 
   // Scenario: PDF filenames routinely contain brackets - "[DRAFT] Report.pdf" - which
   // would prematurely close the link's [text] segment if not escaped.
   test("escapes a closing bracket in the PDF name", () => {
-    const block = buildHighlightBlock("[DRAFT] Report.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 14, "#F4DE6C");
-    expect(block).toContain("[DRAFT\\] Report.pdf<!--");
+    const block = buildHighlightBlock("[DRAFT] Report.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#F4DE6C");
+    expect(block).toContain("[DRAFT\\] Report.pdf</mark>");
   });
 
   // Scenario: the name now sits INSIDE a <mark> element, so a `<` in a filename would
   // start a tag rather than showing as a character. It was harmless as plain link text.
   test("escapes a less-than in the PDF name, which now sits inside an element", () => {
-    const block = buildHighlightBlock("a<b.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 14, "#F4DE6C");
+    const block = buildHighlightBlock("a<b.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#F4DE6C");
     expect(block).toContain("&lt;b.pdf");
     expect(block).not.toContain("a<b.pdf");
   });
@@ -165,7 +170,7 @@ describe("buildHighlightBlock", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ quoteText: "quoted material", note: "a plain remark" }),
-      14
+      "#F4DE6C"
     );
     const lines = block.split("\n");
     expect(lines[1]).toBe("> > quoted material"); // inner blockquote
@@ -193,7 +198,6 @@ describe("buildHighlightHtml", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ note: "a plain remark" }),
-      14,
       "#F4DE6C",
       "note-42"
     );
@@ -213,7 +217,7 @@ describe("buildHighlightHtml", () => {
 
   // Scenario: no note means no empty blockquote left dangling after the quote.
   test("omits the note blockquote entirely when there is no note", () => {
-    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), 14, "#F4DE6C");
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), "#F4DE6C");
     expect(html.match(/<blockquote>/g)).toHaveLength(2); // the nested quote only
   });
 
@@ -251,7 +255,7 @@ describe("buildHighlightHtml", () => {
   // plain name rather than an empty `<mark>`, whose only visible effect would be that
   // node's default background - a box in a color nobody chose.
   test("falls back to plain link text when no hex is known", () => {
-    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), null, null);
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), null);
     expect(html).toContain('<a href="plugin://plugin-uuid-1?att=attach-1&amp;page=3&amp;hl=hl-abc123">paper.pdf</a>');
     expect(html).not.toContain("<mark");
   });
@@ -259,7 +263,7 @@ describe("buildHighlightHtml", () => {
   // Scenario: the HTML flavor needs only the hex - unlike the markdown form, nothing here
   // depends on the cycle index, so a color missing from the index table still renders.
   test("colors the link from the hex alone, with no cycle index", () => {
-    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), undefined, "#F4DE6C");
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#F4DE6C");
     expect(html).toContain('<mark style="background-color: #F4DE6C;">paper.pdf</mark>');
   });
 });
@@ -343,7 +347,7 @@ describe("createExportBuilder", () => {
   // visible in the live app.
   test("produces a working, self-contained copy of the API", () => {
     const builder = createExportBuilder();
-    const block = builder.buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 14);
+    const block = builder.buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#F4DE6C");
     expect(block).toContain("the highlighted text");
   });
 

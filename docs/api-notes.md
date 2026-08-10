@@ -180,6 +180,30 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    Note the dump also shows Amplenote serializing colors as the explicit `<mark>` element
    rather than the `==...==` shorthand, even though it accepts both on input.
 
+   **⚠️ AND OMIT THE COMMENT, unless you want the link underlined.** The
+   `<!-- {"backgroundCycleColor":"N"} -->` above is not merely a way to say "this color" -
+   it names Amplenote's **cycle-color node**, and that node renders a link with an
+   underline. An inline `background-color` alone maps to a plainer node: same color, no
+   decoration. Both forms persist and both re-render correctly, so this is a choice, not a
+   correctness question:
+
+   ```
+   [<mark style="background-color:#F4DE6C;">name<!-- {"backgroundCycleColor":"14"} --></mark>](url)   underlined
+   [<mark style="background-color:#BBE077;">name</mark>](url)                                          not
+   ```
+
+   Found by exporting one highlight and pasting another into the same note, then dumping
+   it: the two stored lines were identical apart from that comment. Note what the dump
+   gives you here - not just "what markdown does Amplenote use for X", but **a diff
+   between two renderings you can see**, which is what isolates a styling difference to a
+   single token.
+
+   The general lesson, which is the same one the paste sanitizer teaches (see
+   docs/bugs-found.md): **markup you hand Amplenote is mapped onto a document schema, so a
+   color attribute is not styling - it is a choice of NODE, and the node arrives with all
+   of its own rendering.** Expect to inherit decoration you did not ask for whenever you
+   name one.
+
 9. **A clickable `[text](plugin://UUID?args)` markdown link does NOT route to
    `renderEmbed` - it routes to a completely separate, easy-to-miss action called
    `linkTarget`.** `renderEmbed` only ever handles the `<object data="plugin://...">`

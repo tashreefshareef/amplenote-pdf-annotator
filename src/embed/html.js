@@ -595,16 +595,20 @@ export function buildEmbedHtml({
     workerSrc: CDN.pdfJsWorker,
     // Loaded lazily, only when Download is clicked - see viewer.js's loadPdfLib.
     pdfLibSrc: CDN.pdfLib,
-    // rgb (Phase 4) and cycleIndex (Phase 5) both now travel to the embed: Download
-    // writes native annotations and Copy/Send/Export-all build export markdown, all
-    // CLIENT-SIDE, reusing data already loaded rather than round-tripping through the
-    // plugin bridge (which only reliably carries strings - see docs/api-notes.md).
+    // rgb travels with each color because Download writes native annotations CLIENT-SIDE,
+    // reusing data already loaded rather than round-tripping through the plugin bridge
+    // (which only reliably carries strings - see docs/api-notes.md). The hex serves both
+    // the swatch and the exported link's background.
+    //
+    // cycleIndex used to ride along too, for the export marker. It named Amplenote's
+    // cycle-color node, which brought an underline under every exported link - the marker
+    // is a plain background hex now, so nothing here needs the index. It stays recorded in
+    // constants.js, where the verified mapping is the reference for a colored-TEXT marker.
     colors: HIGHLIGHT_COLORS.map((c) => ({
       id: c.id,
       label: c.label,
       hex: c.hex,
       rgb: c.rgb,
-      cycleIndex: c.cycleIndex,
     })),
     defaultColorId: DEFAULT_COLOR_ID,
     // The popovers are built at runtime by viewer.js, which is serialized standalone and

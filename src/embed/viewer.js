@@ -1747,17 +1747,17 @@ export function viewerMain() {
   }
 
   /**
-   * { [colorId]: { cycleIndex, hex } } from config, for export.js's builders.
+   * { [colorId]: { hex } } from config, for export.js's builders.
    *
-   * Both, because a colored link carries the index (which names the color to Amplenote)
-   * and the hex (the inline style Amplenote emits beside it). One table rather than two
-   * parallel lookups keyed the same way, so they cannot drift.
+   * The hex is the whole marker: an exported link wears it as a background. A cycle index
+   * used to travel beside it, naming the color to Amplenote - that is what underlined the
+   * link, so it is gone from here and from the config (see export.js's header).
    */
   function colorTable() {
     var table = {};
     var list = colorList();
     for (var i = 0; i < list.length; i++) {
-      table[list[i].id] = { cycleIndex: list[i].cycleIndex, hex: list[i].hex };
+      table[list[i].id] = { hex: list[i].hex };
     }
     return table;
   }
@@ -1777,7 +1777,6 @@ export function viewerMain() {
       cfg.pluginUUID,
       cfg.attachmentUUID,
       highlight,
-      color.cycleIndex,
       color.hex,
       cfg.noteUUID
     );
@@ -1792,7 +1791,6 @@ export function viewerMain() {
       cfg.pluginUUID,
       cfg.attachmentUUID,
       highlight,
-      color.cycleIndex,
       color.hex,
       cfg.noteUUID
     );

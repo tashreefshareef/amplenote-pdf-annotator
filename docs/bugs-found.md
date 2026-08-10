@@ -619,6 +619,48 @@ editor will never re-parse plain text into it.
 
 ---
 
+## The same content, written two ways, rendered with and without an underline
+
+**Symptom:** two export blocks for the *same* highlight sat a few lines apart in one note.
+One had been written by "Export", the other pasted from "Copy". Both were correctly
+formatted, both clickable, both the right color — but only the exported one drew an
+underline under its link. Reported as a cosmetic inconsistency, with a screenshot.
+
+**Cause:** the two paths built the same idea out of different tokens. The markdown flavor
+wrapped the link text in `<mark style="background-color:HEX;">name<!--
+{"backgroundCycleColor":"N"} --></mark>`; the HTML flavor emitted the same mark *without*
+the comment, because the clipboard path had never needed it. That comment is not a way of
+repeating the color — it names Amplenote's **cycle-color node**, and that node renders a
+link with an underline. The style-only mark maps to a plainer node. Both persist, both
+re-render, so nothing was broken; the two were simply different nodes wearing the same
+color.
+
+**Fix:** emit the style-only form from both paths — it is what Amplenote itself stores for
+a pasted highlight, so it is a known-good sample rather than a guess. The cycle indices
+stay recorded in `src/constants.js` (they are how a colored *text* marker would be
+written) but nothing emits them, so the index also came out of the embed's config and the
+viewer's color table on the way through.
+
+**What settled it in one step:** dump the note's raw markdown (`getNoteContent`, e.g.
+`src/actions/dump-markdown.js`) and diff the two stored lines. They were identical apart
+from that comment. Worth noting *why* this dump was more decisive than the usual one:
+the note contained a rendering that was right and a rendering that was wrong, side by
+side, from the same source data. Arranging that deliberately — get the target to produce
+both outcomes in one document, then read back what it stored — turns a styling question
+into a one-token diff.
+
+**General lesson:** this is the same schema lesson as the entry above, from the other
+direction. There, naming the wrong node meant the color never appeared. Here, naming a
+*richer* node meant it appeared **plus decoration nobody asked for**. When markup is
+mapped onto a document schema, every attribute that identifies a node type is a request
+for that node's entire rendering, not just the property you were reaching for — so the
+minimal markup that produces the right result is usually the right markup, and anything
+extra is inherited behavior waiting to surprise you. Corollary: when two code paths
+produce "the same" output through different parsers, diff what the target *stored*, not
+what you sent.
+
+---
+
 ## A one-shot instruction stored in the document replayed on every later open
 
 **Symptom:** opening *any* note whose PDF viewer was expanded scrolled the note down to

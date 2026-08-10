@@ -140,16 +140,21 @@ describe("buildEmbedHtml", () => {
     expect(toolbar).toContain('id="pdfa-colors"');
   });
 
-  // Scenario: rgb (Phase 4, native annotations) and cycleIndex (Phase 5, export
-  // markdown) both reach the embed now - both features build their output CLIENT-SIDE,
-  // reusing data already loaded rather than round-tripping through the plugin bridge
-  // (string-only - see docs/api-notes.md).
-  test("sends rgb and cycleIndex to the embed for pdf-lib and export markdown", () => {
+  // Scenario: rgb reaches the embed because Download writes native annotations
+  // CLIENT-SIDE, reusing data already loaded rather than round-tripping through the
+  // plugin bridge (string-only - see docs/api-notes.md).
+  //
+  // cycleIndex used to ride along for the export marker and no longer does: it named
+  // Amplenote's cycle-color node, which is what underlined every exported link (see
+  // export.js's header). Asserted as an absence so it cannot quietly return - the marker
+  // is a plain background hex, and the hex is already here for the swatches.
+  test("sends rgb for pdf-lib, and no longer sends the cycle index", () => {
     const out = html();
     for (const color of HIGHLIGHT_COLORS) {
       expect(out).toContain(`"rgb":[${color.rgb.join(",")}]`);
-      expect(out).toContain(`"cycleIndex":${color.cycleIndex}`);
+      expect(out).toContain(`"hex":"${color.hex}"`);
     }
+    expect(out).not.toContain('"cycleIndex"');
   });
 
   // Scenario: the deep link an exported highlight carries is built from this plugin's

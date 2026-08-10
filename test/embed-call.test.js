@@ -601,7 +601,7 @@ describe("sendToNote", () => {
 describe("sent blocks follow their highlights", () => {
   const PLUG = "plug-1";
   const blockFor = (id, color = "#F3998C") =>
-    `[<mark style="background-color:${color};">paper.pdf<!-- {"backgroundCycleColor":"12"} --></mark>](plugin://${PLUG}?att=${ATT}&page=1&hl=${id})\n> > the quick brown fox`;
+    `[<mark style="background-color:${color};">paper.pdf</mark>](plugin://${PLUG}?att=${ATT}&page=1&hl=${id})\n> > the quick brown fox`;
 
   const appWithSent = async (id) => {
     const app = appWithNote("# Reading notes\nmy own text");

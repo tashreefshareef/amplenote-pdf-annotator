@@ -1,10 +1,16 @@
 /**
  * The four highlight colors (spec section 4).
  *
- * `cycleIndex` is the Amplenote cycle-color index used to color the deep-link in an
- * exported highlight block, so the link color matches the highlight color in the PDF.
- * It goes into the link's mark as `backgroundCycleColor` - NOT `cycleColor`, which is
- * the text-color key and is invisible on a link, since the anchor's own color wins.
+ * `cycleIndex` is Amplenote's own index for each of these colors. NOTHING EMITS IT ANY
+ * MORE. An exported link used to carry it as `backgroundCycleColor`, in a comment inside
+ * its mark, and that comment is what drew an UNDERLINE under every exported link: it
+ * names Amplenote's cycle-color node, which brings its own link decoration with it. The
+ * marker is a plain `background-color` hex now (src/export.js) - same color, no
+ * decoration, and it is what Amplenote itself stores for a pasted highlight.
+ *
+ * Kept because the mapping is a verified platform fact rather than plumbing: it is how a
+ * colored TEXT marker would have to be written (`data-text-color="N"`), which nothing
+ * here needs today. Do not put it back into the export without re-checking the underline.
  *
  * VERIFIED for green: Amplenote's own clipboard output for an exported marker came back
  * as `<mark data-text-color="15" style="color: #BBE077;">`, resolving index 15 to exactly
