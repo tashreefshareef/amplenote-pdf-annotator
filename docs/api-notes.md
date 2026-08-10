@@ -226,6 +226,18 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    icon is. Reported as a suspected bug on this plugin's own export links, which were
    working correctly the whole time.
 
+   **That icon is not yours and cannot be changed.** Read out of the live DOM: Amplenote
+   wraps your link text and appends a nested `<a class="icon material-icons has-href
+   plugin-link">` (~19x24px, empty but for a zero-width space), and its glyph comes from
+   the editor's own stylesheet - `.plugin-link::after { content: "extension" }` in the
+   Material Icons font, `extension` being Material's puzzle piece. Hardcoded, identical
+   for every plugin. In particular **the `icon` row in the plugin note's metadata table
+   does NOT feed it**: this plugin's is `picture_as_pdf` and the link still renders a
+   puzzle. That field identifies the plugin in Amplenote's own menus; it is not a link
+   decoration. Since a plugin only controls the interior of its embed iframe, there is no
+   hook - no markup, no CSS - to swap the glyph for something more meaningful. Don't spend
+   time looking for one.
+
    Consequence for any plugin that generates deep links: **the target the user has to hit
    is a small icon Amplenote renders, not the text you wrote.** In the editor a deep link
    is inherently a two-step gesture (or one precise click on a ~12px icon), and a user who
