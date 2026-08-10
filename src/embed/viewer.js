@@ -1719,23 +1719,41 @@ export function viewerMain() {
    * plain text, HTML for a rich-text editor like Amplenote's, which does NOT parse
    * markdown out of pasted text (docs/api-notes.md finding #7).
    *
-   * THE SYNCHRONOUS ROUTE GOES FIRST, and the order is the whole point rather than a
-   * preference. Every route here needs the browser to still consider itself inside the
-   * click that triggered it. `navigator.clipboard.write` is the modern API and rejects in
-   * a cross-origin iframe whose embedder has not granted clipboard-write - but awaiting
-   * that rejection ENDS the user gesture, so a fallback running in its `.catch` finds
-   * `execCommand("copy")` already refused. Trying the modern API first therefore doesn't
-   * degrade to the old one, it just fails twice: the button reported "could not copy" and
-   * nothing reached the clipboard at all. copyViaCopyEvent runs start to finish inside
-   * the click, so when it works it works immediately, and when it fails there is still a
-   * gesture left for the others.
+   * RESOLVES WITH THE NAME OF THE ROUTE THAT WON, so the caller can tell the user what
+   * actually landed - "copied" and "copied WITH FORMATTING" are different promises to
+   * make, and only one of these routes can keep the HTML. It also means a bug report says
+   * which route ran instead of only that the button did nothing.
    *
-   * The async routes are still worth keeping behind it: execCommand is deprecated and a
-   * browser that has dropped it needs somewhere to go. `writeText` is last and carries
-   * markdown only - a paste that renders as literal text beats an empty clipboard.
+   * Ordering, the hard-won part. Every route needs the browser to still consider itself
+   * inside the click that triggered it, and each can spoil the next:
+   *
+   *   - `clipboard.write` is the only one that carries both flavors without touching the
+   *     DOM, so it goes first. Awaiting its rejection ends the user gesture, which is why
+   *     nothing gated on activation can follow it.
+   *   - `writeText` follows, because it needs permission rather than activation and is
+   *     the route this embed is known to have working. Markdown only - a paste that shows
+   *     literal text beats an empty clipboard.
+   *   - `execCommand` is LAST despite also carrying both flavors: it needs a real
+   *     selection, so it focuses and removes an offscreen textarea, and that can leave
+   *     the document unfocused - which makes `clipboard.write` reject with "document is
+   *     not focused" if it runs afterwards. Worse, in a sandboxed iframe it can return
+   *     true having copied nothing, so trusting it first can report success over an empty
+   *     clipboard. It is the fallback for a browser that has dropped the modern API, not
+   *     a first choice.
    */
   function copyToClipboard(text, html) {
-    if (copyViaCopyEvent(text, html)) return Promise.resolve();
+    var viaWriteText = function () {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) return viaExecCommand();
+      return navigator.clipboard.writeText(text).then(
+        function () { return "plain"; },
+        viaExecCommand
+      );
+    };
+    var viaExecCommand = function () {
+      return copyViaCopyEvent(text, html)
+        ? Promise.resolve(html ? "rich" : "plain")
+        : Promise.reject(new Error("every clipboard route was refused"));
+    };
 
     if (html && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem === "function") {
       try {
@@ -1743,25 +1761,47 @@ export function viewerMain() {
           "text/plain": new Blob([text], { type: "text/plain" }),
           "text/html": new Blob([html], { type: "text/html" }),
         });
-        return navigator.clipboard.write([item]).catch(function () {
-          return navigator.clipboard.writeText(text);
-        });
+        return navigator.clipboard.write([item]).then(function () { return "rich"; }, viaWriteText);
       } catch (err) {
-        /* fall through to writeText */
+        return viaWriteText();
       }
     }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(text);
-    }
-    return Promise.reject(new Error("Clipboard access is unavailable here."));
+    return viaWriteText();
   }
 
-  /** "Copy" - spec section 4: copy a highlight, paste it into any note. */
+  /**
+   * "Copy" - spec section 4: copy a highlight, paste it into any note.
+   *
+   * The whole body is wrapped, not just the promise: building the two flavors happens
+   * BEFORE copyToClipboard returns anything, so a throw in there escapes past a `.catch`
+   * attached to the result and disappears - the button does nothing, silently, with no
+   * message to report. That is indistinguishable from a refused clipboard write to
+   * anyone looking at the UI, and cost a diagnosis round.
+   *
+   * The message names what actually landed, because "copied" and "copied with its
+   * formatting" are different promises and only some routes keep the HTML (see
+   * copyToClipboard). Telling someone it is ready to paste, when what is on the clipboard
+   * will paste as literal `==●<!-- ... -->==` characters, is the same mistake the plain-
+   * text-only version made.
+   */
   function copyHighlight(highlight) {
     closePopover(true);
-    copyToClipboard(exportBlockFor(highlight), exportHtmlFor(highlight))
-      .then(function () {
-        status("Highlight copied - paste it into any note.");
+    var text;
+    var html;
+    try {
+      text = exportBlockFor(highlight);
+      html = exportHtmlFor(highlight);
+    } catch (err) {
+      status("Could not build the copy: " + (err.message || err), true);
+      return;
+    }
+    copyToClipboard(text, html)
+      .then(function (route) {
+        status(
+          route === "rich"
+            ? "Highlight copied - paste it into any note."
+            : "Highlight copied as plain text - this browser would not allow a formatted copy."
+        );
       })
       .catch(function (err) {
         status("Could not copy: " + (err.message || err), true);
