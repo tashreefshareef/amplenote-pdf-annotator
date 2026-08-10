@@ -1098,6 +1098,9 @@ export function viewerMain() {
     els.popover.classList.toggle("pdfa-editing", mode === "editing");
     els.popover.classList.toggle("pdfa-exporting", mode === "exporting");
     els.popover.classList.toggle("pdfa-menu", mode === "menu");
+    // The palette picker reuses "exporting"'s column layout and only overrides its width
+    // - eleven swatches at the 220px filter width wrap into a ragged three rows.
+    els.popover.classList.toggle("pdfa-palette", mode === "palette");
     for (var i = 0; i < children.length; i++) els.popover.appendChild(children[i]);
 
     // Must be visible before measuring - a display:none element has no size.
@@ -1126,7 +1129,13 @@ export function viewerMain() {
   function closePopover(force) {
     if (state.noteEditing && !force) return;
     state.noteEditing = null;
-    els.popover.classList.remove("pdfa-open", "pdfa-editing", "pdfa-exporting", "pdfa-menu");
+    els.popover.classList.remove(
+      "pdfa-open",
+      "pdfa-editing",
+      "pdfa-exporting",
+      "pdfa-menu",
+      "pdfa-palette"
+    );
     els.popover.innerHTML = "";
   }
 
@@ -1241,6 +1250,159 @@ export function viewerMain() {
     );
 
     showPopover([hint, swatchRow, actions], clientX, clientY, "exporting");
+  }
+
+  /**
+   * Context 6: which colors wear the toolbar's circles.
+   *
+   * WHY THIS EXISTS AT ALL: the setting behind it is a plain text field in Amplenote's
+   * account settings - the platform offers no color input of any kind (`app.prompt`'s
+   * input types are checkbox/date/embed/note/radio/secureText/select/string/tags/text),
+   * and the settings page is not ours to render into. Typing "purple, pink, mint, sky"
+   * to choose colors is an absurd interaction for the one preference that is entirely
+   * visual. The embed IS ours, so the picker lives here and writes the setting back
+   * through `app.setSetting` (see embed-call.js), which keeps both surfaces showing the
+   * same value: whatever is picked here is exactly what the text field then reads.
+   *
+   * The four slots at the top ARE the toolbar, in order - which is why they are a row of
+   * slots and not a set of checkmarks in the catalog. Order is a real choice (the first
+   * one is what a fresh selection gets), and a list of ticks cannot express it.
+   *
+   * Fewer than four is allowed on purpose. Someone who only uses two colors gets a
+   * shorter bar rather than an error; the parser has always accepted a short list.
+   */
+  function openPalettePopover(clientX, clientY) {
+    // The DRAFT - nothing changes until Save. Bailing out of this popover has to leave
+    // the toolbar exactly as it was, and an apply-as-you-click design cannot offer that
+    // for a preference that syncs to every device the moment it is written.
+    var draft = toolbarColors().map(function (c) { return c.id; });
+
+    var slotRow = document.createElement("div");
+    slotRow.className = "pdfa-slot-row";
+    var catalogRow = document.createElement("div");
+    catalogRow.className = "pdfa-export-colors pdfa-catalog-row";
+
+    function redraw() {
+      slotRow.innerHTML = "";
+      for (var s = 0; s < 4; s++) {
+        (function (index) {
+          var id = draft[index];
+          if (!id) {
+            var empty = document.createElement("span");
+            empty.className = "pdfa-slot-empty";
+            empty.title = "Empty slot - pick a color below";
+            slotRow.appendChild(empty);
+            return;
+          }
+          var sw = makeSwatch(colorById(id), true, function () {
+            draft.splice(index, 1);
+            redraw();
+          }, "Remove");
+          sw.classList.add("pdfa-slot");
+          slotRow.appendChild(sw);
+        })(s);
+      }
+
+      catalogRow.innerHTML = "";
+      var list = colorList();
+      for (var i = 0; i < list.length; i++) {
+        (function (color) {
+          var taken = draft.indexOf(color.id) !== -1;
+          var sw = makeSwatch(color, false, function () {
+            // Clicking a color already in the bar removes it, so the catalog row works
+            // as a toggle too - reaching for the slot above is a nicety, not the only
+            // way out of a mis-click.
+            if (taken) draft.splice(draft.indexOf(color.id), 1);
+            else if (draft.length < 4) draft.push(color.id);
+            redraw();
+          }, taken ? "Remove" : "Add");
+          // Dimmed rather than hidden: seeing which colors are already spoken for is the
+          // whole reason to show all eleven at once.
+          if (taken) sw.classList.add("pdfa-taken");
+          catalogRow.appendChild(sw);
+        })(list[i]);
+      }
+    }
+    redraw();
+
+    var slotHint = document.createElement("div");
+    slotHint.className = "pdfa-export-hint";
+    slotHint.textContent = "Your toolbar - click a color below to fill a slot";
+
+    var catalogHint = document.createElement("div");
+    catalogHint.className = "pdfa-export-hint";
+    catalogHint.textContent = "All " + colorList().length + " Amplenote colors";
+
+    // Stated because it is the surprising part: this is a plugin-level preference being
+    // changed from inside one document, and app.setSetting syncs it everywhere.
+    var scopeHint = document.createElement("div");
+    scopeHint.className = "pdfa-export-hint pdfa-scope-hint";
+    scopeHint.textContent = "Applies to every PDF, on every device.";
+
+    var actions = document.createElement("div");
+    actions.className = "pdfa-note-actions";
+    actions.appendChild(
+      button("Save", "pdfa-btn-primary", function () {
+        applyToolbarColors(draft);
+      })
+    );
+    actions.appendChild(
+      button("Cancel", "", function () {
+        closePopover(true);
+      })
+    );
+    var spacer = document.createElement("span");
+    spacer.className = "pdfa-spacer";
+    actions.appendChild(spacer);
+    actions.appendChild(
+      button("Reset", "", function () {
+        // Empty string is what the parser turns back into the spec's four, so "reset"
+        // and "never configured" travel the same path rather than being two behaviours.
+        draft = [];
+        redraw();
+      })
+    );
+
+    showPopover(
+      [slotHint, slotRow, catalogHint, catalogRow, scopeHint, actions],
+      clientX,
+      clientY,
+      "palette"
+    );
+  }
+
+  function colorById(id) {
+    var list = colorList();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return list[0];
+  }
+
+  /**
+   * Persist a picked palette, then repaint the bar without a reload.
+   *
+   * The local update is deliberately NOT conditional on the save succeeding. If
+   * `app.setSetting` is missing or refuses, the choice still applies to this session -
+   * losing the click as well as the preference would be two failures for the price of
+   * one - and the status line says the saving part did not stick.
+   */
+  function applyToolbarColors(ids) {
+    callPlugin({ action: "setToolbarColors", colorIds: ids })
+      .then(function (reply) {
+        cfg.toolbarColorIds = (reply && reply.ids) || ids;
+        // The active color may have just left the bar; fall back to the first swatch
+        // rather than leaving the toolbar with nothing pressed.
+        if (cfg.toolbarColorIds.indexOf(state.activeColorId) === -1) {
+          state.activeColorId = cfg.toolbarColorIds[0];
+        }
+        els.colors.innerHTML = "";
+        mountColorButtons();
+        updateColorButtons();
+        closePopover(true);
+        status(reply && reply.error ? reply.error : "Highlight colors updated.", !!(reply && reply.error));
+      })
+      .catch(function (err) {
+        status("Could not save your colors: " + err.message, true);
+      });
   }
 
   /** Context 4: the note editor. One plain-text note, per spec section 4. */
@@ -2082,6 +2244,9 @@ export function viewerMain() {
       button("Export...", "", function () {
         openExportPopover(clientX, clientY);
       }, "postAdd"),
+      button("Highlight colors...", "", function () {
+        openPalettePopover(clientX, clientY);
+      }, "palette"),
       button("Remove viewer...", "pdfa-remove", function () {
         openRemoveViewerPopover(clientX, clientY);
       }, "remove")

@@ -287,6 +287,30 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       JS is ~6 MB and an in-page `fetch().then(text).search()` hit the CDP evaluate
       timeout twice, which looks like a frozen renderer. `curl` it and grep locally.
 
+9c. **A plugin can WRITE its own settings - `app.setSetting(name, value)` - and that is
+    the escape hatch from Amplenote's text-only settings UI.** Settings are declared as
+    `setting | Label` rows in the plugin note's metadata table, read as
+    `app.settings["Label"]` (always strings), and rendered by Amplenote as a plain text
+    input: there is no color picker, no dropdown, no validation. `app.prompt` is no help
+    either - its input types are checkbox/date/embed/note/radio/secureText/select/
+    string/tags/text, and none of them is a color. **But an embed is arbitrary HTML that
+    you control**, so the pattern for any preference that deserves a real UI is: build
+    the picker inside the embed, send the result over `onEmbedCall`, and have the plugin
+    side write it with `app.setSetting`. Docs say the value "will be synchronized to all
+    of the user's devices".
+
+    Two things to design for. **Store what a human would have typed**, not JSON - the
+    settings text field stays visible and editable, so the two surfaces have to be two
+    views of one value or the field starts showing something that reads as corruption.
+    And **treat the write as fallible**: this is the only write into settings, from the
+    least-trodden context (an embed), so branch on `typeof app.setSetting !== "function"`
+    and catch the call, applying the choice locally either way - losing the click as well
+    as the preference is two failures for the price of one. VERIFICATION STATUS: the
+    round trip is proven end to end in `npm run harness` (picker -> bridge -> setting ->
+    toolbar repaint) but the harness supplies its own `setSetting`, so the DOCUMENTED
+    behaviour of the real one is still second-hand. Confirm against the live app before
+    relying on the sync-across-devices claim.
+
 10. **An attachment IS present in note markdown, at its real position in the body, as
     `[filename](attachment://ATTACHMENT_UUID)`** - and that uuid is the same one
     `getNoteAttachments` returns. This is documented NOWHERE: the plugin markdown

@@ -44,6 +44,16 @@ const note = {
 const app = {
   context: { noteUUID: note.uuid, lightDarkMode: "light" },
 
+  // Amplenote persists these across devices; here they last as long as the page. Enough
+  // to exercise the palette picker's whole round-trip - the write, the reply, and the
+  // toolbar repaint - and `window.__harness.settings` lets a test read back exactly what
+  // would have been written to the real setting.
+  settings: {},
+
+  async setSetting(name, value) {
+    app.settings[name] = value === null ? null : String(value);
+  },
+
   async getNoteContent() {
     return note.content;
   },
@@ -108,7 +118,7 @@ const app = {
   },
 };
 
-window.__harness = { note, calls: [], exportNotes: {} };
+window.__harness = { note, calls: [], exportNotes: {}, settings: app.settings };
 
 window.callAmplenotePlugin = async function (payload) {
   const request = JSON.parse(payload);

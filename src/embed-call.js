@@ -18,6 +18,8 @@ import {
   withExportSeparator,
 } from "./storage.js";
 import { removeEmbedMarkup, setEmbedCollapsed, updateEmbedArgs } from "./embed-args.js";
+import { parseToolbarColorIds } from "./colors.js";
+import { COLOR_SETTING_NAME } from "./constants.js";
 import { removeExportBlock, replaceExportBlock } from "./exports-in-note.js";
 import {
   createHighlight,
@@ -417,6 +419,32 @@ export async function handleEmbedCall(app, payload) {
         return { ok: true, noteUUID };
       } catch (err) {
         return { error: `Could not export highlights: ${err.message}` };
+      }
+    }
+
+    case "setToolbarColors": {
+      // The picker sends ids; they are re-parsed here rather than trusted, so a hand
+      // -crafted call cannot put a color on the toolbar that no highlight could ever be.
+      const ids = parseToolbarColorIds(
+        Array.isArray(request.colorIds) ? request.colorIds.join(",") : request.colorIds
+      );
+      // What gets STORED is the same comma string a person would type into the settings
+      // field, not a JSON array - the picker and that text box are two views of one
+      // value, and the settings page has to keep showing something editable by hand.
+      const value = ids.join(", ");
+      try {
+        // `app.setSetting` is documented ("the value will be synchronized to all of the
+        // user's devices") but this is the plugin's only WRITE to its own settings, and
+        // an embed calling it is the least-trodden path in the whole API. If it is not
+        // there, say so plainly rather than throwing an internal error at the viewer -
+        // the picker still applies the choice for the session either way.
+        if (typeof app.setSetting !== "function") {
+          return { ids, saved: false, error: "This Amplenote version can't save plugin settings." };
+        }
+        await app.setSetting(COLOR_SETTING_NAME, value);
+        return { ids, saved: true };
+      } catch (err) {
+        return { ids, saved: false, error: `Could not save your colors: ${err.message}` };
       }
     }
 

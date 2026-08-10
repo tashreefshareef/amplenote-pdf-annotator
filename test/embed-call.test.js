@@ -936,6 +936,59 @@ describe("unknown and failing requests", () => {
     expect(app.replaceNoteContent).not.toHaveBeenCalled();
   });
 
+  // Scenario: the in-viewer palette picker saves. What lands in the setting has to be
+  // the same comma string a person would type into Amplenote's settings field - the
+  // picker and that text box are two views of ONE value, and a JSON array there would
+  // read as corruption to anyone who opened the field.
+  test("saves picked toolbar colors as the same string the settings field shows", async () => {
+    const app = appWithNote();
+    const result = await call(app, {
+      action: "setToolbarColors",
+      colorIds: ["purple", "pink", "mint", "sky"],
+    });
+
+    expect(app.setSetting).toHaveBeenCalledWith("Highlight colors", "purple, pink, mint, sky");
+    expect(result).toEqual({ ids: ["purple", "pink", "mint", "sky"], saved: true });
+  });
+
+  // Scenario: the ids arrive from the embed, which is untestable by construction, so they
+  // are re-parsed rather than trusted. A color that does not exist must not reach the
+  // setting - it would render as a missing swatch on every device it synced to.
+  test("re-validates ids from the embed instead of trusting them", async () => {
+    const app = appWithNote();
+    await call(app, { action: "setToolbarColors", colorIds: ["purple", "chartreuse", "blue"] });
+    expect(app.setSetting).toHaveBeenCalledWith("Highlight colors", "purple, blue");
+
+    // Nothing usable at all falls back to the spec's four rather than writing an empty
+    // string, which would leave a toolbar with no colors on every synced device.
+    await call(app, { action: "setToolbarColors", colorIds: [] });
+    expect(app.setSetting).toHaveBeenLastCalledWith("Highlight colors", "coral, yellow, green, blue");
+  });
+
+  // Scenario: `app.setSetting` is documented but this is the plugin's only write to its
+  // own settings, and an embed calling it is the least-trodden path in the API. If it is
+  // absent or refuses, the picker must still report cleanly - and still hand back the ids
+  // so the viewer can apply them for the session rather than losing the click too.
+  test("reports a settings write that is unavailable or fails, still returning the ids", async () => {
+    const missing = appWithNote();
+    delete missing.setSetting;
+    const noApi = await call(missing, { action: "setToolbarColors", colorIds: ["mint"] });
+    expect(noApi).toEqual({
+      ids: ["mint"],
+      saved: false,
+      error: expect.stringMatching(/can't save plugin settings/i),
+    });
+
+    const refuses = appWithNote();
+    refuses.setSetting = async () => {
+      throw new Error("Settings are read-only");
+    };
+    const failed = await call(refuses, { action: "setToolbarColors", colorIds: ["mint"] });
+    expect(failed.ids).toEqual(["mint"]);
+    expect(failed.saved).toBe(false);
+    expect(failed.error).toMatch(/read-only/);
+  });
+
   // Scenario: the note write itself fails - readonly note, over the 100k limit, network
   // error. The embed must get a message it can show, not a rejected promise.
   test("turns a failed note write into a reportable error", async () => {

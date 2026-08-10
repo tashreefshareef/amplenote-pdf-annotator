@@ -144,21 +144,28 @@ whole note, and pasting then destroys the metadata table.
 
 ## Choosing your four highlight colors
 
-The toolbar carries four color circles. Which four is up to you — add this row to the
-plugin note's metadata table:
+The toolbar carries four color circles. Which four is up to you.
+
+**In the viewer:** ⋮ → **Highlight colors…**. The popover shows your four slots above all
+eleven Amplenote colors; click to fill a slot, click a slot to empty it, Save. The toolbar
+repaints immediately and the choice follows you to every PDF and every device.
+
+That requires one row in the plugin note's metadata table, which is what gives the plugin
+somewhere to store it:
 
 | setting | Highlight colors |
 |---|---|
 
-Then set it to any four of Amplenote's eleven highlighter colors, comma separated:
+**Or by hand:** the same value is editable as text in Account Settings → Plugins → PDF
+Annotator, since the picker writes exactly what you would have typed:
 
 ```
 purple, pink, mint, sky
 ```
 
 Names, labels or hex codes all work (`blue`, `Blue`, `#84B6D9`), in any order — the first
-one becomes the color a fresh selection gets. Leave the setting empty and you get the
-four the spec names: coral, yellow, green, blue.
+one becomes the color a fresh selection gets. Leave it empty and you get the four the spec
+names: coral, yellow, green, blue.
 
 The full eleven are `coral peach yellow green mint sky blue purple orchid pink grey` —
 Amplenote's own mid-tone palette (indices 12–22; see `docs/api-notes.md`). **All eleven

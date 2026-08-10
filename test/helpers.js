@@ -74,6 +74,14 @@ export function createMockApp({ notes = [], promptQueue = [], lightDarkMode = "l
 
     settings: {},
 
+    // Amplenote's own write-back for a setting: "the value will be synchronized to all
+    // of the user's devices", and non-string values (except null) are coerced to strings.
+    // The mock coerces too, so a caller passing an array here fails the same way it
+    // would live rather than passing locally and arriving as "a,b,c" in production.
+    setSetting: jest.fn(async (name, value) => {
+      app.settings[name] = value === null ? null : String(value);
+    }),
+
     alert: jest.fn(async (message) => {
       calls.alerts.push(message);
       return true;

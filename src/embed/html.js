@@ -344,6 +344,9 @@ const STYLES = `
      behaviour the same .pdfa-color class has everywhere else - the filter is "any
      combination of colors", not "one active color". */
   .pdfa-popover.pdfa-exporting { flex-direction: column; align-items: stretch; width: 220px; }
+  /* Same column layout as the filter, wider: eleven 20px swatches plus their gaps need
+     ~250px of content box to sit six-and-five rather than in a ragged three rows. */
+  .pdfa-popover.pdfa-palette { flex-direction: column; align-items: stretch; width: 274px; }
   /* The toolbar overflow menu (Download / Export / Remove), shaped after Amplenote's own
      note menu: a tight card of full-width rows, left-aligned, no borders at rest, and a
      rounded tint under the row on hover. The gap goes to 0 and the spacing moves into the
@@ -359,6 +362,24 @@ const STYLES = `
   .pdfa-popover.pdfa-menu .pdfa-btn:hover { background: var(--pdfa-btn-hover); }
   .pdfa-export-colors { display: flex; gap: 6px; padding: 2px 0 8px; }
   .pdfa-export-hint { font-size: 12px; opacity: .75; padding-bottom: 6px; }
+  /* THE PALETTE PICKER (openPalettePopover). Eleven swatches need to wrap; the export
+     filter's row never had to, which is why this is a separate rule rather than a tweak
+     to the one above. */
+  .pdfa-catalog-row { flex-wrap: wrap; gap: 8px; }
+  /* Already on the toolbar: dimmed, not hidden. Seeing what is spoken for is the reason
+     to show all eleven at once, and a gap where a color used to be reads as a bug. */
+  .pdfa-catalog-row .pdfa-taken { opacity: .3; }
+  /* The four slots ARE the toolbar preview, so they are bigger than catalog swatches and
+     spaced like the bar itself rather than packed like a palette. */
+  .pdfa-slot-row { display: flex; gap: 12px; align-items: center; padding: 2px 0 10px; }
+  .pdfa-slot-row .pdfa-slot { width: 24px; height: 24px; }
+  /* An empty slot has to read as "a color goes here", which a gap cannot. Dashed ring,
+     same diameter as a filled slot so the row does not reflow as slots fill and empty. */
+  .pdfa-slot-empty { width: 24px; height: 24px; border-radius: 50%;
+    border: 1px dashed var(--pdfa-border); }
+  /* Sits under both rows as the consequence of pressing Save, so it gets a rule of its
+     own rather than sharing the hints' bottom padding. */
+  .pdfa-scope-hint { padding-top: 2px; }
   .pdfa-note-input { font: inherit; font-size: 12px; width: 100%; resize: vertical; padding: 6px;
     border: 1px solid var(--pdfa-border); border-radius: 5px;
     background: var(--pdfa-bg); color: inherit; }
