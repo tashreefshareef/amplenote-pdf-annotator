@@ -114,14 +114,19 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    | `<span style="color:X">` | No box, and no color - the sanitizer drops the span outright |
 
    So the schema has a highlight mark (hence `<mark>`'s inline colors being honoured) and
-   no text-color mark for a span to map onto: the choice is box-with-color or neither.
-   Note this differs from what the same plugin's *markdown* produces - `==x<!--
-   {"cycleColor":"N"} -->==` colors the text with no box - so a marker that looks right in
-   an exported block will not look right in a pasted one.
+   no text-color mark for a span to map onto. Note this differs from what the same
+   plugin's *markdown* produces - `==x<!-- {"cycleColor":"N"} -->==` colors the text with
+   no box - so a marker that looks right in an exported block will not look right in a
+   pasted one.
 
-   **Workaround: put the color in the character, not the CSS.** An emoji swatch (🔴🟡🟢🔵)
-   is text, so nothing in the paste path can strip it and no element brings a background
-   along. The cost is an approximate hue for a soft palette.
+   **The framing that wasted five rounds here: this is not a styling problem.** Pasted
+   markup is mapped onto Amplenote's document schema, and the schema stores
+   "cycleColor-N mark", not "`#F3998C`" - so inline CSS never reaches the renderer at all.
+   You are not styling the content, you are nominating a node type and letting Amplenote
+   decide what that looks like. **To get markup Amplenote will accept, make Amplenote
+   produce the thing first, copy it, and read the `text/html` flavor off the clipboard**
+   (a contenteditable div with a `paste` listener dumping `clipboardData.getData
+   ("text/html")` is enough). One observation beats any number of CSS guesses.
 
    **When matching a pasted element to one the plugin also writes as markdown, check which
    property the markdown form actually paints.** `==x<!-- {"cycleColor":"N"} -->==` colors

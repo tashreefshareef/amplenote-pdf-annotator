@@ -434,9 +434,6 @@ export function buildEmbedHtml({
       hex: c.hex,
       rgb: c.rgb,
       cycleIndex: c.cycleIndex,
-      // For Copy's HTML clipboard flavor - a colored character, because inline color
-      // does not survive Amplenote's paste sanitizer. See constants.js.
-      swatch: c.swatch,
     })),
     defaultColorId: DEFAULT_COLOR_ID,
     // Lets the viewer skip booting PDF.js while collapsed - nothing it renders is visible.

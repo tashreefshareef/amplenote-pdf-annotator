@@ -1660,16 +1660,16 @@ export function viewerMain() {
   function exportHtmlFor(highlight) {
     if (!exportBuilder.buildHighlightHtml) return null;
     var list = colorList();
-    var swatch = null;
+    var hex = null;
     for (var i = 0; i < list.length; i++) {
-      if (list[i].id === highlight.color) swatch = list[i].swatch;
+      if (list[i].id === highlight.color) hex = list[i].hex;
     }
     return exportBuilder.buildHighlightHtml(
       state.attachmentName,
       cfg.pluginUUID,
       cfg.attachmentUUID,
       highlight,
-      swatch,
+      hex,
       cfg.noteUUID
     );
   }

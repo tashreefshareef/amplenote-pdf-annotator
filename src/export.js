@@ -166,29 +166,40 @@ export function createExportBuilder() {
    * CONFIRMED LIVE: the paste renders - blockquote nesting, a clickable `plugin://`
    * anchor, and inline `color` AND `background-color` on a `<mark>` are all honoured.
    *
-   * The marker carries its color IN THE CHARACTER (constants.js's `swatch`) rather than
-   * in CSS, because no styling of it survives the paste intact. All four combinations
-   * were tried live, in this order, and the goal throughout was to match what the
-   * markdown path renders - `==●<!-- {"cycleColor":"N"} -->==` shows a small colored DOT,
-   * no box:
+   * The goal for the marker is what the MARKDOWN path renders: `==●<!--
+   * {"cycleColor":"N"} -->==` shows a small colored DOT with no box. That is not a
+   * styling difference to be matched with the right CSS - it is a different door into
+   * Amplenote. "Send to note" hands `insertNoteContent` markdown, which Amplenote's own
+   * parser turns into a real cycle-color mark node that its own stylesheet paints. A
+   * paste goes through the editor's HTML handler instead, which maps foreign markup onto
+   * its document schema and drops what does not fit. The document has nowhere to store
+   * "this text is #F3998C"; it stores "this is a cycleColor-N mark". So inline CSS is
+   * either translated into whatever node the element maps to, or discarded.
    *
-   *   `<mark background-color>`               -> colored box, black dot inside it.
+   * Tried live, in order:
+   *
+   *   `<mark background-color>`               -> colored box, black glyph inside it.
    *   `<mark background-color + color>`       -> solid colored box. Wrong shape.
-   *   `<mark color + background:transparent>` -> right dot color, box merely fainter.
-   *                                              An inline transparent does NOT clear
-   *                                              that element's own background.
-   *   `<span color>`                          -> no box, but no color either: the
-   *                                              sanitizer drops the span outright.
+   *   `<mark color + background:transparent>` -> right glyph color, box still there,
+   *                                              merely fainter - consistent with the
+   *                                              sanitizer rejecting `transparent` as a
+   *                                              value and the mark falling back to its
+   *                                              own default background.
+   *   `<span color>`                          -> no box, and no color: the span maps to
+   *                                              no node at all and is dropped whole.
+   *   emoji swatch, no styling                -> survives everything, and looks like
+   *                                              decoration rather than a color code.
+   *                                              Rejected on sight.
    *
-   * So Amplenote's schema has a highlight mark (hence `<mark>`'s colors being honoured)
-   * and no text-color mark for a span to map onto, leaving box-with-color or neither. A
-   * colored glyph sidesteps the whole question - it is text, and there is nothing in it
-   * for a sanitizer to strip. With no swatch it degrades to a plain `●`, wrapped in
-   * nothing, since an uncolored element could only add back the box.
+   * Hence `color` and NO background declaration - the one combination not yet tried, and
+   * the only one left that could produce a bare colored glyph. If this still boxes, the
+   * answer is not another CSS guess: read the HTML Amplenote's OWN copy puts on the
+   * clipboard for a cycle-colored mark and emit exactly that, so its paste handler builds
+   * the same node its markdown parser does.
    */
-  function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, swatch, sourceNoteUUID) {
+  function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
-    var marker = swatch ? escapeHtml(swatch) : "&#9679;";
+    var marker = hex ? '<mark style="color:' + escapeHtml(hex) + '">&#9679;</mark>' : "&#9679;";
     var heading =
       "<p>" + marker + ' <a href="' + escapeHtml(url) + '">' + escapeHtml(pdfName || "PDF") + "</a></p>";
 

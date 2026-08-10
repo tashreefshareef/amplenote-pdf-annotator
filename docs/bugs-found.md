@@ -508,31 +508,31 @@ markdown form (`==●<!-- {"cycleColor":"N"} -->==`) colors the **text**, not a 
 behind it. Styling the background also left the glyph at the default text color, i.e. a
 black dot inside a colored block, which briefly looked like the whole bug.
 
-Switching to `color` fixed the dot but left a faint box, because the marker was still a
-`<mark>` — and an inline `background-color:transparent` did not clear that element's own
-background, it only made it paler. Moving to a `<span>`, which has no default background
-to override, removed the box and the color with it: Amplenote's paste sanitizer drops the
-span outright. The full matrix, all four tried live, is in api-notes.md #7. There is no
-combination that yields colored text with no box.
+Then five rounds of guessing at the marker's styling, none of which reproduced what the
+markdown path renders (a bare colored dot). The matrix is in api-notes.md #7; the short
+version is that a `<mark>` keeps a background box — `background-color:transparent` does
+not clear it, only fades it — and a `<span style="color">` is dropped whole. An emoji
+swatch survived everything and was rejected on sight as decoration.
 
-**The fix that worked was to stop styling the marker at all** and put the color in the
-character: an emoji swatch (🔴🟡🟢🔵) is text, so nothing in the paste path can strip it
-and no element drags a background along.
+**The mistake underneath all five rounds** was treating this as a styling problem. The two
+features do not differ in CSS; they enter Amplenote through different doors.
+`insertNoteContent` hands over markdown, which Amplenote's own parser turns into a real
+cycle-color mark node that its own stylesheet paints. A paste goes through the editor's
+HTML handler, which maps foreign markup onto its document schema and discards the rest —
+and the schema has nowhere to store "this text is `#F3998C`", only "this is a
+cycleColor-N mark". No CSS was ever going to reach the renderer.
 
-**Second general lesson:** when one feature renders through a platform's markdown and
-another through pasted HTML, the two are only consistent if the HTML styles *the same CSS
-property the markdown form does* — and "highlight" is exactly the word that makes `<mark>`
-and `background-color` the wrong intuitive guesses. The tell was having both outputs
-visible in one note: a discrepancy nobody would notice from either screenshot alone was
-obvious the moment they sat a few lines apart.
+**General lesson (the useful one):** when a rich-text target renders your content through
+a document schema, you are not styling it — you are *nominating a node type*, and the
+styling is downstream of what the target decides you meant. Guessing at CSS is guessing at
+someone else's parseDOM rules. The move is to make the target produce the thing you want,
+copy it, and read the markup off the clipboard — one observation that ends the guessing.
+Reach for it as soon as the second attempt fails, not the fifth.
 
-**Third:** neutralizing an element's built-in styling with an inline override is a weaker
-move than not using that element — `background-color:transparent` is a fight with whatever
-ships that background. But when *no* element in the target's schema does what you need,
-the move is to stop passing the requirement through the styling layer entirely. Content
-you control survives sanitizers that styling does not, so encoding a visual property into
-the *character* is worth reaching for early once a sanitizer is in the path, not after
-four styling attempts.
+**Second lesson:** when one feature renders through a platform's markdown and another
+through pasted HTML, a discrepancy between them is invisible in either output alone. Both
+were only obviously different once an exported block and a pasted one sat a few lines
+apart in the same note — worth deliberately arranging when two paths are meant to agree.
 
 **General lesson:** "copy" and "write through the app's own API" are two different
 destinations with two different parsers, and evidence from one says nothing about the
