@@ -30,7 +30,7 @@
  *    and waits for onload - the sequence proven to work in the live app.
  */
 import { CDN, HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "../constants.js";
-import { ICONS, icon } from "./icons.js";
+import { ICONS, MENU_ICONS, icon } from "./icons.js";
 import { createGeometry } from "../geometry.js";
 import { createAnnotationWriter } from "../annotations.js";
 import { createExportBuilder } from "../export.js";
@@ -334,7 +334,7 @@ const STYLES = `
   .pdfa-popover { position: fixed; display: none; gap: 5px; align-items: center; padding: 6px 8px;
     z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg); max-width: 320px; flex-wrap: wrap;
     max-height: calc(100vh - 8px); overflow-x: hidden; overflow-y: auto;
-    border: 1px solid var(--pdfa-border); border-radius: 8px;
+    border: 1px solid var(--pdfa-border); border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10); }
   .pdfa-popover.pdfa-open { display: flex; }
   /* The note editor turns the popover into a small column form. */
@@ -349,8 +349,7 @@ const STYLES = `
      rows themselves, so the hover tint is a continuous band rather than a button with
      visible gutters above and below it. */
   .pdfa-popover.pdfa-menu { flex-direction: column; align-items: stretch; width: 216px; gap: 0; padding: 5px; }
-  .pdfa-popover.pdfa-menu .pdfa-btn { text-align: left; border-color: transparent; background: transparent;
-    padding: 8px 10px; border-radius: 6px; font-size: 13px; }
+  .pdfa-popover.pdfa-menu .pdfa-btn { justify-content: flex-start; text-align: left; padding: 8px 10px; }
   /* Rows keep their height when the menu hits its max-height, so the overflow SCROLLS
      rather than compressing every row toward illegibility. Without this the column's
      flex children shrink to fit and the cap silently squashes the menu instead of
@@ -365,13 +364,27 @@ const STYLES = `
   .pdfa-note-actions { display: flex; gap: 5px; margin-top: 6px; align-items: center; }
   .pdfa-note-actions .pdfa-spacer { flex: 1 1 auto; }
 
-  .pdfa-btn { font: inherit; font-size: 12px; padding: 3px 9px; line-height: 1.25;
-    border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit;
-    border-radius: 5px; cursor: pointer; white-space: nowrap; }
+  /* Borderless with a tint on hover, the same vocabulary as the toolbar - these used to
+     be bordered chips, which made the plugin speak in three button dialects at once (a
+     bar of borderless controls, a menu of borderless rows, and this). The border stays
+     as "transparent" rather than going to none so the primary variant can put one back
+     without moving anything by a pixel. */
+  .pdfa-btn { font: inherit; font-size: 13px; padding: 6px 10px; line-height: 1.25;
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid transparent; background: transparent; color: inherit;
+    border-radius: 6px; cursor: pointer; white-space: nowrap; }
   .pdfa-btn:hover { background: var(--pdfa-btn-hover); }
+  .pdfa-btn:hover .pdfa-icon { opacity: 1; }
   /* Marks the "add a note" offer that the spec requires to appear as soon as a
-     highlight is created, so it reads as the suggested next step. */
+     highlight is created, so it reads as the suggested next step. Now that the others
+     have no border, this one having a whole box to itself is what carries that. */
   .pdfa-btn-primary { border-color: var(--pdfa-accent); color: var(--pdfa-accent); }
+  /* The destructive one. viewer.js has been putting this class on Remove, Remove
+     viewer... and its confirm all along, and nothing here styled it - so the action that
+     discards work looked exactly like Copy. Color only: a filled danger button would be
+     the loudest thing in a popover whose other actions are all borderless. */
+  .pdfa-remove { color: var(--pdfa-error); }
+  .pdfa-remove .pdfa-icon { opacity: .9; }
 
   /* HIGHLIGHTS PANEL - the list of every highlight and its note. Groundwork for the
      Phase 5 color filter, which needs somewhere to filter. */
@@ -609,6 +622,9 @@ export function buildEmbedHtml({
       cycleIndex: c.cycleIndex,
     })),
     defaultColorId: DEFAULT_COLOR_ID,
+    // The popovers are built at runtime by viewer.js, which is serialized standalone and
+    // can import nothing - so its icons travel as data, the same way the colors do.
+    icons: MENU_ICONS,
     // Lets the viewer skip booting PDF.js while collapsed - nothing it renders is visible.
     collapsed,
     // Also in the config, not just the markup above: the viewer needs it as DATA to build

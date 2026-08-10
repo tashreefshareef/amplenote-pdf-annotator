@@ -198,10 +198,49 @@ export function viewerMain() {
     return null;
   }
 
-  function button(label, className, onClick) {
+  /**
+   * A Material Icons glyph from cfg.icons - see icons.js for why the path data arrives as
+   * config rather than as markup.
+   *
+   * createElementNS, not innerHTML or createElement: an <svg> built in the HTML namespace
+   * is an unknown element that renders nothing at all, which looks exactly like a missing
+   * icon rather than like a bug. setAttribute("class"), for the same reason - .className
+   * on an SVG element is a read-only SVGAnimatedString, so assigning to it silently does
+   * nothing.
+   */
+  function iconEl(key) {
+    var path = (cfg.icons || {})[key];
+    if (!path) return null;
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("class", "pdfa-icon");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    // The button's own text is the accessible name; without this the graphic is announced
+    // as a second, nameless child of it.
+    svg.setAttribute("aria-hidden", "true");
+    var node = document.createElementNS(ns, "path");
+    node.setAttribute("d", path);
+    svg.appendChild(node);
+    return svg;
+  }
+
+  /**
+   * A popover button. `iconKey` is optional: menu and action buttons carry an icon, the
+   * way Amplenote's own menus do, while form buttons (Save, Cancel, Close) stay plain
+   * text - that is the line between the two, not an oversight where one is missing.
+   */
+  function button(label, className, onClick, iconKey) {
     var el = document.createElement("button");
     el.className = "pdfa-btn" + (className ? " " + className : "");
-    el.textContent = label;
+    var glyph = iconKey ? iconEl(iconKey) : null;
+    if (glyph) {
+      el.appendChild(glyph);
+      var text = document.createElement("span");
+      text.textContent = label;
+      el.appendChild(text);
+    } else {
+      el.textContent = label;
+    }
     el.onclick = function (event) {
       event.stopPropagation();
       onClick();
@@ -1128,17 +1167,17 @@ export function viewerMain() {
     children.push(
       button(hasNote ? "Edit note" : "Add note", justCreated && !hasNote ? "pdfa-btn-primary" : "", function () {
         openNoteEditor(highlight, clientX, clientY);
-      })
+      }, "note")
     );
     // "Copy" and "Send to note" - spec section 4. Not offered on a highlight still
     // waiting on its first save (no id yet - see applyHighlight), same guard the click
     // hit-test already applies before this popover can even open for one.
-    children.push(button("Copy", "", function () { copyHighlight(highlight); }));
-    children.push(button("Send to note", "", function () { sendHighlightToNote(highlight); }));
+    children.push(button("Copy", "", function () { copyHighlight(highlight); }, "copy"));
+    children.push(button("Send to note", "", function () { sendHighlightToNote(highlight); }, "send"));
     children.push(
       button("Remove", "pdfa-remove", function () {
         removeHighlightById(highlight.id);
-      })
+      }, "remove")
     );
 
     showPopover(children, clientX, clientY);
@@ -2021,17 +2060,17 @@ export function viewerMain() {
       button("Collapse", "", function () {
         closePopover(true);
         collapseViewer();
-      }),
+      }, "collapse"),
       button("Download", "", function () {
         closePopover(true);
         downloadAnnotatedPdf();
-      }),
+      }, "download"),
       button("Export...", "", function () {
         openExportPopover(clientX, clientY);
-      }),
+      }, "postAdd"),
       button("Remove viewer...", "pdfa-remove", function () {
         openRemoveViewerPopover(clientX, clientY);
-      })
+      }, "remove")
     );
     showPopover(children, clientX, clientY, "menu");
   }

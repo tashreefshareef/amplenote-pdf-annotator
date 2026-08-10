@@ -276,6 +276,55 @@ describe("buildEmbedHtml", () => {
     expect(out).toMatch(/\.pdfa-collapsed-mode \.pdfa-collapsed \{[^}]*border-bottom:\s*none/);
   });
 
+  // Scenario: the popovers were the last surface still speaking the old dialect - bordered
+  // chips at 12px - while the toolbar and the overflow menu had both moved to borderless
+  // controls with a tint on hover. Three button styles in one plugin is the thing that
+  // reads as "not designed", so the base button now matches the bar it sits under.
+  test("gives popover buttons the toolbar's borderless vocabulary", () => {
+    const out = html();
+    const btn = out.match(/\n {2}\.pdfa-btn \{[^}]*\}/)[0];
+    expect(btn).toMatch(/border:\s*1px solid transparent/);
+    expect(btn).toMatch(/background:\s*transparent/);
+    // Transparent rather than none, so the primary variant can put a border back without
+    // moving anything by a pixel - the same idiom the toolbar buttons use.
+    expect(btn).not.toMatch(/border:\s*none/);
+    expect(out).toMatch(/\.pdfa-btn:hover \{[^}]*background:\s*var\(--pdfa-btn-hover\)/);
+    // Which is exactly what makes the primary one carry weight now that it is the only
+    // action in the popover wearing a box.
+    expect(out).toMatch(/\.pdfa-btn-primary \{[^}]*border-color:\s*var\(--pdfa-accent\)/);
+  });
+
+  // Scenario: found while aligning the popover - viewer.js has been tagging Remove,
+  // "Remove viewer..." and its confirm with .pdfa-remove all along, and no rule ever
+  // matched it. The action that throws work away rendered identically to Copy. A styleless
+  // class is invisible in review precisely because the markup looks correct.
+  test("colors the destructive action, which nothing was doing", () => {
+    const out = html();
+    const rule = out.match(/\.pdfa-remove \{[^}]*\}/)[0];
+    expect(rule).toMatch(/color:\s*var\(--pdfa-error\)/);
+    // Defined in both palettes, or it is invisible in one of them.
+    expect(html({ lightDarkMode: "light" })).toContain("--pdfa-error:");
+    expect(html({ lightDarkMode: "dark" })).toContain("--pdfa-error:");
+  });
+
+  // Scenario: the popovers are built at runtime by viewer.js, which is serialized
+  // standalone and can import nothing - so it cannot reach the icon table the markup uses.
+  // The paths have to travel as config, the same way the colors already do.
+  test("sends the menu icons to the viewer as config, and builds them in the SVG namespace", () => {
+    const out = html();
+    expect(out).toMatch(/"icons":\{"note":"M/);
+    for (const key of ["copy", "send", "remove", "download", "postAdd", "collapse"]) {
+      expect(out).toContain(`"${key}":"M`);
+    }
+    // createElementNS, not createElement: an <svg> built in the HTML namespace is an
+    // unknown element and renders nothing, which looks like a missing icon rather than a
+    // bug. Same for the class - .className on an SVG element is a read-only
+    // SVGAnimatedString, so assigning to it fails silently.
+    expect(out).toContain('createElementNS(ns, "svg")');
+    expect(out).not.toMatch(/createElement\("svg"\)/);
+    expect(out).toContain('svg.setAttribute("class", "pdfa-icon")');
+  });
+
   // Scenario: the brand colour has to exist in both palettes, or the label is
   // invisible in one of them.
   test("defines an accent colour in both themes", () => {

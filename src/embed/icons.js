@@ -34,6 +34,32 @@ export const ICONS = {
 };
 
 /**
+ * The same set again, for the popover menus.
+ *
+ * These travel to the embed in its CONFIG rather than in the markup, because the popovers
+ * are built at runtime by viewer.js - which is serialized standalone and can import
+ * nothing, so it cannot reach ICONS above. Config is how colors already get there.
+ *
+ * Only what the menus actually use. Every path added here ships in every embed, and the
+ * plugin note has a hard 100k cap (docs/api-notes.md lesson 1).
+ */
+export const MENU_ICONS = {
+  // add_comment - a bubble with a plus. One icon for "Add note" and "Edit note" alike;
+  // the label is what distinguishes them, and a highlight has at most one note anyway.
+  note: "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 9h-4v4h-2v-4H7V9h4V5h2v4h4v2z",
+  copy: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
+  send: "M2.01 21 23 12 2.01 3 2 10l15 2-15 2z",
+  // delete - the destructive pair with .pdfa-remove, which colors it.
+  remove: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+  download: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
+  // post_add - a page with a plus, for "export all of this into a note".
+  postAdd:
+    "M17 19.22H5V7h7V5H5c-1.1 0-2 .9-2 2v12.22c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-7h-2v7.22zM19 2h-2v3h-3v2h3v3h2V7h3V5h-3V2zM7 9h8v2H7zm0 3v2h8v-2H7zm0 3h5v2H7z",
+  // unfold_less - the same glyph Amplenote's own editor toolbar uses to collapse.
+  collapse: "M7.41 18.59 8.83 20 12 16.83 15.17 20l1.41-1.41L12 14l-4.59 4.59zm9.18-13.18L15.17 4 12 7.17 8.83 4 7.42 5.41 12 10l4.59-4.59z",
+};
+
+/**
  * Wrap path data as an inline SVG glyph.
  *
  * `fill` comes from CSS (currentColor), so one icon serves both themes. aria-hidden
