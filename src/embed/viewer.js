@@ -1884,16 +1884,12 @@ export function viewerMain() {
    * different implementation.
    */
   function openMoreMenu(clientX, clientY) {
-    // Heads the menu because the filename no longer has a row of its own - it was
-    // duplicating Amplenote's attachment chip immediately above the embed. Here it costs
-    // nothing until the menu is opened, and covers the case the chip does not: a viewer
-    // that has been moved away from its own chip.
-    var name = document.createElement("div");
-    name.className = "pdfa-menu-name";
-    name.textContent = state.attachmentName || "PDF Annotator";
-    name.title = name.textContent;
-
-    var children = [name];
+    // No filename heading. It lived here after being dropped from its own toolbar row for
+    // duplicating Amplenote's attachment chip - but the chip sits immediately above the
+    // embed, so the menu copy was the same duplication, and truncated to an ellipsis by
+    // the menu's width on top of that. The collapsed bar keeps its copy, which is the one
+    // state with no chip in view.
+    var children = [];
 
     children.push(
       button("Collapse", "", function () {

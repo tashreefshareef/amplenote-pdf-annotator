@@ -104,11 +104,11 @@ const STYLES = `
   .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
   .pdfa-spacer { flex: 1 1 auto; }
-  /* The filename's heading inside the overflow menu, where it moved when its own row
-     was removed - see the markup for why that row was pure duplication. */
-  .pdfa-popover.pdfa-menu .pdfa-menu-name { font-size: 11px; opacity: .55; padding: 5px 10px 7px;
-    margin-bottom: 4px; border-bottom: 1px solid var(--pdfa-border);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* No filename heading in the overflow menu. It was moved there when its own toolbar row
+     was removed for duplicating Amplenote's attachment chip - but the chip is right above
+     the embed, so the menu copy duplicated it just as much, only truncated to uselessness
+     in a 216px card. The collapsed bar still carries the name, which is the one state
+     where no chip is in view. */
   /* No align-items: center here on purpose - see the .pdfa-page comment below.
 
      overscroll-behavior is for touch: the embed is an iframe inside a note that
@@ -235,10 +235,16 @@ const STYLES = `
 
      Shadow is softer than it was, to sit with Amplenote's own menus rather than shout
      over them; the border is what carries the edge in dark mode, where a shadow reads as
-     nothing at all. */
+     nothing at all.
+
+     BOTH axes are named. Setting only overflow-y does not leave the other axis alone:
+     CSS computes an "overflow: visible" on one axis to "auto" when the other is not
+     visible, so a y-only rule quietly buys an x scrollbar too, and any sub-pixel width
+     overflow then draws a horizontal bar across the bottom of the menu. Reported live as
+     "the slider is unnecessary" - it was, and nothing was actually scrollable sideways. */
   .pdfa-popover { position: fixed; display: none; gap: 5px; align-items: center; padding: 6px 8px;
     z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg); max-width: 320px; flex-wrap: wrap;
-    max-height: calc(100vh - 8px); overflow-y: auto;
+    max-height: calc(100vh - 8px); overflow-x: hidden; overflow-y: auto;
     border: 1px solid var(--pdfa-border); border-radius: 8px;
     box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10); }
   .pdfa-popover.pdfa-open { display: flex; }

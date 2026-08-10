@@ -399,8 +399,10 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain('<span class="pdfa-name" hidden>');
     // The collapsed bar keeps its own copy - there is no chip visible when collapsed.
     expect(out).toContain('class="pdfa-collapsed-name"');
-    // And the menu heading it moved to.
-    expect(out).toContain("pdfa-menu-name");
+    // The overflow menu does NOT. The name briefly moved there when its toolbar row was
+    // removed, which just relocated the duplication - the chip is directly above the
+    // embed either way - and the menu's width truncated it to an ellipsis besides.
+    expect(out).not.toContain("pdfa-menu-name");
   });
 
   // Scenario: the brand is what distinguishes this viewer from Amplenote's own PDF
