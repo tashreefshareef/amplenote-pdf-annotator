@@ -340,6 +340,29 @@ several of these cost real debugging time (or a live, reported bug) on this one.
     push channel at all. If an embed must react to something outside itself, the embed has
     to ask (`callAmplenotePlugin`), because nothing can tell it.
 
+15. **Amplenote's own UI is Roboto + Material Icons, and an embed gets neither for free.**
+    Not inferred from screenshots: `amplenote.com` computes `Roboto, sans-serif` on its
+    body, and the app shell preloads its own
+    `materialicons-latin-400normal-….woff2` alongside its Roboto files — which is why the
+    editor toolbar's glyphs are Material Icons (`format_bold`, `expand_more`, `cloud_done`
+    and friends). An embed is a **separate document**, so fonts the host page loaded are
+    not available to it, and their asset URLs are content-hashed besides — a plugin that
+    wants to look native has to request them itself. Reported live on this project as the
+    embed toolbar "not feeling native": the cause was typographic characters (`‹ › − ⋮`)
+    where the bar 30px above it used 24-grid icons, at a font the rest of the app was not
+    using.
+
+    Practical shape that worked: **Roboto as a webfont** (Google Fonts, `display=swap`,
+    with the previous system stack kept as the fallback) and the **icons inlined as SVG
+    path data** rather than a second webfont — an icon font that fails to load renders its
+    ligature *text*, so a CDN hiccup leaves the word `chevron_left` sitting in the toolbar,
+    while a missing text font merely falls back.
+
+    ⚠️ **Unverified:** only `cdnjs.cloudflare.com` is confirmed against the embed's CSP
+    (see "Embed CSP / CDN loading" below). `fonts.googleapis.com` has not been confirmed
+    live, and cdnjs hosts no Roboto package. Keep the fallback stack real so a block costs
+    a font rather than a broken toolbar.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and

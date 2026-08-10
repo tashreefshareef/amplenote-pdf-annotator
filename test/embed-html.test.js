@@ -210,6 +210,72 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain(">PDF Annotator<");
   });
 
+  // Scenario: reported live, with screenshots of the embed sitting under Amplenote's own
+  // editor toolbar - the viewer read as a foreign widget. Two causes, both fixed here.
+  //
+  // (1) The chrome was drawn in typographic characters - &#8249; &#8250; &#8722; &#8942; -
+  // where every icon in the toolbar directly above the embed is Material Icons. That is
+  // not a guess about their design: the Amplenote app preloads
+  // materialicons-latin-400normal.woff2 and computes "Roboto, sans-serif" on its body.
+  // A character and a 24-grid icon differ in weight, optical size and baseline, and no
+  // amount of spacing hides it when the two bars are 30px apart.
+  test("draws the toolbar in Material Icons rather than typographic characters", () => {
+    const out = html();
+    const toolbar = out.match(/<div class="pdfa-toolbar">[\s\S]*?<\/div>/)[0];
+    for (const entity of ["&#8249;", "&#8250;", "&#8722;", "&#8942;"]) {
+      // The comment above names them as history; only the BUTTONS must be free of them.
+      expect(toolbar.replace(/<!--[\s\S]*?-->/g, "")).not.toContain(entity);
+    }
+    expect(toolbar).toContain("<svg");
+    // Material's own 24x24 grid, so the glyphs stay optically consistent with the set
+    // above them - a 16 or 20 grid would land the strokes on different pixels.
+    expect(toolbar).toContain('viewBox="0 0 24 24"');
+    // currentColor, so one icon serves the light and dark palettes.
+    expect(out).toMatch(/\.pdfa-icon\s*\{[^}]*fill:\s*currentColor/);
+    // Icon-only buttons need a name for a screen reader, and the graphic itself must not
+    // be announced a second time alongside it.
+    for (const label of ["Previous page", "Next page", "Zoom out", "Zoom in", "More actions"]) {
+      expect(toolbar).toContain(`aria-label="${label}"`);
+    }
+    expect(toolbar).toContain('aria-hidden="true"');
+  });
+
+  // Scenario: (2) the same report's other half - the type. Amplenote's UI is Roboto, and
+  // the embed is a separate document, so the host's copy is not available to it and its
+  // asset URL is content-hashed besides. The font must therefore be requested here, and
+  // must degrade to the previous stack rather than to a serif if the request is blocked -
+  // this is the only asset the plugin loads off the CDN verified against the embed's CSP.
+  test("asks for Amplenote's own UI font, with the old stack as the fallback", () => {
+    const out = html();
+    expect(out).toContain(CDN.robotoCss.replace(/&/g, "&amp;"));
+    // A raw & in an href is not a parse error, but it is the kind of thing that becomes
+    // one the moment a parameter name collides with an entity - so it is escaped.
+    expect(out).not.toContain("wght@400;500&display");
+    expect(out).toMatch(/font:\s*13px Roboto,[^;]*"Segoe UI", sans-serif/);
+  });
+
+  // Scenario: from the same screenshots - the viewer ran to the edges of its box with
+  // only a bottom rule under the toolbar, so nothing said where the note ended and the
+  // embed began. Every other embed in a note is a bordered card (PDF++ was the reference
+  // put forward). The corners must show the NOTE through, not a white notch, which is
+  // what the transparent body is for.
+  test("draws the viewer as a bordered card rather than a bare rectangle", () => {
+    const out = html();
+    const root = out.match(/#pdfa-root \{[^}]*\}/)[0];
+    expect(root).toMatch(/border:\s*1px solid var\(--pdfa-border\)/);
+    expect(root).toMatch(/border-radius/);
+    // Without this the radius is decorative - the toolbar's own square corners paint
+    // straight over it.
+    expect(root).toMatch(/overflow:\s*hidden/);
+    expect(out).toMatch(/body \{[^}]*background:\s*transparent/);
+    // The popovers are position:fixed, so that clip must not reach them. Nothing here may
+    // establish a containing block for a fixed element (transform, filter, contain) or
+    // the color picker gets cut off at the viewer's edge.
+    expect(out).not.toMatch(/#pdfa-root \{[^}]*(transform|filter|contain):/);
+    // Collapsed, the bar IS the card - its own bottom rule would double the root's border.
+    expect(out).toMatch(/\.pdfa-collapsed-mode \.pdfa-collapsed \{[^}]*border-bottom:\s*none/);
+  });
+
   // Scenario: the brand colour has to exist in both palettes, or the label is
   // invisible in one of them.
   test("defines an accent colour in both themes", () => {

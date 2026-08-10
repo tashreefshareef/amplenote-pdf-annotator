@@ -30,6 +30,7 @@
  *    and waits for onload - the sequence proven to work in the live app.
  */
 import { CDN, HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "../constants.js";
+import { ICONS, icon } from "./icons.js";
 import { createGeometry } from "../geometry.js";
 import { createAnnotationWriter } from "../annotations.js";
 import { createExportBuilder } from "../export.js";
@@ -65,11 +66,50 @@ function safeJson(value) {
  * asserts the absence rather than trusting review. That guard reads this file as TEXT and
  * imports nothing from it - an assertion living in a suite that imports html.js could
  * never run in the one situation it exists for.
+ *
+ * A COMMENT IN HERE IS FREE; A COMMENT INSIDE STYLES IS NOT. esbuild strips JS comments
+ * from the build, but everything between the backticks is string data and ships verbatim
+ * into the plugin note - which has a hard 100k-character cap the bundle is already within
+ * a few kB of (see docs/api-notes.md lesson 1). So the long-form rationale for the rules
+ * below lives up here, and the CSS keeps only the short pointers.
+ *
+ * LOOKING NATIVE (all three from one live report - the viewer "not feeling native" beside
+ * Amplenote's own editor toolbar, which sits about 30px above it in the note):
+ *
+ *   - TYPE. Amplenote's UI is Roboto: amplenote.com computes "Roboto, sans-serif" on its
+ *     body and the app preloads its own Roboto files. The embed is a separate document,
+ *     so the host's copy is not available to it and its asset URL is content-hashed -
+ *     hence the webfont link (CDN.robotoCss). The rest of the stack is what a blocked or
+ *     slow request falls back to, and is exactly what the font line used to be.
+ *
+ *   - ICONS. The same app preloads materialicons-latin-400normal.woff2, so its toolbar
+ *     glyphs are Material Icons. Ours were typographic characters - a different weight,
+ *     optical size and baseline - which is most of what made the bar look bolted on. They
+ *     are inline SVG now; see icons.js for why inline rather than the icon font itself.
+ *
+ *   - THE CARD. The viewer ran to the edges of its box with a single rule under the
+ *     toolbar, so nothing marked where the note ended and the embed began - the same
+ *     thing that made the highlights panel read as overflow before it was inset. It is a
+ *     bordered, rounded card now, the shape every other embed in a note has.
+ *
+ *     Two rules carry that and both look optional: "overflow: hidden" on the root is what
+ *     makes the radius actually clip the toolbar's square corners, and "background:
+ *     transparent" on the body is what lets the four corners outside the radius show the
+ *     NOTE through the iframe instead of a white notch. The clip does NOT reach the
+ *     popovers - they are position:fixed, so only the viewport clips them, and nothing
+ *     here establishes a containing block for a fixed element (no transform, filter or
+ *     contain anywhere in this stylesheet). Adding one would silently cut the color
+ *     picker off at the viewer's edge.
  */
 const STYLES = `
   * { box-sizing: border-box; }
-  body { margin: 0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg); }
+  /* Roboto is Amplenote's own UI font; the rest is the fallback. See the header. */
+  body { margin: 0; background: transparent;
+    font: 13px Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  /* A bordered card. overflow and the transparent body above are both load-bearing, and
+     nothing here may gain a transform, filter or contain - see the header for all three. */
+  #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg);
+    border: 1px solid var(--pdfa-border); border-radius: 10px; overflow: hidden; }
   /* A MANUAL toggle, applied by viewer.js's collapseViewer/openViewer, and re-applied on
      initial render when the tag says the user left this viewer collapsed - but never a
      default (see buildEmbedHtml's own comment on why a default-collapsed embed, tried
@@ -84,6 +124,8 @@ const STYLES = `
   #pdfa-root.pdfa-collapsed-mode .pdfa-body { display: none; }
   .pdfa-collapsed { display: none; align-items: center; gap: 8px; padding: 10px 12px;
     background: var(--pdfa-toolbar); border-bottom: 1px solid var(--pdfa-border); }
+  /* Collapsed, this bar IS the card - its own rule would draw the bottom edge twice. */
+  #pdfa-root.pdfa-collapsed-mode .pdfa-collapsed { border-bottom: none; }
   #pdfa-root.pdfa-collapsed-mode .pdfa-collapsed { display: flex; }
   .pdfa-collapsed-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     opacity: .85; }
@@ -105,6 +147,26 @@ const STYLES = `
     background: transparent; color: inherit; border-radius: 6px; cursor: pointer; line-height: 1.2; }
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
   .pdfa-toolbar button:disabled { opacity: .4; cursor: default; background: transparent; }
+  /* What Amplenote's toolbar does for an active control (its H2 button, with the cursor
+     in an H2): hover's own tint, held on. Not the swatches - they carry aria-pressed for
+     the selected color, and a grey tint would dirty the color they exist to show. */
+  .pdfa-toolbar button[aria-pressed="true"]:not(.pdfa-color) { background: var(--pdfa-btn-hover); }
+  /* ICON BUTTONS. A square box around an 18px Material glyph (see icons.js). inline-flex
+     plus the svg's own display:block is what kills the inline-layout descender gap that
+     otherwise lifts a glyph a pixel off centre.
+
+     "button.pdfa-icon-btn", not ".pdfa-icon-btn": ".pdfa-toolbar button" above is one
+     point more specific, so a bare class loses the padding and the buttons come out 38px
+     wide around an 18px glyph. Measured, not guessed. */
+  .pdfa-toolbar button.pdfa-icon-btn { display: inline-flex; align-items: center;
+    justify-content: center; gap: 5px; padding: 6px; }
+  .pdfa-icon { display: block; width: 18px; height: 18px; fill: currentColor; opacity: .78; }
+  .pdfa-toolbar button:hover .pdfa-icon,
+  .pdfa-toolbar button[aria-pressed="true"] .pdfa-icon { opacity: 1; }
+  /* The count stays beside the list glyph - it is what the word "Notes" was not saying.
+     Tabular figures, so the bar does not shift as the count crosses 10. */
+  .pdfa-toolbar button.pdfa-notes-btn { padding: 6px 8px; }
+  .pdfa-notes-btn .pdfa-count { font-size: 12px; opacity: .85; font-variant-numeric: tabular-nums; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
   /* The zoom "label" is really an INPUT (see the markup for why), so it has to be talked
      back down into looking like the span it replaced: a browser hands an input its own
@@ -121,12 +183,14 @@ const STYLES = `
      the same problem the color swatches' selected state already solves this way. */
   .pdfa-zoom-field:focus { outline: none; opacity: 1;
     background: var(--pdfa-toolbar); border-color: var(--pdfa-accent); }
-  /* The overflow menu's own trigger - a plain toolbar button. Its contents (Download,
-     Export, Remove) render as ordinary popover buttons below, so a destructive one among
-     them reuses the popover's own ".pdfa-remove" styling, not a toolbar-specific class. */
-  #pdfa-more { font-size: 16px; line-height: 1; padding: 3px 10px; }
-  .pdfa-sep { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 0 4px; }
-  .pdfa-brand { font-weight: 600; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
+  /* The overflow trigger is now a plain icon button (Material's more_vert, the glyph the
+     note menu above this embed uses), so it needs no rule of its own. Its contents render
+     as ordinary popover buttons below. */
+  /* Short and centred rather than edge to edge: a full-bleed divider is heavier than
+     anything Amplenote's toolbar draws, and it was the loudest thing in a borderless bar. */
+  .pdfa-sep { width: 1px; height: 20px; align-self: center; background: var(--pdfa-border); margin: 0 5px; }
+  /* 500, not 600 - medium is the heaviest weight Amplenote's own UI uses. */
+  .pdfa-brand { font-weight: 500; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
   .pdfa-spacer { flex: 1 1 auto; }
   /* No filename heading in the overflow menu. It was moved there when its own toolbar row
@@ -375,7 +439,11 @@ const STYLES = `
   .pdfa-scrollnav button { width: 40px; height: 40px; border-radius: 50%; font: inherit;
     font-size: 13px; line-height: 1; cursor: pointer; color: inherit; padding: 0;
     border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); opacity: .85;
-    box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+    box-shadow: 0 1px 4px rgba(0,0,0,.25);
+    display: flex; align-items: center; justify-content: center; }
+  /* Bigger than the toolbar's 18px and at full strength - on touch these are the only way
+     to scroll at all, so they are a primary control, not one of a bar of secondary ones. */
+  .pdfa-scrollnav .pdfa-icon { width: 24px; height: 24px; opacity: 1; }
   .pdfa-scrollnav button:disabled { opacity: .35; }
 
   /* ---- NARROW EMBEDS -------------------------------------------------------
@@ -439,7 +507,9 @@ const STYLES = `
        between two 40px buttons is both the odd one out and the hardest thing in the
        toolbar to tap accurately. */
     .pdfa-zoom-field { min-height: 40px; }
-    #pdfa-more { padding: 8px 14px; }
+    /* Square, not the 8px 12px above - an icon button has no text to pad around, and the
+       extra width would push a phone's toolbar into another row. */
+    .pdfa-toolbar button.pdfa-icon-btn { min-width: 40px; padding: 8px; }
     .pdfa-btn { min-height: 38px; }
     .pdfa-hl-row { padding: 11px 8px; }
     /* No hover to reveal it with, so it is simply there - and big enough to hit. */
@@ -553,6 +623,7 @@ export function buildEmbedHtml({
   // because collapsing rewrites the tag to shrink the box, and that re-renders the embed
   // from scratch.
   return `<link rel="stylesheet" href="${CDN.pdfViewerCss}">
+<link rel="stylesheet" href="${escapeHtml(CDN.robotoCss)}">
 <style>:root{${theme}}${STYLES}</style>
 <div id="pdfa-root"${collapsed ? ' class="pdfa-collapsed-mode"' : ""}>
   <div class="pdfa-collapsed">
@@ -568,11 +639,16 @@ export function buildEmbedHtml({
          reader had no reliable way to tell which one they were interacting with. -->
     <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
     <span class="pdfa-sep"></span>
-    <button id="pdfa-prev" title="Previous page">&#8249;</button>
+    <!-- Material Icons (icons.js), the set Amplenote's own toolbar is drawn in. Icon-only
+         buttons, so each carries an aria-label as well as its tooltip. -->
+    <button id="pdfa-prev" class="pdfa-icon-btn" title="Previous page"
+            aria-label="Previous page">${icon(ICONS.chevronLeft)}</button>
     <span class="pdfa-label" id="pdfa-page-label">- / -</span>
-    <button id="pdfa-next" title="Next page">&#8250;</button>
+    <button id="pdfa-next" class="pdfa-icon-btn" title="Next page"
+            aria-label="Next page">${icon(ICONS.chevronRight)}</button>
     <span class="pdfa-sep"></span>
-    <button id="pdfa-zoom-out" title="Zoom out">&#8722;</button>
+    <button id="pdfa-zoom-out" class="pdfa-icon-btn" title="Zoom out"
+            aria-label="Zoom out">${icon(ICONS.remove)}</button>
     <!-- An input, not the label it looks like. The stepper moves in fixed 25% jumps from
          wherever the initial fit-to-width landed, so an exact zoom - "100%" - was often
          not reachable at all, only bracketed: from a fitted 83% the steps run 58/108/133.
@@ -585,7 +661,8 @@ export function buildEmbedHtml({
            inputmode="numeric" autocomplete="off" spellcheck="false"
            aria-label="Zoom level in percent"
            title="Zoom level - type a percentage and press Enter" value="125%">
-    <button id="pdfa-zoom-in" title="Zoom in">+</button>
+    <button id="pdfa-zoom-in" class="pdfa-icon-btn" title="Zoom in"
+            aria-label="Zoom in">${icon(ICONS.add)}</button>
     <span class="pdfa-sep"></span>
     <!-- The four single-click highlight color buttons, mounted by the viewer from
          config.colors. Top-level toolbar buttons with no submenu is an explicit spec
@@ -593,7 +670,11 @@ export function buildEmbedHtml({
     <span id="pdfa-colors"></span>
     <span class="pdfa-hint" id="pdfa-hint"></span>
     <span class="pdfa-sep"></span>
-    <button id="pdfa-list-toggle" title="Show highlights and notes">Notes (<span id="pdfa-count">0</span>)</button>
+    <!-- The list glyph replaces the word "Notes"; the count stays, since that is the part
+         the word was not carrying. -->
+    <button id="pdfa-list-toggle" class="pdfa-icon-btn pdfa-notes-btn"
+            title="Show highlights and notes" aria-label="Show highlights and notes"
+            >${icon(ICONS.listBulleted)}<span class="pdfa-count" id="pdfa-count">0</span></button>
     <span class="pdfa-sep"></span>
     <!-- Download, Export and Remove are all occasional, one-off actions - unlike the
          colors (top-level is an explicit spec requirement) or page/zoom/Notes (used
@@ -603,7 +684,8 @@ export function buildEmbedHtml({
          own toolbar design, not an Amplenote requirement. Grouped with the other
          controls on the left, not off by the filename, so it reads as part of the
          toolbar rather than a stray button wrapped onto its own line. -->
-    <button id="pdfa-more" title="More actions">&#8942;</button>
+    <button id="pdfa-more" class="pdfa-icon-btn" title="More actions"
+            aria-label="More actions">${icon(ICONS.moreVert)}</button>
   </div>
   <!-- The filename used to have a whole row to itself here. It was removed: Amplenote's
        own attachment chip sits immediately above this embed carrying the SAME filename
@@ -622,8 +704,8 @@ export function buildEmbedHtml({
     <!-- Touch-only scroll controls. Deliberately AFTER the panel so the sibling
          selector that hides them behind it works - see the CSS. -->
     <div class="pdfa-scrollnav">
-      <button id="pdfa-scroll-up" title="Scroll up" aria-label="Scroll up">&#9650;</button>
-      <button id="pdfa-scroll-down" title="Scroll down" aria-label="Scroll down">&#9660;</button>
+      <button id="pdfa-scroll-up" title="Scroll up" aria-label="Scroll up">${icon(ICONS.arrowUp)}</button>
+      <button id="pdfa-scroll-down" title="Scroll down" aria-label="Scroll down">${icon(ICONS.arrowDown)}</button>
     </div>
   </div>
   <!-- Colors on a fresh selection; recolor / note / remove on an existing highlight;

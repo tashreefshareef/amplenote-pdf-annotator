@@ -52,11 +52,23 @@ describe("pinned CDN versions", () => {
     expect(CDN.pdfJsWorker).toContain("pdf.worker");
   });
 
-  // Scenario: every library is loaded over https from the CDN confirmed to pass the
-  // embed's CSP.
-  test("all CDN URLs are https on the verified host", () => {
-    for (const url of Object.values(CDN)) {
+  // Scenario: every LIBRARY is loaded over https from the CDN confirmed to pass the
+  // embed's CSP. The font is the one exception, and it is deliberately the only one -
+  // cdnjs hosts no Roboto package (checked: the search returns roslibjs and post-robot),
+  // so matching Amplenote's own UI font means a second host. It is safe to be the
+  // exception precisely because it is a font: an unreachable stylesheet costs the
+  // fallback stack in html.js, whereas an unreachable script is a dead viewer. That is
+  // also why nothing else may join it here.
+  test("all CDN URLs are https, with only the font off the verified host", () => {
+    for (const [key, url] of Object.entries(CDN)) {
+      expect(url.startsWith("https://")).toBe(true);
+      if (key === "robotoCss") continue;
       expect(url.startsWith("https://cdnjs.cloudflare.com/")).toBe(true);
     }
+    expect(CDN.robotoCss).toContain("fonts.googleapis.com");
+    expect(CDN.robotoCss).toContain("family=Roboto");
+    // Text has to be readable while the font loads, not invisible - the toolbar is the
+    // first thing on screen and the embed is often already scrolled into view.
+    expect(CDN.robotoCss).toContain("display=swap");
   });
 });

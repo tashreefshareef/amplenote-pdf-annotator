@@ -110,6 +110,21 @@ export const CDN = {
    */
   pdfViewerCss: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css",
   pdfLib: "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js",
+  /**
+   * Roboto - Amplenote's OWN UI font, so the embed's chrome reads as part of the app
+   * rather than as a foreign box dropped into the note.
+   *
+   * Not a guess: amplenote.com computes `Roboto, sans-serif` on its body, and the app
+   * shell preloads its own `materialicons-latin-400normal` and Roboto files. We cannot
+   * reuse theirs - the embed is a separate document, so fonts the host loaded are not
+   * available to it, and their asset URLs are content-hashed - hence a public copy.
+   *
+   * The icons are inlined as SVG instead (see html.js): five glyphs do not justify a
+   * second webfont, and an icon font that fails to load leaves stray letters sitting in
+   * the toolbar, whereas a font that fails to load here just falls back to the system
+   * sans in the stack.
+   */
+  robotoCss: "https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap",
 };
 
 /**
