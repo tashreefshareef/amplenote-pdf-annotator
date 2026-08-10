@@ -82,10 +82,19 @@ const STYLES = `
      overlay the pages without the toolbar, and without reflowing the PDF - the embed is
      often barely wider than a page, so a panel that stole width would squeeze it. */
   .pdfa-body { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
-  .pdfa-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--pdfa-toolbar); flex: 0 0 auto; flex-wrap: wrap; }
-  .pdfa-toolbar button { font: inherit; padding: 4px 9px; border: 1px solid var(--pdfa-border); background: var(--pdfa-btn); color: inherit; border-radius: 5px; cursor: pointer; line-height: 1.2; }
+  /* Modelled on Amplenote's own editor toolbar: a plain bar, borderless controls, and a
+     rounded tint on hover rather than a box around every button at rest. min-height keeps
+     the row a constant height whether or not a swatch is showing its selected ring, which
+     is what made the bar appear to grow and shrink as colors were picked. */
+  .pdfa-toolbar { display: flex; align-items: center; gap: 4px; padding: 5px 8px; min-height: 38px;
+    background: var(--pdfa-toolbar); border-bottom: 1px solid var(--pdfa-border);
+    flex: 0 0 auto; flex-wrap: wrap; }
+  /* Transparent BORDER rather than none: the button keeps the same box either way, so
+     nothing shifts by a pixel when a state adds one back. */
+  .pdfa-toolbar button { font: inherit; padding: 5px 9px; border: 1px solid transparent;
+    background: transparent; color: inherit; border-radius: 6px; cursor: pointer; line-height: 1.2; }
   .pdfa-toolbar button:hover { background: var(--pdfa-btn-hover); }
-  .pdfa-toolbar button:disabled { opacity: .5; cursor: default; }
+  .pdfa-toolbar button:disabled { opacity: .4; cursor: default; background: transparent; }
   .pdfa-label { min-width: 62px; text-align: center; opacity: .85; font-variant-numeric: tabular-nums; }
   /* The overflow menu's own trigger - a plain toolbar button. Its contents (Download,
      Export, Remove) render as ordinary popover buttons below, so a destructive one among
@@ -97,8 +106,8 @@ const STYLES = `
   .pdfa-spacer { flex: 1 1 auto; }
   /* The filename's heading inside the overflow menu, where it moved when its own row
      was removed - see the markup for why that row was pure duplication. */
-  .pdfa-popover.pdfa-menu .pdfa-menu-name { font-size: 11px; opacity: .6; padding: 2px 8px 5px;
-    margin-bottom: 2px; border-bottom: 1px solid var(--pdfa-border);
+  .pdfa-popover.pdfa-menu .pdfa-menu-name { font-size: 11px; opacity: .55; padding: 5px 10px 7px;
+    margin-bottom: 4px; border-bottom: 1px solid var(--pdfa-border);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* No align-items: center here on purpose - see the .pdfa-page comment below.
 
@@ -203,16 +212,35 @@ const STYLES = `
      ".pdfa-toolbar button" above, which would otherwise impose its padding. */
   .pdfa-color, .pdfa-toolbar .pdfa-color { width: 20px; height: 20px; padding: 0; border-radius: 50%;
     border: 1px solid rgba(0,0,0,.28); cursor: pointer; font: inherit; }
+  .pdfa-color:hover, .pdfa-toolbar .pdfa-color:hover { background-clip: padding-box; }
+  /* The selected ring is drawn INSIDE the swatch - a 2px accent border with an inset ring
+     of the bar's own color holding it off the fill. It used to be two stacked outer
+     box-shadows, which added 4px on every side of a 20px circle and pushed the ring past
+     the toolbar's edges: the bar looked like the selection was spilling out of it.
+     Anything drawn outward from a control sitting in a tight bar has to be paid for by
+     the bar's padding, and here the padding is set by the other controls' text. */
   .pdfa-color[aria-pressed="true"], .pdfa-toolbar .pdfa-color[aria-pressed="true"] {
-    box-shadow: 0 0 0 2px var(--pdfa-toolbar), 0 0 0 4px var(--pdfa-accent); }
+    border: 2px solid var(--pdfa-accent); box-shadow: inset 0 0 0 2px var(--pdfa-toolbar); }
   .pdfa-hint { display: none; opacity: .75; font-size: 12px; white-space: nowrap; }
 
   /* Remove / recolor actions for an existing highlight. Positioned "fixed" because the
      embed is its own iframe, so a click's client coordinates are already relative to
      this element's containing block - no scroll-offset arithmetic to get wrong. */
+  /* max-height + scroll is what keeps a popover INSIDE the embed. It is fixed-positioned
+     in an iframe, so "off the bottom" is not merely ugly - the parent page cannot show
+     the overflow and the rest of the menu is simply unreachable. A short embed with a
+     six-item menu hit this: showPopover flips above the cursor when it would overflow
+     below, but when the menu is taller than the whole viewport there is nowhere to flip
+     to, and it clipped. Scrolling is the only answer that always fits.
+
+     Shadow is softer than it was, to sit with Amplenote's own menus rather than shout
+     over them; the border is what carries the edge in dark mode, where a shadow reads as
+     nothing at all. */
   .pdfa-popover { position: fixed; display: none; gap: 5px; align-items: center; padding: 6px 8px;
     z-index: 20; background: var(--pdfa-toolbar); color: var(--pdfa-fg); max-width: 320px; flex-wrap: wrap;
-    border: 1px solid var(--pdfa-border); border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,.3); }
+    max-height: calc(100vh - 8px); overflow-y: auto;
+    border: 1px solid var(--pdfa-border); border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10); }
   .pdfa-popover.pdfa-open { display: flex; }
   /* The note editor turns the popover into a small column form. */
   .pdfa-popover.pdfa-editing { flex-direction: column; align-items: stretch; width: 274px; }
@@ -220,11 +248,19 @@ const STYLES = `
      behaviour the same .pdfa-color class has everywhere else - the filter is "any
      combination of colors", not "one active color". */
   .pdfa-popover.pdfa-exporting { flex-direction: column; align-items: stretch; width: 220px; }
-  /* The toolbar overflow menu (Download / Export / Remove) - a plain vertical stack of
-     full-width buttons, left-aligned text rather than the centered .pdfa-btn default, so
-     it reads as a menu rather than a row of action buttons. */
-  .pdfa-popover.pdfa-menu { flex-direction: column; align-items: stretch; width: 200px; gap: 2px; }
-  .pdfa-popover.pdfa-menu .pdfa-btn { text-align: left; border-color: transparent; background: transparent; }
+  /* The toolbar overflow menu (Download / Export / Remove), shaped after Amplenote's own
+     note menu: a tight card of full-width rows, left-aligned, no borders at rest, and a
+     rounded tint under the row on hover. The gap goes to 0 and the spacing moves into the
+     rows themselves, so the hover tint is a continuous band rather than a button with
+     visible gutters above and below it. */
+  .pdfa-popover.pdfa-menu { flex-direction: column; align-items: stretch; width: 216px; gap: 0; padding: 5px; }
+  .pdfa-popover.pdfa-menu .pdfa-btn { text-align: left; border-color: transparent; background: transparent;
+    padding: 8px 10px; border-radius: 6px; font-size: 13px; }
+  /* Rows keep their height when the menu hits its max-height, so the overflow SCROLLS
+     rather than compressing every row toward illegibility. Without this the column's
+     flex children shrink to fit and the cap silently squashes the menu instead of
+     letting it scroll - which measures as "fits" while looking broken. */
+  .pdfa-popover.pdfa-menu > * { flex: 0 0 auto; }
   .pdfa-popover.pdfa-menu .pdfa-btn:hover { background: var(--pdfa-btn-hover); }
   .pdfa-export-colors { display: flex; gap: 6px; padding: 2px 0 8px; }
   .pdfa-export-hint { font-size: 12px; opacity: .75; padding-bottom: 6px; }

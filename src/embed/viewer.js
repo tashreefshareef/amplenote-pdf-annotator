@@ -1002,6 +1002,12 @@ export function viewerMain() {
     var top = clientY + 12;
     // Flip above the cursor rather than off the bottom of a short embed.
     if (top + height > window.innerHeight - 4) top = Math.max(4, clientY - height - 12);
+    // Flipping is not enough on its own: with a menu taller than the space above the
+    // cursor, the flip lands at 4 and the bottom still runs off the embed - and an iframe
+    // cannot spill into the host note, so those rows are simply unreachable rather than
+    // merely untidy. Pull it back up so the whole box is inside, and let the CSS
+    // max-height scroll whatever still cannot fit.
+    top = Math.max(4, Math.min(top, window.innerHeight - height - 4));
     els.popover.style.left = left + "px";
     els.popover.style.top = top + "px";
   }
