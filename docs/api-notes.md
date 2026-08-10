@@ -103,8 +103,24 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    Confirmed live for the HTML flavor: Amplenote's editor accepts pasted `<blockquote>`
    nesting and a plain `<a href="plugin://...">`.
 
-   **You cannot paste colored text without a background box.** All four combinations were
-   tried live:
+   **Colored text on paste needs `data-text-color`, not CSS.** Amplenote's own clipboard
+   output for a cycle-colored marker, read off the `text/html` flavor after copying an
+   exported block out of a note, is:
+
+   ```html
+   <mark data-text-color="15" style="color: #BBE077;">●</mark>
+   ```
+
+   The attribute is the load-bearing part, and `15` is the same cycleIndex the markdown
+   form uses. Amplenote's paste handler reads it to build a **text-color** mark; a bare
+   `<mark>` with only inline CSS maps to a **highlight** mark instead and arrives wearing
+   that node's background box. Links come back as
+   `<a class="link" href="..." rel="noopener noreferrer" target="_self">`, and a plain
+   `<a href>` is accepted too.
+
+   Everything below is what was tried BEFORE reading that output - five CSS-only variants,
+   none of which can work, because the box is a consequence of the node type and not of
+   any style:
 
    | Pasted | Result |
    |---|---|
@@ -113,20 +129,19 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    | `<mark style="color:X;background-color:transparent">` | Glyph in X, box merely *fainter* - an inline `transparent` does NOT clear the element's own background |
    | `<span style="color:X">` | No box, and no color - the sanitizer drops the span outright |
 
-   So the schema has a highlight mark (hence `<mark>`'s inline colors being honoured) and
-   no text-color mark for a span to map onto. Note this differs from what the same
-   plugin's *markdown* produces - `==x<!-- {"cycleColor":"N"} -->==` colors the text with
-   no box - so a marker that looks right in an exported block will not look right in a
-   pasted one.
+   The span case is the tell in hindsight: a text-color mark clearly exists in the schema
+   (the editor has a text-color control), but its parse rule keys off `data-text-color`,
+   so a span carrying only `style="color"` matches nothing and is dropped whole.
 
    **The framing that wasted five rounds here: this is not a styling problem.** Pasted
    markup is mapped onto Amplenote's document schema, and the schema stores
-   "cycleColor-N mark", not "`#F3998C`" - so inline CSS never reaches the renderer at all.
-   You are not styling the content, you are nominating a node type and letting Amplenote
-   decide what that looks like. **To get markup Amplenote will accept, make Amplenote
-   produce the thing first, copy it, and read the `text/html` flavor off the clipboard**
-   (a contenteditable div with a `paste` listener dumping `clipboardData.getData
-   ("text/html")` is enough). One observation beats any number of CSS guesses.
+   "text-color mark, index 15", not "`#BBE077`" - so inline CSS never decides the
+   rendering. You are not styling the content, you are nominating a node type and letting
+   Amplenote decide what that looks like. **To get markup Amplenote will accept, make
+   Amplenote produce the thing first, copy it, and read the `text/html` flavor off the
+   clipboard** (a contenteditable div with a `paste` listener dumping
+   `clipboardData.getData("text/html")` is enough). One observation gave the answer that
+   five CSS guesses could not, and it was available from the start.
 
    **When matching a pasted element to one the plugin also writes as markdown, check which
    property the markdown form actually paints.** `==x<!-- {"cycleColor":"N"} -->==` colors

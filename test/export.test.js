@@ -164,15 +164,18 @@ describe("buildHighlightHtml", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ note: "a plain remark" }),
+      14,
       "#F4DE6C",
       "note-42"
     );
-    // `color` and NO background declaration - the last untried cell of the matrix in
-    // buildHighlightHtml's comment, and the only remaining combination that could render
-    // as the bare colored dot the markdown path produces. Notably NOT
-    // `background-color:transparent`, which left the box in place: a sanitizer rejecting
-    // that value drops the declaration and the mark keeps its own default background.
-    expect(html).toContain('<mark style="color:#F4DE6C">&#9679;</mark>');
+    // Byte-for-byte what Amplenote's OWN clipboard output contains for a cycle-colored
+    // marker, read off the text/html flavor after copying an exported block out of a note:
+    //   <mark data-text-color="15" style="color: #BBE077;">●</mark>
+    // `data-text-color` is the load-bearing part - it is what makes the paste handler
+    // build a TEXT-COLOR mark. Without it a bare <mark> becomes a HIGHLIGHT mark and
+    // arrives wearing that node's background box, which is what five CSS-only variants
+    // all failed to shake off. See buildHighlightHtml's comment.
+    expect(html).toContain('<mark data-text-color="14" style="color: #F4DE6C;">&#9679;</mark>');
     expect(html).not.toContain("background");
     expect(html).toContain(
       `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">paper.pdf</a>`
@@ -183,7 +186,7 @@ describe("buildHighlightHtml", () => {
 
   // Scenario: no note means no empty blockquote left dangling after the quote.
   test("omits the note blockquote entirely when there is no note", () => {
-    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), "#F4DE6C");
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), 14, "#F4DE6C");
     expect(html.match(/<blockquote>/g)).toHaveLength(2); // the nested quote only
   });
 
@@ -195,6 +198,7 @@ describe("buildHighlightHtml", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ quoteText: "if x < y & y > z", note: 'she said "no"' }),
+      14,
       "#F4DE6C"
     );
     expect(html).toContain("a&lt;b&gt; &amp; c.pdf");
@@ -210,6 +214,7 @@ describe("buildHighlightHtml", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ quoteText: "first line\nsecond line" }),
+      14,
       "#F4DE6C"
     );
     expect(html).toContain("<p>first line<br>second line</p>");
@@ -219,9 +224,18 @@ describe("buildHighlightHtml", () => {
   // wrapped in nothing, rather than emitting `color:null` or an uncolored <mark> whose
   // only visible effect would be that element's own background box.
   test("emits a bare glyph, wrapped in nothing, when no hex is known", () => {
-    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), null);
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), null, null);
     expect(html).toContain("<p>&#9679; <a href=");
     expect(html).not.toContain("color:");
+  });
+
+  // Scenario: a color the cycle table has no index for still deserves its exact hex - the
+  // inline style alone is worth keeping, it just cannot promise the box-free rendering
+  // that only data-text-color buys.
+  test("still emits the inline color when the cycle index is unknown", () => {
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), undefined, "#F4DE6C");
+    expect(html).toContain('<mark style="color: #F4DE6C;">&#9679;</mark>');
+    expect(html).not.toContain("data-text-color");
   });
 });
 

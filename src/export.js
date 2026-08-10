@@ -166,40 +166,45 @@ export function createExportBuilder() {
    * CONFIRMED LIVE: the paste renders - blockquote nesting, a clickable `plugin://`
    * anchor, and inline `color` AND `background-color` on a `<mark>` are all honoured.
    *
-   * The goal for the marker is what the MARKDOWN path renders: `==●<!--
-   * {"cycleColor":"N"} -->==` shows a small colored DOT with no box. That is not a
-   * styling difference to be matched with the right CSS - it is a different door into
-   * Amplenote. "Send to note" hands `insertNoteContent` markdown, which Amplenote's own
-   * parser turns into a real cycle-color mark node that its own stylesheet paints. A
-   * paste goes through the editor's HTML handler instead, which maps foreign markup onto
-   * its document schema and drops what does not fit. The document has nowhere to store
-   * "this text is #F3998C"; it stores "this is a cycleColor-N mark". So inline CSS is
-   * either translated into whatever node the element maps to, or discarded.
+   * THE MARKER IS COPIED FROM AMPLENOTE'S OWN CLIPBOARD OUTPUT, not derived. Copying an
+   * exported block out of a note and reading the `text/html` flavor gives, verbatim:
    *
-   * Tried live, in order:
+   *   <mark data-text-color="15" style="color: #BBE077;">●</mark>
+   *
+   * `data-text-color` is the load-bearing part and carries the same cycleIndex the
+   * markdown form uses. Amplenote's paste handler reads it to build a TEXT-COLOR mark;
+   * without it, a bare `<mark>` maps to a HIGHLIGHT mark instead and arrives wearing that
+   * node's background box. That single attribute is the difference, and no amount of CSS
+   * substitutes for it - five styled variants were tried live and every one either kept
+   * the box or lost the color:
    *
    *   `<mark background-color>`               -> colored box, black glyph inside it.
    *   `<mark background-color + color>`       -> solid colored box. Wrong shape.
-   *   `<mark color + background:transparent>` -> right glyph color, box still there,
-   *                                              merely fainter - consistent with the
-   *                                              sanitizer rejecting `transparent` as a
-   *                                              value and the mark falling back to its
-   *                                              own default background.
-   *   `<span color>`                          -> no box, and no color: the span maps to
-   *                                              no node at all and is dropped whole.
-   *   emoji swatch, no styling                -> survives everything, and looks like
-   *                                              decoration rather than a color code.
-   *                                              Rejected on sight.
+   *   `<mark color + background:transparent>` -> right glyph color, box still there.
+   *   `<span color>`                          -> no box, and no color: no node to map to,
+   *                                              so the span is dropped whole.
+   *   emoji swatch, no styling                -> survives everything, reads as decoration.
    *
-   * Hence `color` and NO background declaration - the one combination not yet tried, and
-   * the only one left that could produce a bare colored glyph. If this still boxes, the
-   * answer is not another CSS guess: read the HTML Amplenote's OWN copy puts on the
-   * clipboard for a cycle-colored mark and emit exactly that, so its paste handler builds
-   * the same node its markdown parser does.
+   * The lesson worth keeping (docs/bugs-found.md): pasted markup is mapped onto
+   * Amplenote's document schema, so inline CSS is not styling - it is a hint about WHICH
+   * NODE you meant, and the node decides how it looks. Reading the target's own clipboard
+   * output answers in one observation what guessing at CSS cannot answer at all.
+   *
+   * The inline `color` is kept alongside the attribute because Amplenote emits both; the
+   * spacing (`color: #HEX;`) mirrors its output exactly rather than being normalized, on
+   * the theory that anything matching byte-for-byte cannot be the thing that breaks.
    */
-  function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
+  function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, cycleIndex, hex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
-    var marker = hex ? '<mark style="color:' + escapeHtml(hex) + '">&#9679;</mark>' : "&#9679;";
+    var marker = "&#9679;";
+    if (hex) {
+      marker =
+        "<mark" +
+        (cycleIndex === undefined || cycleIndex === null
+          ? ""
+          : ' data-text-color="' + escapeHtml(cycleIndex) + '"') +
+        ' style="color: ' + escapeHtml(hex) + ';">&#9679;</mark>';
+    }
     var heading =
       "<p>" + marker + ' <a href="' + escapeHtml(url) + '">' + escapeHtml(pdfName || "PDF") + "</a></p>";
 

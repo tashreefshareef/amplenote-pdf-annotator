@@ -514,20 +514,33 @@ version is that a `<mark>` keeps a background box — `background-color:transpar
 not clear it, only fades it — and a `<span style="color">` is dropped whole. An emoji
 swatch survived everything and was rejected on sight as decoration.
 
+**What actually settled it** took one observation: copy an exported block out of Amplenote
+and read the `text/html` flavor off the clipboard. Its own markup is
+
+```html
+<mark data-text-color="15" style="color: #BBE077;">●</mark>
+```
+
+`data-text-color` is the load-bearing part — it names a **text-color** mark, and `15` is
+the same cycleIndex the markdown form uses. A `<mark>` without it maps to a **highlight**
+mark and arrives wearing that node's box. The last CSS attempt had the style byte-exact
+and was missing only the attribute.
+
 **The mistake underneath all five rounds** was treating this as a styling problem. The two
 features do not differ in CSS; they enter Amplenote through different doors.
-`insertNoteContent` hands over markdown, which Amplenote's own parser turns into a real
-cycle-color mark node that its own stylesheet paints. A paste goes through the editor's
-HTML handler, which maps foreign markup onto its document schema and discards the rest —
-and the schema has nowhere to store "this text is `#F3998C`", only "this is a
-cycleColor-N mark". No CSS was ever going to reach the renderer.
+`insertNoteContent` hands over markdown, which Amplenote's own parser turns into a mark
+node its stylesheet paints. A paste goes through the editor's HTML handler, which maps
+foreign markup onto its document schema and discards the rest — and the schema stores
+"text-color mark, index 15", never "`#BBE077`". No CSS was going to decide the rendering.
 
 **General lesson (the useful one):** when a rich-text target renders your content through
 a document schema, you are not styling it — you are *nominating a node type*, and the
-styling is downstream of what the target decides you meant. Guessing at CSS is guessing at
-someone else's parseDOM rules. The move is to make the target produce the thing you want,
-copy it, and read the markup off the clipboard — one observation that ends the guessing.
-Reach for it as soon as the second attempt fails, not the fifth.
+appearance is downstream of which node the target decides you meant. Guessing at CSS is
+guessing at someone else's parseDOM rules, and the failures don't tell you which rule you
+missed. The move is to make the target produce the thing you want, copy it, and read the
+markup off the clipboard. That was available from the first round and would have replaced
+all five. **When output is mapped through a schema you don't control, get a known-good
+sample before writing the generator.**
 
 **Second lesson:** when one feature renders through a platform's markdown and another
 through pasted HTML, a discrepancy between them is invisible in either output alone. Both

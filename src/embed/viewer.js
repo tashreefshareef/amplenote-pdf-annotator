@@ -1669,6 +1669,7 @@ export function viewerMain() {
       cfg.pluginUUID,
       cfg.attachmentUUID,
       highlight,
+      colorCycleIndexTable()[highlight.color],
       hex,
       cfg.noteUUID
     );
