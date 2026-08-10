@@ -654,6 +654,44 @@ describe("buildEmbedHtml", () => {
     expect(out).not.toContain("pdfa-menu-zoom");
   });
 
+  // Scenario: the +/- stepper moves in fixed 25% jumps from wherever fit-to-width landed,
+  // so an exact zoom was often unreachable - from a fitted 83% the steps run 58/108/133
+  // and 100% simply is not on the list. The percentage is a text field for that reason,
+  // and it has to keep behaving like the label it replaced when nobody types in it.
+  test("makes the zoom percentage a typable field", () => {
+    const out = html();
+    const field = out.match(/<input id="pdfa-zoom-label"[\s\S]*?>/)[0];
+    // Not type=number: the spinner arrows do not fit this bar, and it rejects the "%"
+    // the field's own displayed value invites people to type back.
+    expect(field).toContain('type="text"');
+    // ...but a phone still gets the numeric keypad.
+    expect(field).toContain('inputmode="numeric"');
+    expect(field).toMatch(/aria-label="[^"]*[Zz]oom/);
+    // Styled back down to a label: no browser-default border, background or width.
+    const style = out.match(/\.pdfa-zoom-field \{[^}]*\}/)[0];
+    expect(style).toMatch(/background:\s*transparent/);
+    expect(style).toMatch(/border:\s*1px solid transparent/);
+    expect(style).toMatch(/width:/);
+  });
+
+  // Scenario: the viewer wiring behind that field. A typo must never blank the document,
+  // and an out-of-range number must land inside the same limits the buttons obey.
+  test("commits a typed zoom, and rejects junk instead of blanking the page", () => {
+    const out = html();
+    // "100%", " 100 " and "87.5" all read as percentages; "1o0" does not (parseFloat
+    // alone would take it as 1 and zoom to 1%).
+    expect(out).toMatch(/replace\(\/\[\\s%\]\/g, ""\)/);
+    expect(out).toContain("/^\\d*\\.?\\d+$/.test(typed)");
+    // One clamp for the buttons, the typed value and the initial fit alike.
+    expect(out).toMatch(/function clampZoom\(scale\) \{\s*return Math\.min\(Math\.max\(0\.4, scale\), 4\);/);
+    expect(out).toContain("var scale = clampZoom(percent / 100);");
+    // Enter commits, Escape abandons, blur commits.
+    expect(out).toMatch(/addEventListener\("blur", applyZoomInput\)/);
+    expect(out).toMatch(/event\.key === "Escape"[\s\S]{0,300}els\.zoomLabel\.value = zoomText\(\)/);
+    // And a redraw never overwrites what is being typed.
+    expect(out).toContain("if (document.activeElement !== els.zoomLabel) els.zoomLabel.value = zoomText();");
+  });
+
   // Scenario: the collapsed bar's box is width/COLLAPSED_ASPECT_RATIO, and the note
   // markup carrying that ratio is shared across every device - so a bar tuned to 45px at
   // a desktop note width gets 22px on a phone and was being cut in half. The box cannot

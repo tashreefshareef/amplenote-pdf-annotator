@@ -1295,9 +1295,17 @@ export function viewerMain() {
 
   // ---- navigation ----------------------------------------------------------
 
+  function zoomText() {
+    return Math.round(state.scale * 100) + "%";
+  }
+
   function updateLabels() {
     els.pageLabel.textContent = state.current + " / " + state.pageCount;
-    els.zoomLabel.textContent = Math.round(state.scale * 100) + "%";
+    // Left alone while the reader is typing in it. The zoom label is an input now, and
+    // this runs from renderAll and from every scroll that changes the current page - so
+    // without the guard, half-typed digits would be overwritten mid-edit by a value the
+    // reader is in the middle of replacing.
+    if (document.activeElement !== els.zoomLabel) els.zoomLabel.value = zoomText();
   }
 
   function scroller() {
@@ -1454,9 +1462,43 @@ export function viewerMain() {
     }, 2600);
   }
 
+  /** The zoom range every path has to respect - the buttons, the typed field, the fit. */
+  function clampZoom(scale) {
+    return Math.min(Math.max(0.4, scale), 4);
+  }
+
   function setZoom(scale) {
-    state.scale = Math.min(Math.max(0.4, scale), 4);
+    state.scale = clampZoom(scale);
     return renderAll();
+  }
+
+  /**
+   * Commit whatever is currently typed in the zoom field.
+   *
+   * Tolerant about the shape: "100", "100%", " 100 % " and "87.5" all read as the same
+   * percentage, because a field that shows "125%" invites you to type the "%" back.
+   * Intolerant about junk - anything that is not a plain number snaps straight back to the
+   * zoom actually on screen, since a viewer that goes blank over a typo is worse than one
+   * that ignores it. parseFloat alone would not do: it reads "1o0" as 1 and would zoom to
+   * 1% rather than reject it.
+   *
+   * Out-of-range values clamp instead of failing, and the field is then rewritten with
+   * what actually took effect - so typing 900 answers itself with "400%".
+   */
+  function applyZoomInput() {
+    var typed = String(els.zoomLabel.value).replace(/[\s%]/g, "");
+    var percent = /^\d*\.?\d+$/.test(typed) ? parseFloat(typed) : NaN;
+    if (percent > 0) {
+      var scale = clampZoom(percent / 100);
+      // Re-rasterizing every rendered page is the expensive half of a zoom change, and
+      // this runs on blur whether or not anything was actually edited - so a value that
+      // did not move must not pay for it.
+      if (scale !== state.scale) setZoom(scale);
+    }
+    // Unconditional, and after the setZoom above: it both formats an accepted value and
+    // restores a rejected one, and updateLabels cannot do it while the field still has
+    // focus (see its own comment).
+    els.zoomLabel.value = zoomText();
   }
 
   /**
@@ -1487,9 +1529,9 @@ export function viewerMain() {
           (parseFloat(style.paddingRight) || 0);
         var pageWidth = page.getViewport({ scale: 1 }).width;
         if (!(available > 0) || !(pageWidth > 0)) return;
-        // Clamped to the same floor setZoom uses, so the fit can never land at a zoom
+        // Clamped by the same helper setZoom uses, so the fit can never land at a zoom
         // the zoom-out button itself could not have reached.
-        var fit = Math.max(0.4, available / pageWidth);
+        var fit = clampZoom(available / pageWidth);
         if (fit < state.scale) {
           state.scale = fit;
           updateLabels();
@@ -2354,6 +2396,39 @@ export function viewerMain() {
     document.getElementById("pdfa-next").onclick = function () { goToPage(state.current + 1); };
     document.getElementById("pdfa-zoom-in").onclick = function () { setZoom(state.scale + 0.25); };
     document.getElementById("pdfa-zoom-out").onclick = function () { setZoom(state.scale - 0.25); };
+
+    // ---- typed zoom ----------------------------------------------------------
+    // The field is three characters wide, so anything short of select-all is fiddly: a
+    // click lands the caret between two digits and leaves the reader deleting a "%" by
+    // hand before they can type. Focus therefore strips the unit and selects the number,
+    // making the first keystroke a replacement.
+    els.zoomLabel.addEventListener("focus", function () {
+      els.zoomLabel.value = String(Math.round(state.scale * 100));
+      // Deferred a tick: a selection made during the focus event is collapsed again by
+      // the mouseup of the very click that caused the focus.
+      setTimeout(function () {
+        if (document.activeElement === els.zoomLabel) els.zoomLabel.select();
+      }, 0);
+    });
+    // Blur commits rather than reverts: clicking away from a field you just typed into
+    // means "yes", everywhere else in this app. Escape is the way to back out.
+    els.zoomLabel.addEventListener("blur", applyZoomInput);
+    els.zoomLabel.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        // preventDefault so a host form (or the note's own editor) never sees a submit.
+        event.preventDefault();
+        applyZoomInput();
+        // Handing focus back also gets the field out of its editing look, and lets the
+        // arrow keys go back to scrolling the pages.
+        els.zoomLabel.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        // Abandon the edit outright - same meaning Escape has in the note editor and the
+        // popovers. The blur that follows re-commits this restored value, by then a no-op.
+        els.zoomLabel.value = zoomText();
+        els.zoomLabel.blur();
+      }
+    });
     bindHoldToScroll(els.scrollUp, -1);
     bindHoldToScroll(els.scrollDown, 1);
     els.listToggle.onclick = function () { togglePanel(); };

@@ -402,6 +402,10 @@ const STYLES = `
     .pdfa-toolbar .pdfa-brand { display: none; }
     .pdfa-toolbar { gap: 4px; padding: 5px 6px; justify-content: center; }
     .pdfa-label { min-width: 44px; }
+    /* Shrinks with the label it sits among - see .pdfa-zoom-field for why the zoom one
+       needs a width of its own rather than inheriting the min-width above. Still wide
+       enough for the longest value it can hold, "400%". */
+    .pdfa-zoom-field { width: 46px; padding: 5px 2px; }
     /* Zoom was moved into the overflow menu here for one release, to buy back a 40px
        toolbar row. Reverted after use on a real phone: a stepper reached through a menu
        is worse than a second toolbar row, and the row costs proportionally less now that
@@ -431,6 +435,10 @@ const STYLES = `
        measuring, not by reading. They get their bigger hit area from ::after below,
        which leaves the circle alone. */
     .pdfa-toolbar button:not(.pdfa-color) { min-height: 40px; padding: 8px 12px; }
+    /* Not a button, so the rule above skips it - and a 26px-tall text field wedged
+       between two 40px buttons is both the odd one out and the hardest thing in the
+       toolbar to tap accurately. */
+    .pdfa-zoom-field { min-height: 40px; }
     #pdfa-more { padding: 8px 14px; }
     .pdfa-btn { min-height: 38px; }
     .pdfa-hl-row { padding: 11px 8px; }
