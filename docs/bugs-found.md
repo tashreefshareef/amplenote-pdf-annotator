@@ -547,21 +547,44 @@ through pasted HTML, a discrepancy between them is invisible in either output al
 were only obviously different once an exported block and a pasted one sat a few lines
 apart in the same note — worth deliberately arranging when two paths are meant to agree.
 
-**Follow-on regression: trying the modern clipboard API first broke copying entirely.**
-The two-flavor rewrite ordered the strategies newest-first — `ClipboardItem` +
-`navigator.clipboard.write`, falling back to `execCommand("copy")` in its `.catch`. In the
-embed's cross-origin iframe the modern call rejects, and *awaiting that rejection ends the
-user gesture*, so the fallback found `execCommand` already refused. The button reported
-"could not copy" and nothing reached the clipboard at all — a strictly worse outcome than
-either route alone. Fixed by running the synchronous copy-event route first, start to
-finish inside the click, with the async ones behind it.
+**Follow-on regression: Copy stopped writing to the clipboard at all, silently.** Reported
+as "nothing is copying", with no error message — and the no-message part was itself a bug
+hiding the real one. `copyHighlight` built both clipboard flavors *before* `copyToClipboard`
+returned a promise, so a throw while assembling them escaped past the `.catch` attached to
+the result: no copy, no status, nothing to report. That is indistinguishable from a refused
+clipboard write when all you can see is the UI.
 
-**General lesson:** a fallback chain is only a fallback chain if every branch still has
-whatever the first branch might consume. Anything gated on transient user activation
-(clipboard, fullscreen, popups, autoplay) burns that activation when it is awaited, so
-"try the good one, fall back to the old one" silently becomes "try both, fail twice" —
-and it fails *only* in the restricted context the fallback existed for, which is the
-context least likely to be tested. Order these synchronous-first, always.
+Fixed by a commit that changed two things at once, and **which one did it was never
+isolated** — recorded that way deliberately rather than tidied into a clean story:
+
+1. Both builders moved inside a `try`, with their own failure message, and
+   `copyToClipboard` now resolves with the *name of the route that won* so the status can
+   distinguish "copied with formatting" from "copied as plain text".
+2. `execCommand` moved to **last**, having briefly been first. It needs a real selection,
+   so it focuses and removes an offscreen textarea, which can leave the document unfocused
+   and make a later `clipboard.write` reject with "document is not focused" — and in a
+   sandboxed iframe it can return `true` having copied nothing, reporting success over an
+   empty clipboard. An intermediate commit that put it first did NOT fix the bug, which is
+   the evidence that the first hypothesis (below) was not the whole story.
+
+The first hypothesis was gesture burn: `clipboard.write` rejects in the cross-origin
+iframe, and awaiting that rejection ends the user gesture, so an `execCommand` fallback in
+its `.catch` finds itself already refused. That mechanism is real and worth designing
+around, but reordering for it alone did not restore copying.
+
+**General lesson (the one that holds):** a silent failure path costs more than the bug it
+hides. An operation assembled in several steps must report which step failed, or every
+failure looks identical from the outside and the diagnosis is guesswork — here it cost two
+round-trips before the button could say anything at all. **Make it say something first,
+then fix what it says.**
+
+**Second:** a fallback chain is only a fallback chain if every branch still has whatever
+the first branch might consume. Anything gated on transient user activation (clipboard,
+fullscreen, popups, autoplay) burns that activation when awaited, so "try the good one,
+fall back to the old one" can become "try both, fail twice" — and only in the restricted
+context the fallback existed for, which is the context least likely to be tested. Routes
+can also spoil each other in the other direction: the DOM-based one steals focus that the
+API-based one requires.
 
 **General lesson:** "copy" and "write through the app's own API" are two different
 destinations with two different parsers, and evidence from one says nothing about the
