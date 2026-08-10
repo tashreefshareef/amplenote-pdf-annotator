@@ -619,6 +619,46 @@ editor will never re-parse plain text into it.
 
 ---
 
+## Two colors transcribed from the spec were never the platform's actual colors
+
+**Symptom:** none. Nothing looked wrong, nothing was reported, and every test passed —
+including one that recomputed each `rgb` triple from its own hex and confirmed they
+agreed. Found only by going to fetch a *larger* palette: Amplenote's stylesheet declares
+`--palette-color-12: #F2998C` and `--palette-color-14: #F3DE6C`, while
+`src/constants.js` had carried `#F3998C` and `#F4DE6C` since the first commit. One digit
+apart in the red channel, in two of our four colors. Green and blue matched exactly.
+
+**Cause:** the table came from the bounty note, and only green had ever been round-tripped
+through Amplenote itself (`<mark data-text-color="15" style="color: #BBE077;">`, captured
+off the clipboard). The file's own comment said as much — "the other three come from the
+same bounty-note table, so the table is trustworthy" — which is exactly the inference that
+was wrong. One verified row does not vouch for the rows beside it. They were typos in a
+human-written document, and we inherited them as constants.
+
+**Why the tests were no help:** they checked *internal* consistency — hex against rgb,
+id against hex — which is the shape of test you write when you assume the values are
+right and worry about drift. Nothing compared a single value against the platform,
+because the platform wasn't a source we'd read; the spec was. A test suite can only catch
+disagreement between things it has both of.
+
+**Consequence, once you know:** an exported link asked for a `background-color` that
+Amplenote's palette does not contain — the one thing spec §4 explicitly requires it not to
+do ("the Amplenote-supported color that corresponds") — and downloaded PDFs carried the
+same error into their native annotation colors. Invisible at a glance, wrong on inspection.
+
+**Fix:** read all 55 `--palette-color-N` declarations out of
+`assets.amplenote.com/packs/css/note_editor_app-*.css` and take the values from there.
+See `docs/api-notes.md` for the palette's structure and for the retrieval trick, which is
+the reusable part.
+
+**The general lesson:** **a table transcribed into a spec is a secondary source, and
+transcription is where digits die.** When the platform itself declares the values —
+in a stylesheet, an API response, its own clipboard output — go read them, even if the
+document you were handed looks authoritative and even if a spot-check of one row passed.
+The corollary for tests: a test that compares two of *your* constants to each other proves
+consistency, not correctness. If a value's authority lives outside your repo, at least one
+assertion should quote the outside value verbatim.
+
 ## The same content, written two ways, rendered with and without an underline
 
 **Symptom:** two export blocks for the *same* highlight sat a few lines apart in one note.

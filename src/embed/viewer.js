@@ -174,8 +174,43 @@ export function viewerMain() {
 
   // ---- small helpers -------------------------------------------------------
 
+  /**
+   * Every color a highlight is allowed to BE - the resolver, not the picker.
+   *
+   * Anything that turns a stored highlight into pixels or into a hex goes through here,
+   * so a highlight made in a color the user has since taken off their toolbar still
+   * renders in the color it was made in. See html.js's config comment for what breaks if
+   * these two lists are ever collapsed into one.
+   */
   function colorList() {
     return cfg.colors || [];
+  }
+
+  /** The subset wearing toolbar circles, in the user's own order. */
+  function toolbarColors() {
+    var ids = cfg.toolbarColorIds || [];
+    var list = colorList();
+    var out = [];
+    for (var i = 0; i < ids.length; i++) {
+      for (var j = 0; j < list.length; j++) {
+        if (list[j].id === ids[i]) { out.push(list[j]); break; }
+      }
+    }
+    // An unrecognized setting must never leave the bar empty - highlighting would be
+    // unreachable. The plugin side already falls back (colors.js), so this only catches a
+    // config built by hand.
+    return out.length ? out : list.slice(0, 4);
+  }
+
+  /**
+   * The colors this document's highlights actually use, in catalog order. Empty document
+   * falls back to the toolbar's four so the export filter is never a blank row.
+   */
+  function usedColors() {
+    var seen = {};
+    for (var i = 0; i < state.highlights.length; i++) seen[state.highlights[i].color] = true;
+    var out = colorList().filter(function (c) { return seen[c.id]; });
+    return out.length ? out : toolbarColors();
   }
 
   function colorHex(id) {
@@ -270,7 +305,7 @@ export function viewerMain() {
    * step back.
    */
   function mountColorButtons() {
-    var list = colorList();
+    var list = toolbarColors();
     for (var i = 0; i < list.length; i++) {
       els.colors.appendChild(
         makeSwatch(list[i], list[i].id === state.activeColorId, function (colorId) {
@@ -1095,9 +1130,16 @@ export function viewerMain() {
     els.popover.innerHTML = "";
   }
 
-  /** Context 1: a fresh selection. Colors only - one click from selection to highlight. */
+  /**
+   * Context 1: a fresh selection. Colors only - one click from selection to highlight.
+   *
+   * The TOOLBAR's four, not the catalog: this popover is the fast path, and it mirrors
+   * the bar so the swatch under your finger is the one you already know. Reaching for a
+   * color you highlight in twice a year belongs in the recolor popover below, which is
+   * one extra click and no hunting.
+   */
   function openSelectionPopover(selection) {
-    var list = colorList();
+    var list = toolbarColors();
     var children = [];
     for (var i = 0; i < list.length; i++) {
       children.push(
@@ -1111,7 +1153,15 @@ export function viewerMain() {
     showPopover(children, selection.anchorX, selection.anchorY);
   }
 
-  /** Contexts 2 and 3: an existing highlight, either just created or clicked. */
+  /**
+   * Contexts 2 and 3: an existing highlight, either just created or clicked.
+   *
+   * The WHOLE catalog here, deliberately unlike the toolbar and the selection popover.
+   * This is a floating card that can wrap, so it can afford every color, and it is what
+   * keeps the four-slot toolbar from making anything unreachable: the setting decides
+   * what is one click away, never what is possible. It is also the only place a highlight
+   * already wearing a non-toolbar color can show its own swatch as the pressed one.
+   */
   function openHighlightPopover(highlight, clientX, clientY, justCreated) {
     var list = colorList();
     var children = [];
@@ -1146,12 +1196,17 @@ export function viewerMain() {
   }
 
   /**
-   * Context 5: "export all"'s color filter. Independently-toggled swatches - the four
+   * Context 5: "export all"'s color filter. Independently-toggled swatches - the
    * booleans are which colors to INCLUDE, not a single active color - so this cannot
    * reuse the single-select handling every other popover context relies on.
+   *
+   * The colors ACTUALLY IN THIS DOCUMENT, which is neither of the other two lists. The
+   * catalog would offer eleven toggles to filter a note that only ever used two, and the
+   * toolbar's four would hide a color the document really contains - so a highlight made
+   * before the setting changed could not be filtered for at all.
    */
   function openExportPopover(clientX, clientY) {
-    var list = colorList();
+    var list = usedColors();
     var active = {};
     for (var i = 0; i < list.length; i++) active[list[i].id] = true;
 

@@ -142,6 +142,37 @@ Click **inside** the code block first, press Ctrl+A, and **confirm the selection
 only the block** before pasting. Clicking slightly outside it makes Ctrl+A select the
 whole note, and pasting then destroys the metadata table.
 
+## Choosing your four highlight colors
+
+The toolbar carries four color circles. Which four is up to you — add this row to the
+plugin note's metadata table:
+
+| setting | Highlight colors |
+|---|---|
+
+Then set it to any four of Amplenote's eleven highlighter colors, comma separated:
+
+```
+purple, pink, mint, sky
+```
+
+Names, labels or hex codes all work (`blue`, `Blue`, `#84B6D9`), in any order — the first
+one becomes the color a fresh selection gets. Leave the setting empty and you get the
+four the spec names: coral, yellow, green, blue.
+
+The full eleven are `coral peach yellow green mint sky blue purple orchid pink grey` —
+Amplenote's own mid-tone palette (indices 12–22; see `docs/api-notes.md`). **All eleven
+stay available** on any existing highlight through the recolor popover, whatever your four
+are. The setting decides what's one click away, never what's possible, so changing it can
+never strand a highlight you already made.
+
+Two things worth knowing:
+
+- **It applies when a viewer next opens.** An embed already on screen keeps the colors it
+  was rendered with — collapse and re-expand it to pick up a change.
+- **Four is the cap.** Extra names are ignored rather than honoured; a fifth circle wraps
+  the toolbar onto a second row on a phone.
+
 ## Commands
 
 | Command | What it does |
@@ -149,7 +180,7 @@ whole note, and pasting then destroys the metadata table.
 | `npm run build` | Bundle `src/` → `dist/plugin.js` (GitHub sync target) and `dist/plugin-paste.js` (manual paste) |
 | `npm test` | Run the Jest suite |
 | `npm run test:watch` | Jest in watch mode |
-| `npm run harness` | Serve the viewer standalone at `http://localhost:4173`, no Amplenote needed |
+| `npm run harness` | Serve the viewer standalone at `http://localhost:4173`, no Amplenote needed (`PORT=4174` to move it; `-- --colors "purple, pink, mint, sky"` to try a toolbar palette) |
 | `npm run spike:annotations` | Generate `spike/out/annotated-sample.pdf` to verify native PDF annotations in external readers |
 
 ### The harness

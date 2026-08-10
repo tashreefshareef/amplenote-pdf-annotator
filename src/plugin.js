@@ -16,6 +16,8 @@ import { linkTarget } from "./actions/link-target.js";
 import { handleEmbedCallSerialized } from "./embed-call.js";
 import { buildEmbedHtml } from "./embed/html.js";
 import { parseEmbedArgs } from "./embed-args.js";
+import { parseToolbarColorIds } from "./colors.js";
+import { COLOR_SETTING_NAME } from "./constants.js";
 
 const plugin = {
   noteOption: {
@@ -91,6 +93,15 @@ const plugin = {
       // stale note id after the embed remounts, causing loadHighlights to look at the
       // wrong note.
       noteUUID: app.context.noteUUID,
+      // Which four colors get toolbar circles, from the plugin note's
+      // `setting | Highlight colors` row. Read HERE rather than inside the embed because
+      // `app.settings` only exists plugin-side, and read on every render rather than
+      // cached because that is the only moment the current value can reach a viewer:
+      // changing a setting does not re-render an embed that is already mounted, so a new
+      // value lands when the viewer next opens (see constants.js).
+      toolbarColorIds: parseToolbarColorIds(
+        app.settings ? app.settings[COLOR_SETTING_NAME] : null
+      ),
     });
   },
 

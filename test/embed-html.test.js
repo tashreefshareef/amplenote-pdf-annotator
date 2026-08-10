@@ -7,7 +7,12 @@
  * unescaped filename yields a blank embed with no error anywhere.
  */
 import { buildEmbedHtml } from "../src/embed/html.js";
-import { CDN, HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "../src/constants.js";
+import {
+  CDN,
+  HIGHLIGHT_COLORS,
+  DEFAULT_COLOR_ID,
+  DEFAULT_TOOLBAR_COLOR_IDS,
+} from "../src/constants.js";
 
 describe("buildEmbedHtml", () => {
   const html = (over = {}) =>
@@ -126,18 +131,38 @@ describe("buildEmbedHtml", () => {
   // Scenario: the spec is explicit that all four colors are top-level toolbar buttons,
   // switchable in a single click - no dropdown, no sidebar. The viewer mounts them from
   // config, so every color has to reach the embed with the hex it will paint.
-  test("passes all four highlight colors to the viewer", () => {
+  //
+  // The WHOLE catalog is sent, not just the four with circles: this list is what resolves
+  // a stored highlight into a color, and a note can hold highlights in colors the user
+  // has since taken off their toolbar. Send only the four and every one of those fails
+  // lookup and gets repainted the default - data loss dressed up as a preference change.
+  test("passes the whole color catalog to the viewer, and which four wear circles", () => {
     const out = html();
-    expect(HIGHLIGHT_COLORS).toHaveLength(4);
+    expect(HIGHLIGHT_COLORS.length).toBeGreaterThan(DEFAULT_TOOLBAR_COLOR_IDS.length);
     for (const color of HIGHLIGHT_COLORS) {
       expect(out).toContain(`"id":"${color.id}"`);
       expect(out).toContain(`"hex":"${color.hex}"`);
       expect(out).toContain(`"label":"${color.label}"`);
     }
+    expect(out).toContain(`"toolbarColorIds":${JSON.stringify(DEFAULT_TOOLBAR_COLOR_IDS)}`);
     expect(out).toContain(`"defaultColorId":"${DEFAULT_COLOR_ID}"`);
     // The color buttons sit in the toolbar, not in a panel below it.
     const toolbar = out.match(/<div class="pdfa-toolbar">[\s\S]*?<\/div>/)[0];
     expect(toolbar).toContain('id="pdfa-colors"');
+  });
+
+  // Scenario: a user who set their own four gets those, in their own order - and the
+  // active color follows, since a default with no circle would leave the bar showing
+  // nothing selected and no way to select it again.
+  test("honours a caller-supplied toolbar set without shrinking the catalog", () => {
+    const out = buildEmbedHtml({
+      attachmentUUID: "att-1",
+      toolbarColorIds: ["purple", "pink", "mint", "sky"],
+    });
+    expect(out).toContain('"toolbarColorIds":["purple","pink","mint","sky"]');
+    expect(out).toContain('"defaultColorId":"purple"');
+    // Coral still travels: an existing coral highlight has to keep rendering coral.
+    expect(out).toContain('"id":"coral"');
   });
 
   // Scenario: rgb reaches the embed because Download writes native annotations

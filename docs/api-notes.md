@@ -265,6 +265,28 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    only work "already operating within that embed's context" per Amplenote's own docs -
    there's no cross-note equivalent.
 
+9b. **Amplenote's full color palette is 55 values, declared as `--palette-color-N` CSS
+    variables, and it is IDENTICAL in every theme.** They live in
+    `assets.amplenote.com/packs/css/note_editor_app-*.css` (hashed filename; read the
+    `<link>` hrefs off the page). The set is five bands of eleven, each band running the
+    same hues in the same order: 1-11 pastel, **12-22 mid**, 23-33 saturated, 34-44 dark,
+    45-55 darkest, with the eleventh of each band a neutral. `data-text-color="15"` and
+    `data-background-color="N"` are indexes into this, which is what makes an index
+    portable: dedupe every declaration in the file and you get exactly one value per
+    index, so none of Amplenote's 26 themes redefines a single one. **12-22 is the band
+    that reads as highlighter ink** - strong enough to see over black text, light enough
+    to read through - and it is where this plugin's four came from.
+
+    Two retrieval lessons, both of which cost time here:
+    - **`document.styleSheets[].cssRules` throws on a cross-origin stylesheet**, and a
+      scan that wraps it in `try/catch { continue }` reports "no matches" rather than "I
+      couldn't look" - a silent false negative that reads exactly like a real answer.
+      Amplenote serves CSS from `assets.amplenote.com` while the app runs on
+      `www.amplenote.com`, so every sheet is cross-origin. Fetch the href instead.
+    - **Don't fetch a multi-megabyte bundle inside the page to search it.** The editor
+      JS is ~6 MB and an in-page `fetch().then(text).search()` hit the CDP evaluate
+      timeout twice, which looks like a frozen renderer. `curl` it and grep locally.
+
 10. **An attachment IS present in note markdown, at its real position in the body, as
     `[filename](attachment://ATTACHMENT_UUID)`** - and that uuid is the same one
     `getNoteAttachments` returns. This is documented NOWHERE: the plugin markdown

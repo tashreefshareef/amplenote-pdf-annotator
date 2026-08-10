@@ -1,24 +1,47 @@
 /**
- * The four highlight colors (spec section 4).
+ * 0..1 RGB for pdf-lib, computed from the hex rather than typed beside it.
  *
- * `cycleIndex` is Amplenote's own index for each of these colors. NOTHING EMITS IT ANY
- * MORE. An exported link used to carry it as `backgroundCycleColor`, in a comment inside
- * its mark, and that comment is what drew an UNDERLINE under every exported link: it
- * names Amplenote's cycle-color node, which brings its own link decoration with it. The
- * marker is a plain `background-color` hex now (src/export.js) - same color, no
- * decoration, and it is what Amplenote itself stores for a pasted highlight.
+ * The two used to be written out by hand as "one source of truth per color", which they
+ * were not - they were two, and a drifted triple is invisible until someone opens a
+ * DOWNLOADED pdf in Acrobat, the most expensive place in this project to find a bug.
+ */
+function rgbFromHex(hex) {
+  return [1, 3, 5].map(
+    (i) => Math.round((parseInt(hex.slice(i, i + 2), 16) / 255) * 1000) / 1000
+  );
+}
+
+/**
+ * Amplenote's own mid-tone band, read out of its stylesheet - NOT a palette of our own.
  *
- * Kept because the mapping is a verified platform fact rather than plumbing: it is how a
- * colored TEXT marker would have to be written (`data-text-color="N"`), which nothing
- * here needs today. Do not put it back into the export without re-checking the underline.
+ * `assets.amplenote.com/packs/css/note_editor_app-*.css` declares 55 colors as
+ * `--palette-color-N`, in five bands of eleven (pastel, mid, saturated, dark, darkest),
+ * each band running the same hues in the same order. Every one of Amplenote's themes -
+ * all 26 of them, light and dark - declares the SAME values, checked by deduping every
+ * declaration in the file: one value per index, no theme-specific overrides. So an index
+ * means one color, everywhere, and this table cannot go stale per theme.
  *
- * VERIFIED for green: Amplenote's own clipboard output for an exported marker came back
- * as `<mark data-text-color="15" style="color: #BBE077;">`, resolving index 15 to exactly
- * the hex below. The other three come from the same bounty-note table as 15 did, so the
- * table is trustworthy, but only that one has been round-tripped through Amplenote.
+ * Indices 12-22 are the band that reads as highlighter ink: strong enough to see over
+ * black text on white paper, light enough to read through. The pastel band above it
+ * (1-11) is what Amplenote uses for its own text-background highlights, and the three
+ * bands below are progressively darker text colors - all wrong for marking up a page.
  *
- * `rgb` is the 0..1-normalized form pdf-lib needs for native annotation dictionaries
- * (Phase 4), precomputed here so there is exactly one source of truth per color.
+ * TWO OF THESE CORRECT A LONG-STANDING ERROR. Coral was `#F3998C` and yellow `#F4DE6C`
+ * here for the whole project; Amplenote's real values are `#F2998C` and `#F3DE6C`, one
+ * digit apart in the red channel. They came from the bounty note's table, and only green
+ * had ever been round-tripped through Amplenote itself (`<mark data-text-color="15"
+ * style="color: #BBE077;">`, which is why green and blue were right). Imperceptible on
+ * screen, but it made an exported link's `<mark>` a color Amplenote does not actually
+ * have, which is precisely what spec section 4 asks it not to be.
+ *
+ * `cycleIndex` is Amplenote's own index for each color. NOTHING EMITS IT: an exported
+ * link used to carry it as `backgroundCycleColor` in a comment inside its mark, and that
+ * comment is what drew an UNDERLINE under every exported link - it names Amplenote's
+ * cycle-color node, which brings its own link decoration with it. The marker is a plain
+ * `background-color` hex now (src/export.js). Kept because it is the join back to the
+ * stylesheet above, and because a colored TEXT marker would have to be written with it
+ * (`data-text-color="N"`). Do not put it back into the export without re-checking the
+ * underline.
  *
  * An emoji `swatch` field lived here briefly, for the marker in Copy's HTML clipboard
  * flavor - the color carried in the character, since styling it kept coming back wrong
@@ -27,11 +50,44 @@
  * (coral rendering as plain red) made it worse. See docs/bugs-found.md.
  */
 export const HIGHLIGHT_COLORS = [
-  { id: "coral", label: "Coral", hex: "#F3998C", cycleIndex: 12, rgb: [0.953, 0.600, 0.549] },
-  { id: "yellow", label: "Yellow", hex: "#F4DE6C", cycleIndex: 14, rgb: [0.957, 0.871, 0.424] },
-  { id: "green", label: "Green", hex: "#BBE077", cycleIndex: 15, rgb: [0.733, 0.878, 0.467] },
-  { id: "blue", label: "Blue", hex: "#84B6D9", cycleIndex: 18, rgb: [0.518, 0.714, 0.851] },
-];
+  ["coral", "Coral", "#F2998C", 12],
+  ["peach", "Peach", "#F9B68D", 13],
+  ["yellow", "Yellow", "#F3DE6C", 14],
+  ["green", "Green", "#BBE077", 15],
+  ["mint", "Mint", "#65D2AA", 16],
+  ["sky", "Sky", "#87D7E4", 17],
+  ["blue", "Blue", "#84B6D9", 18],
+  ["purple", "Purple", "#B49EE2", 19],
+  ["orchid", "Orchid", "#DA99E0", 20],
+  ["pink", "Pink", "#E893BD", 21],
+  ["grey", "Grey", "#DFDFDF", 22],
+].map(([id, label, hex, cycleIndex]) => ({ id, label, hex, cycleIndex, rgb: rgbFromHex(hex) }));
+
+/**
+ * The four that get toolbar circles when the user has not said otherwise - exactly the
+ * four spec section 4 names, in its order. The catalog above is what a highlight is
+ * ALLOWED to be; this is what fits in the bar.
+ *
+ * Do not reorder or substitute to taste: a fresh install has to show the spec's palette,
+ * because that is what the bounty is graded against. Someone who wants different colors
+ * says so in the setting.
+ */
+export const DEFAULT_TOOLBAR_COLOR_IDS = ["coral", "yellow", "green", "blue"];
+
+/**
+ * How many swatches the toolbar can carry. FOUR IS A LAYOUT FACT, not a preference: the
+ * touch rules in embed/html.js give each 20px circle a 30px hit area and a 10px gap, and
+ * the bar already wraps on a phone at four. Extra ids in the setting are dropped rather
+ * than honoured, because the alternative is a toolbar that silently grows a second row.
+ */
+export const TOOLBAR_COLOR_SLOTS = 4;
+
+/**
+ * The plugin-note metadata row this reads: `setting | Highlight colors`. Amplenote hands
+ * every setting back as a STRING (app.settings["Highlight colors"]) and offers no picker,
+ * so the value is typed - see parseToolbarColorIds in colors.js for what it accepts.
+ */
+export const COLOR_SETTING_NAME = "Highlight colors";
 
 export const DEFAULT_COLOR_ID = "yellow";
 

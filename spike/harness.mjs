@@ -25,9 +25,12 @@ import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { buildEmbedHtml } from "../src/embed/html.js";
+import { parseToolbarColorIds } from "../src/colors.js";
 
 const OUT = "spike/out/harness";
-const PORT = 4173;
+// 4173 by default; `PORT=4174 npm run harness` when something else already holds it (a
+// second harness from another session is the usual reason).
+const PORT = Number(process.env.PORT) || 4173;
 mkdirSync(OUT, { recursive: true });
 
 // --- a text-heavy sample PDF ------------------------------------------------
@@ -120,6 +123,14 @@ const embed = buildEmbedHtml({
   // "Send to note" writes a block nothing can find again and "remove from note" fails on
   // its own guard - which reads as a broken feature when it is only a missing fixture.
   pluginUUID: "plugin-note-1",
+  // Stands in for the plugin note's `Highlight colors` setting, which has no equivalent
+  // here - `app.settings` is Amplenote's, and this harness has no Amplenote. Passing the
+  // same string through the same parser is what makes the configurable toolbar testable
+  // locally at all: `npm run harness -- --colors "purple, pink, mint, sky"`.
+  toolbarColorIds: parseToolbarColorIds(
+    (process.argv.find((a) => a.startsWith("--colors=")) || "").slice("--colors=".length) ||
+      process.argv[process.argv.indexOf("--colors") + 1]
+  ),
 });
 
 // The rAF shim is harness-only. PDF.js drives its canvas render task off

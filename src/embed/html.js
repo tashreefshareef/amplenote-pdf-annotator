@@ -29,7 +29,8 @@
  *    viewer ran before the library existed. The viewer therefore loads PDF.js itself
  *    and waits for onload - the sequence proven to work in the live app.
  */
-import { CDN, HIGHLIGHT_COLORS, DEFAULT_COLOR_ID } from "../constants.js";
+import { CDN, HIGHLIGHT_COLORS, DEFAULT_TOOLBAR_COLOR_IDS } from "../constants.js";
+import { defaultColorIdFor } from "../colors.js";
 import { ICONS, MENU_ICONS, icon } from "./icons.js";
 import { createGeometry } from "../geometry.js";
 import { createAnnotationWriter } from "../annotations.js";
@@ -573,6 +574,11 @@ export function buildEmbedHtml({
   pluginUUID = null,
   noteUUID = null,
   collapsed = false,
+  // Which of the catalog's colors get the toolbar's four circles, from the plugin's
+  // `Highlight colors` setting (parsed plugin-side - see plugin.js). Defaulted here as
+  // well as there so a caller that knows nothing about settings - a test, the harness -
+  // still gets the spec's four rather than an empty bar.
+  toolbarColorIds = DEFAULT_TOOLBAR_COLOR_IDS,
 } = {}) {
   const theme = THEMES[lightDarkMode] || THEMES.light;
   // The library URL travels in the config because the viewer loads PDF.js itself -
@@ -604,13 +610,24 @@ export function buildEmbedHtml({
     // cycle-color node, which brought an underline under every exported link - the marker
     // is a plain background hex now, so nothing here needs the index. It stays recorded in
     // constants.js, where the verified mapping is the reference for a colored-TEXT marker.
+    //
+    // THE WHOLE CATALOG travels, not just the four on the toolbar, and the distinction is
+    // load-bearing. This list is what RESOLVES a highlight - the fill drawn on the page,
+    // the hex behind an exported link, the rgb written into a downloaded PDF. A note can
+    // hold highlights in colors the user has since dropped from their bar, and those must
+    // keep rendering in the color they were made in. Send only the four and every one of
+    // them fails lookup and gets silently repainted the default (highlights.js normalizes
+    // through `findColor(color) || defaultColor()`), which is data loss disguised as a
+    // preference change.
     colors: HIGHLIGHT_COLORS.map((c) => ({
       id: c.id,
       label: c.label,
       hex: c.hex,
       rgb: c.rgb,
     })),
-    defaultColorId: DEFAULT_COLOR_ID,
+    // ...and which of them get circles. Display only - nothing resolves through this.
+    toolbarColorIds,
+    defaultColorId: defaultColorIdFor(toolbarColorIds),
     // The popovers are built at runtime by viewer.js, which is serialized standalone and
     // can import nothing - so its icons travel as data, the same way the colors do.
     icons: MENU_ICONS,
@@ -670,7 +687,8 @@ export function buildEmbedHtml({
             aria-label="Zoom in">${icon(ICONS.add)}</button>
     <span class="pdfa-sep"></span>
     <!-- The four single-click highlight color buttons, mounted by the viewer from
-         config.colors. Top-level toolbar buttons with no submenu is an explicit spec
+         config.toolbarColorIds (which four) resolved against config.colors (the whole
+         catalog). Top-level toolbar buttons with no submenu is an explicit spec
          requirement (section 4), which is why the slot is here and not in a panel. -->
     <span id="pdfa-colors"></span>
     <span class="pdfa-hint" id="pdfa-hint"></span>
