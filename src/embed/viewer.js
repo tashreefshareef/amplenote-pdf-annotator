@@ -1719,16 +1719,23 @@ export function viewerMain() {
    * plain text, HTML for a rich-text editor like Amplenote's, which does NOT parse
    * markdown out of pasted text (docs/api-notes.md finding #7).
    *
-   * `ClipboardItem` is tried first where it exists - it is the non-deprecated way to
-   * write two flavors - and everything else falls through to the copy-event route above,
-   * which is both more widely supported and more likely to survive the iframe.
+   * THE SYNCHRONOUS ROUTE GOES FIRST, and the order is the whole point rather than a
+   * preference. Every route here needs the browser to still consider itself inside the
+   * click that triggered it. `navigator.clipboard.write` is the modern API and rejects in
+   * a cross-origin iframe whose embedder has not granted clipboard-write - but awaiting
+   * that rejection ENDS the user gesture, so a fallback running in its `.catch` finds
+   * `execCommand("copy")` already refused. Trying the modern API first therefore doesn't
+   * degrade to the old one, it just fails twice: the button reported "could not copy" and
+   * nothing reached the clipboard at all. copyViaCopyEvent runs start to finish inside
+   * the click, so when it works it works immediately, and when it fails there is still a
+   * gesture left for the others.
+   *
+   * The async routes are still worth keeping behind it: execCommand is deprecated and a
+   * browser that has dropped it needs somewhere to go. `writeText` is last and carries
+   * markdown only - a paste that renders as literal text beats an empty clipboard.
    */
   function copyToClipboard(text, html) {
-    var fallback = function () {
-      return copyViaCopyEvent(text, html)
-        ? Promise.resolve()
-        : Promise.reject(new Error("Clipboard access is unavailable here."));
-    };
+    if (copyViaCopyEvent(text, html)) return Promise.resolve();
 
     if (html && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem === "function") {
       try {
@@ -1736,12 +1743,17 @@ export function viewerMain() {
           "text/plain": new Blob([text], { type: "text/plain" }),
           "text/html": new Blob([html], { type: "text/html" }),
         });
-        return navigator.clipboard.write([item]).catch(fallback);
+        return navigator.clipboard.write([item]).catch(function () {
+          return navigator.clipboard.writeText(text);
+        });
       } catch (err) {
-        return fallback();
+        /* fall through to writeText */
       }
     }
-    return fallback();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return Promise.reject(new Error("Clipboard access is unavailable here."));
   }
 
   /** "Copy" - spec section 4: copy a highlight, paste it into any note. */

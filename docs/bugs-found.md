@@ -534,6 +534,22 @@ through pasted HTML, a discrepancy between them is invisible in either output al
 were only obviously different once an exported block and a pasted one sat a few lines
 apart in the same note — worth deliberately arranging when two paths are meant to agree.
 
+**Follow-on regression: trying the modern clipboard API first broke copying entirely.**
+The two-flavor rewrite ordered the strategies newest-first — `ClipboardItem` +
+`navigator.clipboard.write`, falling back to `execCommand("copy")` in its `.catch`. In the
+embed's cross-origin iframe the modern call rejects, and *awaiting that rejection ends the
+user gesture*, so the fallback found `execCommand` already refused. The button reported
+"could not copy" and nothing reached the clipboard at all — a strictly worse outcome than
+either route alone. Fixed by running the synchronous copy-event route first, start to
+finish inside the click, with the async ones behind it.
+
+**General lesson:** a fallback chain is only a fallback chain if every branch still has
+whatever the first branch might consume. Anything gated on transient user activation
+(clipboard, fullscreen, popups, autoplay) burns that activation when it is awaited, so
+"try the good one, fall back to the old one" silently becomes "try both, fail twice" —
+and it fails *only* in the restricted context the fallback existed for, which is the
+context least likely to be tested. Order these synchronous-first, always.
+
 **General lesson:** "copy" and "write through the app's own API" are two different
 destinations with two different parsers, and evidence from one says nothing about the
 other. A format confirmed live via the write path is not confirmed for paste. More
