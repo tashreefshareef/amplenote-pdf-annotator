@@ -66,6 +66,13 @@ describe("buildEmbedHtml", () => {
     const out = html();
     const panel = out.match(/\.pdfa-panel\s*\{[^}]*\}/)[0];
     expect(panel).toMatch(/position:\s*absolute/);
+    // Inset from the body's edges, not flush with them - flush against the right and
+    // bottom it read as bleeding out of the viewer, since nothing marked where the panel
+    // stopped and the embed ended. Reported live as "it overflows to the right and
+    // bottom" even though the box measured exactly inside the body.
+    expect(panel).toMatch(/border-radius/);
+    expect(panel).not.toMatch(/right:\s*0/);
+    expect(panel).not.toMatch(/bottom:\s*0/);
     // Its containing block must be the body wrapper, not the whole root, or it would
     // cover the toolbar.
     expect(out).toMatch(/\.pdfa-body\s*\{[^}]*position:\s*relative/);

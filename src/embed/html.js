@@ -56,6 +56,16 @@ function safeJson(value) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
+/**
+ * NO BACKTICKS ANYWHERE BELOW, comments included. This is a template literal, so a
+ * backtick in a CSS comment ends the string and the whole module stops parsing - every
+ * suite that imports it fails to run, with a "missing semicolon" hundreds of lines from
+ * the actual typo. Quoting a property name the way the rest of the codebase does is the
+ * natural way to write it and the natural way to break it, so test/source-hazards.test.js
+ * asserts the absence rather than trusting review. That guard reads this file as TEXT and
+ * imports nothing from it - an assertion living in a suite that imports html.js could
+ * never run in the one situation it exists for.
+ */
 const STYLES = `
   * { box-sizing: border-box; }
   body { margin: 0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -286,8 +296,19 @@ const STYLES = `
 
   /* HIGHLIGHTS PANEL - the list of every highlight and its note. Groundwork for the
      Phase 5 color filter, which needs somewhere to filter. */
-  .pdfa-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 292px; max-width: 85%;
-    background: var(--pdfa-toolbar); border-left: 1px solid var(--pdfa-border);
+  /* A floating card, inset from the body's edges rather than filling them. Flush against
+     the right and bottom with only a left border, it read as bleeding out of the viewer -
+     nothing marked where the panel stopped and the embed ended, so it looked like
+     overflow even though its box was exactly inside the body. The inset plus a full
+     border, rounded corners and a shadow is what makes it read as sitting ABOVE the page,
+     which is what it actually does.
+
+     max-width leaves the same 8px on the other side, so the card stays inset rather than
+     growing flush again on a narrow embed. */
+  .pdfa-panel { position: absolute; top: 8px; right: 8px; bottom: 8px; width: 292px;
+    max-width: calc(100% - 16px);
+    background: var(--pdfa-toolbar); border: 1px solid var(--pdfa-border); border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10);
     overflow: auto; padding: 8px; display: none; z-index: 15; }
   .pdfa-panel.pdfa-open { display: block; }
   .pdfa-panel-title { display: flex; justify-content: space-between; align-items: center;
@@ -358,8 +379,10 @@ const STYLES = `
        is worse than a second toolbar row, and the row costs proportionally less now that
        the box is taller (a phone gets ~358px rather than ~298px). Kept as a note rather
        than deleted silently, so the idea is not re-proposed as if untried. */
-    /* Full width, since the row it shares is no longer competing with a page. */
-    .pdfa-panel { width: 100%; max-width: 100%; }
+    /* Spans the body, since the row it shares is no longer competing with a page - but
+       via "left" rather than a 100% width, so it keeps the same 8px inset on every side
+       and stays a card. Going full-bleed here is what made it look like overflow. */
+    .pdfa-panel { left: 8px; width: auto; max-width: none; }
   }
 
   /* ---- TOUCH POINTERS ------------------------------------------------------
