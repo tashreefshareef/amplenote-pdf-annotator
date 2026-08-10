@@ -101,11 +101,27 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    `buildHighlightHtml` in src/export.js and `copyToClipboard` in src/embed/viewer.js.
 
    Confirmed live for the HTML flavor: Amplenote's editor accepts pasted `<blockquote>`
-   nesting, a plain `<a href="plugin://...">`, and inline `color` and `background-color`,
-   both honoured as given. **A pasted `<mark>` keeps a background box of its own that an
-   inline `background-color:transparent` does not remove** - the box only got fainter. For
-   colored text with no box, use a plain `<span style="color:...">`, which has no default
-   to fight.
+   nesting and a plain `<a href="plugin://...">`.
+
+   **You cannot paste colored text without a background box.** All four combinations were
+   tried live:
+
+   | Pasted | Result |
+   |---|---|
+   | `<mark style="background-color:X">` | Box in X, glyph left black |
+   | `<mark style="background-color:X;color:X">` | Solid box in X |
+   | `<mark style="color:X;background-color:transparent">` | Glyph in X, box merely *fainter* - an inline `transparent` does NOT clear the element's own background |
+   | `<span style="color:X">` | No box, and no color - the sanitizer drops the span outright |
+
+   So the schema has a highlight mark (hence `<mark>`'s inline colors being honoured) and
+   no text-color mark for a span to map onto: the choice is box-with-color or neither.
+   Note this differs from what the same plugin's *markdown* produces - `==x<!--
+   {"cycleColor":"N"} -->==` colors the text with no box - so a marker that looks right in
+   an exported block will not look right in a pasted one.
+
+   **Workaround: put the color in the character, not the CSS.** An emoji swatch (🔴🟡🟢🔵)
+   is text, so nothing in the paste path can strip it and no element brings a background
+   along. The cost is an approximate hue for a soft palette.
 
    **When matching a pasted element to one the plugin also writes as markdown, check which
    property the markdown form actually paints.** `==x<!-- {"cycleColor":"N"} -->==` colors

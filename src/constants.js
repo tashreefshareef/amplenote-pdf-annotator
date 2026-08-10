@@ -11,12 +11,21 @@
  *
  * `rgb` is the 0..1-normalized form pdf-lib needs for native annotation dictionaries
  * (Phase 4), precomputed here so there is exactly one source of truth per color.
+ *
+ * `swatch` is the color as a CHARACTER rather than a style, for the one place styling
+ * cannot be relied on: the HTML the Copy button puts on the clipboard. Amplenote's paste
+ * sanitizer keeps a `<mark>`'s inline colors but drops a `<span style="color">` entirely,
+ * so a styled dot is either wearing a background box it cannot shed or is not colored at
+ * all (all four combinations tried live - see docs/bugs-found.md). An emoji carries its
+ * own color in the glyph, so nothing in the paste path can strip it. The hue is
+ * approximate where the palette is soft - coral reads as red - which is the price of a
+ * marker that survives; the exported markdown still uses the exact `cycleIndex`.
  */
 export const HIGHLIGHT_COLORS = [
-  { id: "coral", label: "Coral", hex: "#F3998C", cycleIndex: 12, rgb: [0.953, 0.600, 0.549] },
-  { id: "yellow", label: "Yellow", hex: "#F4DE6C", cycleIndex: 14, rgb: [0.957, 0.871, 0.424] },
-  { id: "green", label: "Green", hex: "#BBE077", cycleIndex: 15, rgb: [0.733, 0.878, 0.467] },
-  { id: "blue", label: "Blue", hex: "#84B6D9", cycleIndex: 18, rgb: [0.518, 0.714, 0.851] },
+  { id: "coral", label: "Coral", hex: "#F3998C", cycleIndex: 12, rgb: [0.953, 0.600, 0.549], swatch: "🔴" },
+  { id: "yellow", label: "Yellow", hex: "#F4DE6C", cycleIndex: 14, rgb: [0.957, 0.871, 0.424], swatch: "🟡" },
+  { id: "green", label: "Green", hex: "#BBE077", cycleIndex: 15, rgb: [0.733, 0.878, 0.467], swatch: "🟢" },
+  { id: "blue", label: "Blue", hex: "#84B6D9", cycleIndex: 18, rgb: [0.518, 0.714, 0.851], swatch: "🔵" },
 ];
 
 export const DEFAULT_COLOR_ID = "yellow";

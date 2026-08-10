@@ -164,16 +164,17 @@ describe("buildHighlightHtml", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ note: "a plain remark" }),
-      "#F4DE6C",
+      "🟡",
       "note-42"
     );
-    // A span coloring the GLYPH, not a <mark> coloring a box: the markdown path renders
-    // `==●<!-- {"cycleColor" -->==` as a colored dot, and <mark> carries a background of
-    // its own that inline `background-color:transparent` did NOT override live. See
-    // buildHighlightHtml's comment.
-    expect(html).toContain('<span style="color:#F4DE6C">&#9679;</span>');
+    // The color lives in the CHARACTER, not in CSS. Every styled form was tried live and
+    // each failed one way or the other - a <mark> wears a background box it cannot shed,
+    // and a <span style="color"> is dropped by the sanitizer outright. See
+    // buildHighlightHtml's comment for the full list.
+    expect(html).toContain("<p>🟡 <a href=");
     expect(html).not.toContain("<mark");
-    expect(html).not.toContain("background-color");
+    expect(html).not.toContain("<span");
+    expect(html).not.toContain("color:");
     expect(html).toContain(
       `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">paper.pdf</a>`
     );
@@ -183,7 +184,7 @@ describe("buildHighlightHtml", () => {
 
   // Scenario: no note means no empty blockquote left dangling after the quote.
   test("omits the note blockquote entirely when there is no note", () => {
-    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), "#F4DE6C");
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), "🟡");
     expect(html.match(/<blockquote>/g)).toHaveLength(2); // the nested quote only
   });
 
@@ -195,7 +196,7 @@ describe("buildHighlightHtml", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ quoteText: "if x < y & y > z", note: 'she said "no"' }),
-      "#F4DE6C"
+      "🟡"
     );
     expect(html).toContain("a&lt;b&gt; &amp; c.pdf");
     expect(html).toContain("if x &lt; y &amp; y &gt; z");
@@ -210,15 +211,15 @@ describe("buildHighlightHtml", () => {
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ quoteText: "first line\nsecond line" }),
-      "#F4DE6C"
+      "🟡"
     );
     expect(html).toContain("<p>first line<br>second line</p>");
   });
 
-  // Scenario: an unknown color id yields no hex - the marker must degrade to a bare
-  // glyph rather than emitting `color:null`, and must not wrap it in an element whose
-  // only effect would be the background box the span exists to avoid.
-  test("emits a bare glyph, wrapped in nothing, when no hex is known", () => {
+  // Scenario: an unknown color id yields no swatch - the marker degrades to a bare `●`
+  // wrapped in nothing. Reaching for a styled fallback here would reintroduce exactly the
+  // box, or the silent stripping, that the swatch exists to avoid.
+  test("emits a bare glyph, wrapped in nothing, when no swatch is known", () => {
     const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), null);
     expect(html).toContain("<p>&#9679; <a href=");
     expect(html).not.toContain("color:");

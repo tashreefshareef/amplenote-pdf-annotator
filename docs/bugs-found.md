@@ -510,8 +510,14 @@ black dot inside a colored block, which briefly looked like the whole bug.
 
 Switching to `color` fixed the dot but left a faint box, because the marker was still a
 `<mark>` — and an inline `background-color:transparent` did not clear that element's own
-background, it only made it paler. The marker became a plain `<span>`, which has no
-default background to override in the first place.
+background, it only made it paler. Moving to a `<span>`, which has no default background
+to override, removed the box and the color with it: Amplenote's paste sanitizer drops the
+span outright. The full matrix, all four tried live, is in api-notes.md #7. There is no
+combination that yields colored text with no box.
+
+**The fix that worked was to stop styling the marker at all** and put the color in the
+character: an emoji swatch (🔴🟡🟢🔵) is text, so nothing in the paste path can strip it
+and no element drags a background along.
 
 **Second general lesson:** when one feature renders through a platform's markdown and
 another through pasted HTML, the two are only consistent if the HTML styles *the same CSS
@@ -521,8 +527,12 @@ visible in one note: a discrepancy nobody would notice from either screenshot al
 obvious the moment they sat a few lines apart.
 
 **Third:** neutralizing an element's built-in styling with an inline override is a weaker
-move than not using that element. `background-color:transparent` on a `<mark>` is a fight
-with whatever ships that background; a `<span>` never starts the fight.
+move than not using that element — `background-color:transparent` is a fight with whatever
+ships that background. But when *no* element in the target's schema does what you need,
+the move is to stop passing the requirement through the styling layer entirely. Content
+you control survives sanitizers that styling does not, so encoding a visual property into
+the *character* is worth reaching for early once a sanitizer is in the path, not after
+four styling attempts.
 
 **General lesson:** "copy" and "write through the app's own API" are two different
 destinations with two different parsers, and evidence from one says nothing about the
