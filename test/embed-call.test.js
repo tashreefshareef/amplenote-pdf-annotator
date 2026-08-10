@@ -504,7 +504,7 @@ describe("loadHighlights", () => {
   // the viewer opens normally.
   test("returns an empty list for a note with no stored highlights", async () => {
     const result = await call(appWithNote("# Just notes"), { action: "loadHighlights", attachmentUUID: ATT });
-    expect(result).toEqual({ highlights: [] });
+    expect(result).toEqual({ highlights: [], sentIds: [] });
   });
 
   // Scenario: the user hand-edited the managed section into nonsense. The viewer must
@@ -512,7 +512,7 @@ describe("loadHighlights", () => {
   test("recovers from a corrupted managed section", async () => {
     const app = appWithNote(`# ${STORAGE_SECTION_HEADING}\n\nnot json {{{`);
     const result = await call(app, { action: "loadHighlights", attachmentUUID: ATT });
-    expect(result).toEqual({ highlights: [] });
+    expect(result).toEqual({ highlights: [], sentIds: [] });
   });
 });
 
@@ -587,6 +587,184 @@ describe("sendToNote", () => {
     const final = app._notes.get(NOTE).content;
     expect(final).toContain('> "quote"');
     expect(final).toContain("my own text");
+  });
+});
+
+/**
+ * Keeping already-sent blocks in step with the highlights they came from.
+ *
+ * Before this, a sent block was a dead snapshot: recolouring left it in the old colour,
+ * deleting the highlight left an orphan pointing at an id that no longer resolved, and
+ * re-sending appended a duplicate. Reported live with a screenshot of one quote appearing
+ * three times in two colours.
+ */
+describe("sent blocks follow their highlights", () => {
+  const PLUG = "plug-1";
+  const blockFor = (id, color = "#F3998C") =>
+    `[<mark style="background-color:${color};">paper.pdf<!-- {"backgroundCycleColor":"12"} --></mark>](plugin://${PLUG}?att=${ATT}&page=1&hl=${id})\n> > the quick brown fox`;
+
+  const appWithSent = async (id) => {
+    const app = appWithNote("# Reading notes\nmy own text");
+    await call(app, {
+      action: "sendToNote",
+      content: blockFor(id),
+      highlightId: id,
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+    });
+    return app;
+  };
+
+  // Scenario: the reported duplicate. Sending the same highlight again refreshes the
+  // block where it sits rather than appending a second copy of the same quote.
+  test("re-sending a highlight replaces its block instead of appending another", async () => {
+    const app = await appWithSent("hl-a");
+    const result = await call(app, {
+      action: "sendToNote",
+      content: blockFor("hl-a", "#84B6D9"),
+      highlightId: "hl-a",
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+    });
+
+    const final = app._notes.get(NOTE).content;
+    expect(result.replaced).toBe(true);
+    expect(final.match(/hl=hl-a/g)).toHaveLength(1);
+    expect(final).toContain("#84B6D9");
+    expect(final).not.toContain("#F3998C");
+  });
+
+  // Scenario: a DIFFERENT highlight still appends - "replace" is per highlight, not a
+  // note-wide single-block rule.
+  test("a different highlight still appends its own block", async () => {
+    const app = await appWithSent("hl-a");
+    await call(app, {
+      action: "sendToNote",
+      content: blockFor("hl-b"),
+      highlightId: "hl-b",
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+    });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final).toContain("hl=hl-a");
+    expect(final).toContain("hl=hl-b");
+  });
+
+  // Scenario: the block's colour is the whole point of it - it is what ties the write-up
+  // back to the highlight in the PDF. Leaving it stale was a quiet lie about which
+  // highlight it came from.
+  test("recolouring a highlight updates the colour of its sent block", async () => {
+    const app = await appWithSent("hl-a");
+    await call(app, {
+      action: "recolorHighlight",
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+      id: "hl-a",
+      color: "blue",
+      exportBlock: blockFor("hl-a", "#84B6D9"),
+    });
+
+    expect(app._notes.get(NOTE).content).toContain("#84B6D9");
+  });
+
+  // Scenario: the orphan. A deleted highlight leaves a block whose deep link looks live
+  // and resolves to nothing.
+  test("deleting a highlight takes its sent block with it", async () => {
+    const app = await appWithSent("hl-a");
+    await call(app, {
+      action: "removeHighlight",
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+      id: "hl-a",
+    });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final).not.toContain("hl=hl-a");
+    expect(final).toContain("my own text");
+  });
+
+  // Scenario: the panel's own action - drop the write-up, KEEP the annotation. Conflating
+  // it with removeHighlight is how a click meant to tidy the note erases a highlight.
+  test("removeFromNote deletes the block and leaves the highlight alone", async () => {
+    const app = appWithNote("# Reading notes\nmy own text");
+    const added = await call(app, { action: "addHighlight", attachmentUUID: ATT, highlight: draft() });
+    const id = added.highlights[0].id;
+    await call(app, {
+      action: "sendToNote",
+      content: blockFor(id),
+      highlightId: id,
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+    });
+
+    const result = await call(app, {
+      action: "removeFromNote",
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+      id,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(app._notes.get(NOTE).content).not.toContain(`hl=${id}`);
+    expect(await loadHighlights(app, NOTE, ATT)).toHaveLength(1);
+  });
+
+  // Scenario: nothing to remove. The panel offers this only for highlights it believes
+  // are in the note, and that belief can be one edit old - a quiet no-op, not an error.
+  test("removeFromNote reports a quiet failure when the block is already gone", async () => {
+    const app = appWithNote("# Reading notes\nmy own text");
+    const result = await call(app, {
+      action: "removeFromNote",
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+      id: "hl-missing",
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(result.error).toBeUndefined();
+  });
+
+  // Scenario: loadHighlights tells the panel which highlights it may offer the action
+  // for. Offering it where there is nothing to remove reads as a broken button.
+  test("loadHighlights reports which highlights the note holds a block for", async () => {
+    const app = await appWithSent("hl-a");
+    const result = await call(app, {
+      action: "loadHighlights",
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+    });
+
+    expect(result.sentIds).toEqual(["hl-a"]);
+  });
+
+  // Scenario: a note write that fails must NOT fail the highlight operation that
+  // triggered it. The recolour has already happened and is correct; an error would tell
+  // the user it did not take.
+  test("a failed note sync does not fail the recolour that triggered it", async () => {
+    const app = await appWithSent("hl-a");
+    await call(app, { action: "addHighlight", attachmentUUID: ATT, highlight: draft() });
+    const list = await loadHighlights(app, NOTE, ATT);
+    // Break ONLY the note-body sync, not the highlight save that precedes it - both go
+    // through replaceNoteContent, and failing it outright would test the wrong thing.
+    // The sync is the write carrying the rebuilt block, so key on that.
+    const realReplace = app.replaceNoteContent;
+    app.replaceNoteContent = async (handle, content) => {
+      if (String(content).includes("#84B6D9")) throw new Error("note write failed");
+      return realReplace(handle, content);
+    };
+
+    const result = await call(app, {
+      action: "recolorHighlight",
+      attachmentUUID: ATT,
+      pluginUUID: PLUG,
+      id: list[0].id,
+      color: "blue",
+      exportBlock: blockFor(list[0].id, "#84B6D9"),
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.highlights[0].color).toBe("blue");
   });
 
   // Scenario: reported live - the first sent highlight landed directly against the user's

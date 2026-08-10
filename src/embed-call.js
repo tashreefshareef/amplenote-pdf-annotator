@@ -19,6 +19,11 @@ import {
 } from "./storage.js";
 import { removeEmbedMarkup, setEmbedCollapsed, updateEmbedArgs } from "./embed-args.js";
 import {
+  listExportedHighlightIds,
+  removeExportBlock,
+  replaceExportBlock,
+} from "./exports-in-note.js";
+import {
   createHighlight,
   removeHighlight,
   updateHighlight,
@@ -78,6 +83,35 @@ async function mutateHighlights(app, noteUUID, attachmentUUID, mutate) {
 }
 
 /**
+ * Apply an edit to the note's body, for keeping already-sent highlight blocks in step
+ * with the highlights themselves (see src/exports-in-note.js).
+ *
+ * NEVER allowed to fail the action that triggered it. Recolouring a highlight is a
+ * highlight operation that also happens to touch the note; if the note write fails the
+ * colour change has still happened and is still correct, and reporting an error over it
+ * would suggest otherwise. The stale block is a smaller problem than a user believing
+ * their recolour did not take.
+ *
+ * A missing `pluginUUID` is not an error either: it means an embed rendered before this
+ * existed is still mounted, and it simply has no block to find.
+ *
+ * @param edit receives the note's content and returns new content, or null for "no block
+ *   of mine in here" - the overwhelmingly common case, and the one that must not write.
+ */
+async function editNoteBody(app, noteUUID, request, edit) {
+  if (!request.pluginUUID) return;
+  try {
+    const content = await app.getNoteContent({ uuid: noteUUID });
+    const updated = edit(content);
+    if (updated !== null && updated !== content) {
+      await app.replaceNoteContent({ uuid: noteUUID }, updated);
+    }
+  } catch {
+    /* see above - the highlight operation itself already succeeded */
+  }
+}
+
+/**
  * Normalize whatever crossed the embed bridge into a request object.
  *
  * The payload arrives as a JSON string. Structured objects were tried first and the
@@ -125,9 +159,18 @@ export async function handleEmbedCall(app, payload) {
     case "loadHighlights": {
       if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
       try {
-        return {
-          highlights: await loadHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID),
-        };
+        const noteUUID = resolveNoteUUID(app, request);
+        const highlights = await loadHighlights(app, noteUUID, request.attachmentUUID);
+        // Which highlights the note already holds a block for, so the panel can offer
+        // "remove from note" ONLY on those. An action that silently does nothing on the
+        // rest would be worse than not offering it: the user cannot tell the difference
+        // between "removed" and "there was never anything there".
+        let sentIds = [];
+        if (request.pluginUUID) {
+          const content = await app.getNoteContent({ uuid: noteUUID });
+          sentIds = listExportedHighlightIds(content, request.pluginUUID, request.attachmentUUID);
+        }
+        return { highlights, sentIds };
       } catch (err) {
         return { error: `Could not load highlights: ${err.message}` };
       }
@@ -151,9 +194,21 @@ export async function handleEmbedCall(app, payload) {
     case "recolorHighlight": {
       if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
       try {
-        return await mutateHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID, (list) =>
+        const noteUUID = resolveNoteUUID(app, request);
+        const result = await mutateHighlights(app, noteUUID, request.attachmentUUID, (list) =>
           updateHighlight(list, request.id, (h) => withColor(h, request.color))
         );
+        // A block already sent to the note carried the OLD colour until now - the whole
+        // point of the block is that its link is coloured to match, so leaving it was a
+        // silent lie about which highlight it came from. `exportBlock` is rebuilt by the
+        // viewer in the NEW colour and passed in, keeping export assembly client-side
+        // like everything else (see src/export.js's header).
+        if (request.exportBlock) {
+          await editNoteBody(app, noteUUID, request, (content) =>
+            replaceExportBlock(content, request.pluginUUID, request.attachmentUUID, request.id, request.exportBlock)
+          );
+        }
+        return result;
       } catch (err) {
         return { error: `Could not change the highlight color: ${err.message}` };
       }
@@ -176,11 +231,45 @@ export async function handleEmbedCall(app, payload) {
     case "removeHighlight": {
       if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
       try {
-        return await mutateHighlights(app, resolveNoteUUID(app, request), request.attachmentUUID, (list) =>
+        const noteUUID = resolveNoteUUID(app, request);
+        const result = await mutateHighlights(app, noteUUID, request.attachmentUUID, (list) =>
           removeHighlight(list, request.id)
         );
+        // The highlight is gone, so a block still quoting it points its deep link at an id
+        // that no longer resolves - a link that looks live and goes nowhere. The block
+        // goes with it.
+        await editNoteBody(app, noteUUID, request, (content) =>
+          removeExportBlock(content, request.pluginUUID, request.attachmentUUID, request.id)
+        );
+        return result;
       } catch (err) {
         return { error: `Could not remove the highlight: ${err.message}` };
+      }
+    }
+
+    /**
+     * The Highlights panel's per-highlight "remove from note" - deletes the sent block
+     * while leaving the highlight itself in the PDF.
+     *
+     * A dedicated action rather than a flag on removeHighlight, because they are opposite
+     * intents: this one keeps the annotation and drops the write-up, and conflating them
+     * behind one call is how a click meant to tidy the note ends up erasing the highlight.
+     */
+    case "removeFromNote": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate the block." };
+      if (!request.id) return { error: "No highlight specified." };
+      try {
+        const noteUUID = resolveNoteUUID(app, request);
+        const content = await app.getNoteContent({ uuid: noteUUID });
+        const updated = removeExportBlock(content, request.pluginUUID, request.attachmentUUID, request.id);
+        // Nothing to remove is a normal outcome, not a failure: the panel offers this only
+        // for highlights it believes are in the note, and that belief can be one edit old.
+        if (updated === null) return { ok: false };
+        await app.replaceNoteContent({ uuid: noteUUID }, updated);
+        return { ok: true };
+      } catch (err) {
+        return { error: `Could not remove it from the note: ${err.message}` };
       }
     }
 
@@ -200,6 +289,26 @@ export async function handleEmbedCall(app, payload) {
         // managed section stays pinned last. Costs a read plus a whole-note write, but
         // only on a note that HAS the section - a fresh note still takes the cheap path.
         const content = await app.getNoteContent(noteHandle);
+
+        // Re-sending a highlight REFRESHES its block where it already sits, rather than
+        // appending a second copy. Reported live with a screenshot of the same quote three
+        // times in two different colours - each send appended, so the note accumulated
+        // stale duplicates that all claimed to be the same highlight. Editing in place
+        // also means a block the user has moved stays where they put it.
+        if (request.highlightId) {
+          const replaced = replaceExportBlock(
+            content,
+            request.pluginUUID,
+            request.attachmentUUID,
+            request.highlightId,
+            request.content
+          );
+          if (replaced !== null) {
+            await app.replaceNoteContent(noteHandle, replaced);
+            return { ok: true, replaced: true };
+          }
+        }
+
         // Both branches get the separator from the SAME note content, read once above -
         // whether the note has a managed section is unrelated to whether it already
         // holds exports, and deciding that twice from two different reads is how the

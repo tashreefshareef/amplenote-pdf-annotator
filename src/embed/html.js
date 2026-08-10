@@ -324,6 +324,19 @@ const STYLES = `
      explicit that the two must be clearly distinguishable. */
   .pdfa-hl-note { font-size: 12px; line-height: 1.35; opacity: .85; font-style: italic;
     margin-top: 4px; padding-left: 7px; border-left: 2px solid var(--pdfa-border); }
+  /* "Remove from note", revealed on hover over its row. The row is the body text, so the
+     button takes no width from it at rest - opacity rather than display, or the quote
+     would reflow every time the pointer crossed a row.
+
+     :focus-within on the row keeps it reachable by keyboard, where there is no hover to
+     reveal it with. Always visible on touch, for the same reason - see the coarse block. */
+  .pdfa-hl-unsend { flex: 0 0 auto; margin-left: auto; align-self: center;
+    font: inherit; font-size: 13px; line-height: 1; padding: 4px 5px; cursor: pointer;
+    background: transparent; border: 1px solid transparent; border-radius: 6px;
+    color: inherit; opacity: 0; transition: opacity .12s ease; }
+  .pdfa-hl-row:hover .pdfa-hl-unsend,
+  .pdfa-hl-row:focus-within .pdfa-hl-unsend { opacity: .75; }
+  .pdfa-hl-unsend:hover { opacity: 1; background: var(--pdfa-btn-hover); }
 
   /* ON-SCREEN SCROLL CONTROLS
      Reported on Android: a drag over the page area scrolls the NOTE, not the pages,
@@ -406,6 +419,8 @@ const STYLES = `
     #pdfa-more { padding: 8px 14px; }
     .pdfa-btn { min-height: 38px; }
     .pdfa-hl-row { padding: 11px 8px; }
+    /* No hover to reveal it with, so it is simply there - and big enough to hit. */
+    .pdfa-hl-unsend { opacity: .75; min-width: 38px; min-height: 38px; }
     /* A bigger target without a bigger circle: an invisible overlay centred on the
        swatch, reaching past its 20px visual to 42px. Four 44px circles would
        dominate a toolbar that is already the tallest thing in the box on a phone,
