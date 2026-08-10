@@ -205,6 +205,88 @@ describe("writeHighlightsIntoPdf", () => {
     expect(popupDict.get(PDFLib.PDFName.of("Parent"))).toEqual(highlightRef);
   });
 
+  // Scenario: REPORTED LIVE, with a screenshot of a downloaded PDF - a note's popup
+  // rendered as a tall box parked at the left margin, nothing like the box requested.
+  // The cause was arithmetic, not the reader: the popup was placed 8pt right of the
+  // highlight and 220pt wide, so a highlight spanning an ordinary text column asked for a
+  // box running well past the paper's edge (x=748 on a 612pt page, measured). Every
+  // full-width highlight did it, and readers each improvise differently from there.
+  //
+  // A4 here, and A4 is what makePdf builds - 595pt wide - so a 500pt-wide highlight is
+  // the ordinary case, not a contrived one.
+  const popupOf = async (bytes) => {
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    const annots = await annotsOnPage(bytes);
+    const dict = resolve(doc, annots.get(0));
+    const popup = resolve(doc, dict.get(PDFLib.PDFName.of("Popup")));
+    return popup
+      .get(PDFLib.PDFName.of("Rect"))
+      .asArray()
+      .map((n) => n.asNumber());
+  };
+
+  test("keeps a note's popup on the page, even under a full-width highlight", async () => {
+    const bytes = await writeHighlightsIntoPdf(
+      PDFLib,
+      await makePdf(),
+      [highlight({ note: "worth remembering", rects: [{ x: 50, y: 700, width: 500, height: 14 }] })],
+      RGB_TABLE
+    );
+    const [left, bottom, right, top] = await popupOf(bytes);
+
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(bottom).toBeGreaterThanOrEqual(0);
+    expect(right).toBeLessThanOrEqual(595); // A4 width
+    expect(top).toBeLessThanOrEqual(842); // A4 height
+    // Still a box, not a degenerate rect collapsed by the clamping.
+    expect(right - left).toBeGreaterThan(100);
+    expect(top - bottom).toBeGreaterThan(40);
+  });
+
+  // Scenario: the same clamp must not fire when it is not needed - a highlight with room
+  // beside it keeps its popup beside it, which is where a reader looks for it.
+  test("puts the popup beside the highlight when the page has room", async () => {
+    const bytes = await writeHighlightsIntoPdf(
+      PDFLib,
+      await makePdf(),
+      [highlight({ note: "note", rects: [{ x: 50, y: 700, width: 100, height: 14 }] })],
+      RGB_TABLE
+    );
+    const [left] = await popupOf(bytes);
+    expect(left).toBe(158); // 50 + 100 + 8pt gap
+  });
+
+  // Scenario: the popup does not scroll in most readers, so a fixed height quietly clips
+  // a longer note. It grows with the text - and stops growing, because a note long enough
+  // to need a whole page is better clipped than covering the document it annotates.
+  test("sizes the popup to the note, within a cap", async () => {
+    const short = await writeHighlightsIntoPdf(
+      PDFLib,
+      await makePdf(),
+      [highlight({ note: "short" })],
+      RGB_TABLE
+    );
+    const long = await writeHighlightsIntoPdf(
+      PDFLib,
+      await makePdf(),
+      [highlight({ note: "a much longer remark that will wrap several times over. ".repeat(6) })],
+      RGB_TABLE
+    );
+    const huge = await writeHighlightsIntoPdf(
+      PDFLib,
+      await makePdf(),
+      [highlight({ note: "x".repeat(20000) })],
+      RGB_TABLE
+    );
+    const heightOf = async (bytes) => {
+      const [, bottom, , top] = await popupOf(bytes);
+      return top - bottom;
+    };
+
+    expect(await heightOf(long)).toBeGreaterThan(await heightOf(short));
+    expect(await heightOf(huge)).toBeLessThanOrEqual(260);
+  });
+
   // Scenario: the inverse - a highlight with NO note must not carry a /Popup or
   // /Contents at all. A phantom empty popup would be visible/clickable for no reason.
   test("omits /Popup and /Contents entirely when there is no note", async () => {

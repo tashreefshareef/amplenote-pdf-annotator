@@ -661,6 +661,35 @@ what you sent.
 
 ---
 
+## Coordinates emitted into someone else's document, never checked against its bounds
+
+**Symptom:** a note's popup in a downloaded PDF rendered as a tall box parked at the left
+margin, overlapping the text, nothing like the small box beside the highlight that the
+code asks for. Easy to read as "the reader lays popups out however it likes".
+
+**Cause:** it wasn't the reader improvising for fun — it was improvising because the
+request was impossible. The popup rect was built as "8pt right of the highlight, 200pt
+wide", with nothing checking the result against the page. A highlight spanning an ordinary
+text column (x 72→540 of a 612pt page) therefore asked for a box from x=548 to **x=748, on
+a 612pt page** — 136pt off the paper. Most highlights span a column, so most notes did it.
+Readers each recover differently, which is why the output looked reader-specific.
+
+**Fix:** clamp the box inside the page, prefer beside-the-highlight and fall back to inside
+the right margin, top-align it the way Acrobat does, and size the height to the note (it
+does not scroll in most readers) up to a cap. The page's own size is read per page, since
+one document can mix portrait and landscape.
+
+**General lesson:** when you write geometry into a format someone else renders, the
+document's own bounds are an input, not a formality — and "the renderer ignored my layout"
+should be the *second* hypothesis, after "I asked for something that cannot be drawn".
+Anything you emit as coordinates deserves a test asserting it lands inside the surface it
+is drawn on, because a renderer's fallback is silent and looks like a styling quirk rather
+than an error. Note also what made this cheap to settle: the emitter is a pure function
+over numbers, so dumping its output for the ordinary case — one column-width highlight —
+showed the impossible rect immediately, with no reader involved.
+
+---
+
 ## A one-shot instruction stored in the document replayed on every later open
 
 **Symptom:** opening *any* note whose PDF viewer was expanded scrolled the note down to

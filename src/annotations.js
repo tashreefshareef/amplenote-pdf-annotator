@@ -107,11 +107,64 @@ export function createAnnotationWriter() {
   }
 
   /**
+   * Where a note's popup window sits, in PDF page coordinates.
+   *
+   * MUST BE ON THE PAGE, which the first version of this was not: it placed the box 8pt
+   * to the right of the highlight and 200pt wide, so a highlight spanning an ordinary
+   * text column (x 72..540 of a 612pt page) asked for a popup running to x=748 - 136pt
+   * past the paper's edge. Every full-width highlight, which is most of them. Readers do
+   * not agree on what to do with that: reported live as a tall box parked at the left
+   * margin, nothing like the box that was requested.
+   *
+   * So: to the right of the highlight when the page has room, otherwise pushed back
+   * inside the right margin, and top-aligned with the highlight the way Acrobat lays its
+   * own popups out. It can overlap the text below - so does every reader's - but it can
+   * no longer be off the page.
+   *
+   * The height follows the note, because this box does not scroll in most readers: a
+   * fixed 72pt held about four short lines and quietly clipped anything longer. The line
+   * estimate is deliberately rough - the reader picks the font, so nothing here can
+   * measure it - and it is CAPPED, since a note long enough to need a full page is better
+   * clipped than covering the document it annotates.
+   */
+  function popupRect(note, bounds, pageWidth, pageHeight) {
+    var MARGIN = 8;
+    var WIDTH = 220;
+
+    var text = String(note || "");
+    var lines = 0;
+    var paragraphs = text.split(/\r?\n/);
+    for (var i = 0; i < paragraphs.length; i++) {
+      // ~45 characters to a line in a 220pt box, at the sort of size readers use.
+      lines += Math.max(1, Math.ceil(paragraphs[i].length / 45));
+    }
+    // 22pt of chrome for the title bar every reader draws, then a line each.
+    var height = Math.max(72, Math.min(22 + lines * 14, 260));
+
+    var left = bounds.maxX + MARGIN;
+    if (left + WIDTH > pageWidth - MARGIN) left = pageWidth - MARGIN - WIDTH;
+    if (left < MARGIN) left = MARGIN;
+
+    var top = bounds.maxY;
+    if (top > pageHeight - MARGIN) top = pageHeight - MARGIN;
+    var bottom = top - height;
+    if (bottom < MARGIN) {
+      bottom = MARGIN;
+      top = Math.min(bottom + height, pageHeight - MARGIN);
+    }
+
+    return [left, bottom, left + WIDTH, top];
+  }
+
+  /**
    * One native /Highlight annotation, with an explicit /Popup child when there's a
    * note. Returns the array of refs added (the highlight, plus the popup if present)
    * so the caller can append them to the page's /Annots.
+   *
+   * `pageSize` is { width, height } - needed only to keep a popup on the page, and
+   * defaulted to US Letter for a caller that has no page to hand (the embed always does).
    */
-  function buildHighlightAnnotation(PDFLib, pdfDoc, highlight, rgbTriple) {
+  function buildHighlightAnnotation(PDFLib, pdfDoc, highlight, rgbTriple, pageSize) {
     var rects = highlight.rects;
 
     // One quad set per rect, all inside a SINGLE annotation dict - see finding 3 above.
@@ -165,8 +218,17 @@ export function createAnnotationWriter() {
         pdfDoc.context.obj({
           Type: PDFLib.PDFName.of("Annot"),
           Subtype: PDFLib.PDFName.of("Popup"),
-          // Sits to the right of the highlight; only shown when a reader opens it.
-          Rect: pdfDoc.context.obj([maxX + 8, minY - 60, maxX + 208, minY + 12]),
+          // Beside the highlight where the page allows, never off it - see popupRect.
+          // Only shown when a reader opens it (Open: false below): a popup that opens
+          // itself covers the text it is a note about.
+          Rect: pdfDoc.context.obj(
+            popupRect(
+              highlight.note,
+              { maxX: maxX, maxY: maxY },
+              (pageSize && pageSize.width) || 612,
+              (pageSize && pageSize.height) || 792
+            )
+          ),
           Parent: highlightRef,
           Open: false,
         })
@@ -215,7 +277,10 @@ export function createAnnotationWriter() {
       if (!page) continue;
 
       var rgbTriple = (colorRgbTable && colorRgbTable[h.color]) || FALLBACK_RGB;
-      var refs = buildHighlightAnnotation(PDFLib, pdfDoc, h, rgbTriple);
+      // The page's own size, so a note's popup can be kept on it - pages within one
+      // document can differ (a landscape table, a rotated scan), so this is read per
+      // page rather than once.
+      var refs = buildHighlightAnnotation(PDFLib, pdfDoc, h, rgbTriple, page.getSize());
       appendAnnotationRefs(PDFLib, page, refs);
     }
 
