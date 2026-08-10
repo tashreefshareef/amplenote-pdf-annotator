@@ -3,11 +3,13 @@
  *
  * `cycleIndex` is the Amplenote cycle-color index used to color the deep-link in an
  * exported highlight block, so the link color matches the highlight color in the PDF.
+ * It goes into the link's mark as `backgroundCycleColor` - NOT `cycleColor`, which is
+ * the text-color key and is invisible on a link, since the anchor's own color wins.
  *
- * WARNING: these indices are taken from the bounty note and are NOT yet verified
- * against the markdown reference doc. Verify before Phase 5 relies on them:
- * https://www.amplenote.com/help/plugin_api_markdown_reference_parse_markdown
- * Tracked in docs/api-notes.md.
+ * VERIFIED for green: Amplenote's own clipboard output for an exported marker came back
+ * as `<mark data-text-color="15" style="color: #BBE077;">`, resolving index 15 to exactly
+ * the hex below. The other three come from the same bounty-note table as 15 did, so the
+ * table is trustworthy, but only that one has been round-tripped through Amplenote.
  *
  * `rgb` is the 0..1-normalized form pdf-lib needs for native annotation dictionaries
  * (Phase 4), precomputed here so there is exactly one source of truth per color.

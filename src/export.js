@@ -4,23 +4,30 @@
  *
  * FINDINGS THIS FILE DEPENDS ON, neither knowable from the spec alone:
  *
- *   1. Amplenote has no "colored link" markdown as a first-class construct, and - found
- *      live, not documented anywhere - a highlight/mark span and a markdown link do not
- *      compose AT ALL, in either nesting order. Both were tried and both confirmed live,
- *      through the plugin's own write path (app.insertNoteContent via "Send to note" and
- *      "Export all" - a manual paste into Amplenote's editor does NOT reliably trigger
- *      markdown parsing at all, so that route is not valid evidence either way):
- *        - `==[text](url)<!--json-->==` (mark wrapping a link) -> plain, uncolored link.
- *        - `[==text<!--json-->==](url)` (link wrapping a mark) -> ALSO a plain,
- *          uncolored link, identically to the first order.
- *      Since neither order works, color and link are DECOUPLED entirely: a small colored
- *      marker using the exact syntax Amplenote's own docs show working standalone -
- *      `==●<!-- {"cycleColor":"14"} -->==`, the character being disposable filler
- *      text, not a link - immediately followed by a plain, separate `[PDF name](url)`
- *      link. CONFIRMED LIVE working: the marker renders in the highlight's own color
- *      (distinct dot colors visible per highlight, cycle-color mapping visually
- *      consistent across coral and yellow in the same export), the link stays plain and
- *      clickable next to it.
+ *   1. A colored link IS expressible, as link-wrapping-mark using the EXPLICIT `<mark>`
+ *      element, and the color has to be a BACKGROUND to be visible at all:
+ *
+ *        [<mark style="background-color:#F3998C;">name<!--
+ *          {"backgroundCycleColor":"12"} --></mark>](url)
+ *
+ *      Read straight out of a note where the formatting had been applied by hand with
+ *      Amplenote's own toolbar and dumped back with src/actions/dump-markdown.js, so it
+ *      is Amplenote's own serialization rather than anything inferred.
+ *
+ *      Two separate keys exist and only one of them does anything to a link:
+ *      `cycleColor` sets TEXT color, `backgroundCycleColor` sets the highlight
+ *      background. Applying a text color to a link changes nothing visible - the
+ *      anchor's own color wins - while a highlight shows through. Since the requirement
+ *      asks for the link to be "highlighted" in the matching color, this is the
+ *      background key, not the text one.
+ *
+ *      SUPERSEDES an earlier finding that a mark and a link "do not compose AT ALL, in
+ *      either nesting order". That was tested with the `==...==` shorthand
+ *      (`==[text](url)<!--json-->==` and `[==text<!--json-->==](url)`, both of which
+ *      really do come back plain) and generalized to marks as a whole, which was too
+ *      strong: the shorthand and the element are not interchangeable here. It forced a
+ *      workaround - a colored `●` next to a plain link - that the requirement never
+ *      asked for and that is now gone.
  *   2. The bounty's "double-quoted block" means a doubly-NESTED blockquote, settled
  *      against the requirement's own diagram: the highlighted text sits visibly deeper
  *      than the user's note, i.e. `> >` for the quote and `>` for the note. An earlier
@@ -29,9 +36,10 @@
  *      shows none, and the nesting is what "double" refers to.
  *
  * The four cycle-color indices (12/14/15/18) are the bounty's own stated values
- * (constants.js), used as given - independent verification against the live color
- * chart was attempted but inconclusive for one of the four (see docs/bugs-found.md
- * if that entry exists, or the session notes); worth the same live sanity check.
+ * (constants.js). Index 15 is now CONFIRMED to be exactly the green in that table:
+ * Amplenote's own clipboard output for an exported marker came back as
+ * `<mark data-text-color="15" style="color: #BBE077;">`, resolving the index to the hex
+ * we already had. The other three come from the same source.
  *
  * WHY THIS FILE HAS THE SAME SHAPE AS geometry.js AND annotations.js
  *
@@ -45,12 +53,16 @@
  */
 export function createExportBuilder() {
   /**
-   * Escape the one character that would break `[text](url)` link syntax if it appeared
-   * in a PDF's filename - `]` closes the link's text segment early. Nothing else in a
-   * filename is markdown-special in this position.
+   * Escape what would break the link's `[text]` segment if it appeared in a PDF's
+   * filename: `]` closes that segment early, and `<` now matters too because the name no
+   * longer sits in plain link text - it sits INSIDE a `<mark>` element, where a stray `<`
+   * starts a tag. `&` is deliberately left alone: a bare ampersand in a filename renders
+   * fine, and escaping it would show a literal `&amp;` in every name containing one.
    */
   function escapeLinkText(text) {
-    return String(text == null ? "" : text).replace(/\]/g, "\\]");
+    return String(text == null ? "" : text)
+      .replace(/\]/g, "\\]")
+      .replace(/</g, "&lt;");
   }
 
   /**
@@ -94,9 +106,36 @@ export function createExportBuilder() {
   }
 
   /**
+   * The PDF's name wearing the highlight's own color, as the text of the deep link.
+   *
+   * Byte-for-byte Amplenote's own serialization (file header finding 1): the `<mark>` is
+   * the ELEMENT form, not the `==...==` shorthand, which does not compose with a link;
+   * the JSON comment sits INSIDE the mark, after the text; and the key is
+   * `backgroundCycleColor`, because a text color on a link is invisible - the anchor's
+   * own color wins - while a background shows.
+   *
+   * The inline `style` is kept because Amplenote emits it, but the index is what
+   * actually carries the color: an exported marker written with only the JSON comment
+   * and no style rendered correctly and came back from Amplenote's own clipboard with
+   * the matching hex filled in. Falls back to a plain, uncolored name when there is no
+   * index to name a color with - an uncolored link beats a broken one.
+   */
+  function colorizeLinkText(linkText, cycleIndex, hex) {
+    if (cycleIndex === undefined || cycleIndex === null) return linkText;
+    return (
+      "<mark" +
+      (hex ? ' style="background-color:' + hex + ';"' : "") +
+      ">" +
+      linkText +
+      '<!-- {"backgroundCycleColor":"' + cycleIndex + '"} --></mark>'
+    );
+  }
+
+  /**
    * One highlight's export block - see the file header for the format's reasoning.
    *
-   *   ==●<!-- {"cycleColor":"N"} -->== [PDF name](deep link)
+   *   [<mark style="background-color:#F3998C;">PDF name<!--
+   *     {"backgroundCycleColor":"12"} --></mark>](deep link)
    *   > > the highlighted text
    *   >
    *   > the user's note, if any
@@ -106,27 +145,25 @@ export function createExportBuilder() {
    * the same depth and the nesting the requirement's diagram shows is lost. Closing the
    * inner quote explicitly is what puts the note one level out.
    *
-   * The color and the link are two SEPARATE constructs on the same line, not one
-   * construct trying to be both - a highlight/mark span cannot contain a markdown link
-   * in either nesting order (confirmed live, see the file header). The marker character
-   * itself carries the color; the link right after it carries the PDF name and stays
-   * fully plain, which is the one combination proven to render correctly.
+   * THE LINK ITSELF carries the color, which is what spec §4 asks for - "this link should
+   * be highlighted in the Amplenote-supported color that corresponds to that highlight's
+   * color". An earlier version put a colored `●` next to a plain link instead, on a
+   * finding that marks and links cannot compose; that finding was too strong (header),
+   * and the dot was a workaround for a limitation that does not exist.
    *
    * @param pdfName        the attachment's display name - required element per spec §4.
    * @param pluginUUID     this plugin's own note uuid, for the `plugin://` link.
    * @param attachmentUUID which PDF the deep link should open.
    * @param highlight      { id, page, quoteText, note, color }.
    * @param cycleIndex     Amplenote cycle-color index matching the highlight's color.
+   * @param hex            that color's hex, for the inline style Amplenote also emits.
    * @param sourceNoteUUID the note THIS highlight lives on - what `linkTarget` navigates
    *   to when the link is clicked. See buildDeepLink's own comment for why it's required.
    */
-  function buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, highlight, cycleIndex, sourceNoteUUID) {
+  function buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, highlight, cycleIndex, hex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
-    var linkText = escapeLinkText(pdfName || "PDF");
-    // The filler character inside the colored marker is disposable - it exists only to
-    // give the ==...== span something to color, never to be read as meaningful text.
-    var marker = '==●<!-- {"cycleColor":"' + cycleIndex + '"} -->==';
-    var heading = marker + " [" + linkText + "](" + url + ")";
+    var linkText = colorizeLinkText(escapeLinkText(pdfName || "PDF"), cycleIndex, hex);
+    var heading = "[" + linkText + "](" + url + ")";
 
     var lines = [heading].concat(prefixLines(highlight.quoteText, "> >"));
     if (highlight.note) {
@@ -155,58 +192,33 @@ export function createExportBuilder() {
    *
    * WHY THIS EXISTS: Amplenote's editor does not parse markdown out of pasted plain text
    * (docs/api-notes.md finding #7, confirmed again live for the Copy button specifically -
-   * the exported block pasted in as literal `==●<!-- ... -->== [name](plugin://...)` and
+   * the exported block pasted in as its literal markdown characters - the mark syntax and
    * `> >` characters, rendering nothing). Rich-text editors read `text/html` off the
    * clipboard instead, so Copy now puts BOTH flavors there: markdown as `text/plain` for
    * everything else, this as `text/html` for Amplenote.
    *
-   * Structure mirrors the markdown exactly - marker + plain link, the quote nested twice,
+   * Structure mirrors the markdown exactly - the colored link, the quote nested twice,
    * the note one level out - so a pasted block and an exported one look the same.
    *
    * CONFIRMED LIVE: the paste renders - blockquote nesting, a clickable `plugin://`
-   * anchor, and inline `color` AND `background-color` on a `<mark>` are all honoured.
+   * anchor, and an inline `background-color` on a `<mark>`, which arrives as a colored
+   * box. That box is the whole point NOW; it was the bug when this marker was a `●` that
+   * was supposed to be a bare colored dot, and a long detour went into trying to remove
+   * it. Amplenote maps a pasted `<mark>` onto its HIGHLIGHT node unless the markup names
+   * a different one, and a highlighted link is exactly what spec §4 asks for.
    *
-   * THE MARKER IS COPIED FROM AMPLENOTE'S OWN CLIPBOARD OUTPUT, not derived. Copying an
-   * exported block out of a note and reading the `text/html` flavor gives, verbatim:
-   *
-   *   <mark data-text-color="15" style="color: #BBE077;">●</mark>
-   *
-   * `data-text-color` is the load-bearing part and carries the same cycleIndex the
-   * markdown form uses. Amplenote's paste handler reads it to build a TEXT-COLOR mark;
-   * without it, a bare `<mark>` maps to a HIGHLIGHT mark instead and arrives wearing that
-   * node's background box. That single attribute is the difference, and no amount of CSS
-   * substitutes for it - five styled variants were tried live and every one either kept
-   * the box or lost the color:
-   *
-   *   `<mark background-color>`               -> colored box, black glyph inside it.
-   *   `<mark background-color + color>`       -> solid colored box. Wrong shape.
-   *   `<mark color + background:transparent>` -> right glyph color, box still there.
-   *   `<span color>`                          -> no box, and no color: no node to map to,
-   *                                              so the span is dropped whole.
-   *   emoji swatch, no styling                -> survives everything, reads as decoration.
-   *
-   * The lesson worth keeping (docs/bugs-found.md): pasted markup is mapped onto
-   * Amplenote's document schema, so inline CSS is not styling - it is a hint about WHICH
-   * NODE you meant, and the node decides how it looks. Reading the target's own clipboard
-   * output answers in one observation what guessing at CSS cannot answer at all.
-   *
-   * The inline `color` is kept alongside the attribute because Amplenote emits both; the
-   * spacing (`color: #HEX;`) mirrors its output exactly rather than being normalized, on
-   * the theory that anything matching byte-for-byte cannot be the thing that breaks.
+   * (For the record, since it cost five rounds to learn: the text-color node is named by
+   * `data-text-color="N"`, which Amplenote's own clipboard output carries -
+   * `<mark data-text-color="15" style="color: #BBE077;">`. Nothing here needs it, but a
+   * future marker wanting colored TEXT rather than a highlight does. The general lesson
+   * is in docs/bugs-found.md: pasted markup is mapped onto a document schema, so inline
+   * CSS is not styling - it is a hint about WHICH NODE you meant.)
    */
   function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, cycleIndex, hex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
-    var marker = "&#9679;";
-    if (hex) {
-      marker =
-        "<mark" +
-        (cycleIndex === undefined || cycleIndex === null
-          ? ""
-          : ' data-text-color="' + escapeHtml(cycleIndex) + '"') +
-        ' style="color: ' + escapeHtml(hex) + ';">&#9679;</mark>';
-    }
-    var heading =
-      "<p>" + marker + ' <a href="' + escapeHtml(url) + '">' + escapeHtml(pdfName || "PDF") + "</a></p>";
+    var name = escapeHtml(pdfName || "PDF");
+    var linkText = hex ? '<mark style="background-color: ' + escapeHtml(hex) + ';">' + name + "</mark>" : name;
+    var heading = '<p><a href="' + escapeHtml(url) + '">' + linkText + "</a></p>";
 
     var quote = "<blockquote><blockquote>" + htmlParagraph(highlight.quoteText) + "</blockquote></blockquote>";
     var note = highlight.note ? "<blockquote>" + htmlParagraph(highlight.note) + "</blockquote>" : "";
@@ -233,7 +245,9 @@ export function createExportBuilder() {
    * rather than reading as one continuous quote.
    *
    * @param colorFilter Set/array of color ids to include, or null/empty for "all colors".
-   * @param colorCycleIndexTable { [colorId]: cycleIndex }.
+   * @param colorTable { [colorId]: { cycleIndex, hex } } - both, because the colored link
+   *   needs the index to name the color and the hex for the inline style Amplenote emits
+   *   alongside it. One table rather than two parallel ones keeps them from drifting.
    * @param sourceNoteUUID the note every highlight here lives on - see buildDeepLink.
    * @returns {string} empty string if nothing matches the filter - callers decide how
    *   to handle "nothing to export" rather than this function guessing at a message.
@@ -243,7 +257,7 @@ export function createExportBuilder() {
     pluginUUID,
     attachmentUUID,
     highlights,
-    colorCycleIndexTable,
+    colorTable,
     colorFilter,
     sourceNoteUUID
   ) {
@@ -254,8 +268,16 @@ export function createExportBuilder() {
     var sorted = sortForReading(filtered);
 
     var blocks = sorted.map(function (h) {
-      var cycleIndex = colorCycleIndexTable ? colorCycleIndexTable[h.color] : undefined;
-      return buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, h, cycleIndex, sourceNoteUUID);
+      var color = (colorTable && colorTable[h.color]) || {};
+      return buildHighlightBlock(
+        pdfName,
+        pluginUUID,
+        attachmentUUID,
+        h,
+        color.cycleIndex,
+        color.hex,
+        sourceNoteUUID
+      );
     });
     return blocks.join("\n\n");
   }

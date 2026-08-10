@@ -547,6 +547,30 @@ through pasted HTML, a discrepancy between them is invisible in either output al
 were only obviously different once an exported block and a pasted one sat a few lines
 apart in the same note — worth deliberately arranging when two paths are meant to agree.
 
+**Postscript: the marker should never have existed.** All of the above was spent making a
+colored `●` render next to a plain link — a workaround for an earlier finding that "a mark
+span and a markdown link do not compose in EITHER nesting order". That finding was tested
+with the `==...==` shorthand and generalized to marks as a whole, which was too strong.
+The explicit `<mark>` element composes with a link perfectly well, and spec §4 had asked
+for the *link itself* to be highlighted all along:
+
+```
+[<mark style="background-color:#F3998C;">name<!-- {"backgroundCycleColor":"12"} --></mark>](url)
+```
+
+Also wrong along the way: the color key. `cycleColor` is text color, `backgroundCycleColor`
+is the highlight background, and a text color on a link is invisible because the anchor's
+own color wins. The whole dot was built on the text key.
+
+**General lesson:** a negative finding ("X is impossible") deserves more scrutiny than a
+positive one, because it silently redirects the design and nothing afterwards re-tests it.
+This one was recorded confidently, from real evidence, and was still too broad — two
+syntaxes for the same concept behaved differently, and only one was tried. When a
+limitation forces a workaround the requirement never asked for, treat that as a signal to
+re-derive the limitation, not as a cost of doing business. And the way to settle it was
+always available: apply the formatting by hand in the target app and read back what it
+serializes, rather than probing candidate syntaxes from the outside.
+
 **Follow-on regression: Copy stopped writing to the clipboard at all, silently.** Reported
 as "nothing is copying", with no error message — and the no-message part was itself a bug
 hiding the real one. `copyHighlight` built both clipboard flavors *before* `copyToClipboard`

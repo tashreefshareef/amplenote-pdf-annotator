@@ -1627,12 +1627,18 @@ export function viewerMain() {
     return base + "-annotated.pdf";
   }
 
-  /** { [colorId]: cycleIndex } from config, for export.js's markdown builders. */
-  function colorCycleIndexTable() {
+  /**
+   * { [colorId]: { cycleIndex, hex } } from config, for export.js's builders.
+   *
+   * Both, because a colored link carries the index (which names the color to Amplenote)
+   * and the hex (the inline style Amplenote emits beside it). One table rather than two
+   * parallel lookups keyed the same way, so they cannot drift.
+   */
+  function colorTable() {
     var table = {};
     var list = colorList();
     for (var i = 0; i < list.length; i++) {
-      if (list[i].cycleIndex !== undefined) table[list[i].id] = list[i].cycleIndex;
+      table[list[i].id] = { cycleIndex: list[i].cycleIndex, hex: list[i].hex };
     }
     return table;
   }
@@ -1646,12 +1652,14 @@ export function viewerMain() {
   }
 
   function exportBlockFor(highlight) {
+    var color = colorTable()[highlight.color] || {};
     return exportBuilder.buildHighlightBlock(
       state.attachmentName,
       cfg.pluginUUID,
       cfg.attachmentUUID,
       highlight,
-      colorCycleIndexTable()[highlight.color],
+      color.cycleIndex,
+      color.hex,
       cfg.noteUUID
     );
   }
@@ -1659,18 +1667,14 @@ export function viewerMain() {
   /** The same block as HTML - the clipboard's rich-text flavor. See copyToClipboard. */
   function exportHtmlFor(highlight) {
     if (!exportBuilder.buildHighlightHtml) return null;
-    var list = colorList();
-    var hex = null;
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].id === highlight.color) hex = list[i].hex;
-    }
+    var color = colorTable()[highlight.color] || {};
     return exportBuilder.buildHighlightHtml(
       state.attachmentName,
       cfg.pluginUUID,
       cfg.attachmentUUID,
       highlight,
-      colorCycleIndexTable()[highlight.color],
-      hex,
+      color.cycleIndex,
+      color.hex,
       cfg.noteUUID
     );
   }
@@ -1680,7 +1684,8 @@ export function viewerMain() {
    * two flavors: the handler overrides both `text/plain` and `text/html` on the event's
    * own clipboardData. `navigator.clipboard.writeText` cannot do this at all (plain text
    * only), and it is the reason a copied highlight pasted into Amplenote as literal
-   * `==●<!-- ... -->==` and `> >` characters - see buildHighlightHtml in src/export.js.
+   * the markdown's literal characters (the mark syntax, `> >`, and all) - see
+   * buildHighlightHtml in src/export.js.
    *
    * execCommand is deprecated but not replaced here for a reason beyond the flavors:
    * cross-origin iframes (the embed's own situation, on plugins.amplenote.com) can have
@@ -1782,7 +1787,7 @@ export function viewerMain() {
    * The message names what actually landed, because "copied" and "copied with its
    * formatting" are different promises and only some routes keep the HTML (see
    * copyToClipboard). Telling someone it is ready to paste, when what is on the clipboard
-   * will paste as literal `==●<!-- ... -->==` characters, is the same mistake the plain-
+   * will paste as the markdown's literal characters, is the same mistake the plain-
    * text-only version made.
    */
   function copyHighlight(highlight) {
@@ -1845,7 +1850,7 @@ export function viewerMain() {
       cfg.pluginUUID,
       cfg.attachmentUUID,
       state.highlights,
-      colorCycleIndexTable(),
+      colorTable(),
       colorFilter,
       cfg.noteUUID
     );

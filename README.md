@@ -17,8 +17,10 @@ Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty
 > and note with click-to-jump (Phase 3). A Download button bakes every highlight and note
 > into the PDF as native annotations — real, selectable, reader-editable ones, not
 > painted-on rectangles — and downloads the result (Phase 4). A highlight can be copied
-> to the clipboard or sent to the note as Amplenote's own
-> `==highlight<!-- {"cycleColor":"N"} -->==` markdown, and an Export button builds a
+> to the clipboard or sent to the note as a deep link whose text carries the highlight's
+> own color, in Amplenote's own
+> `<mark style="background-color:#HEX;">…<!-- {"backgroundCycleColor":"N"} --></mark>`
+> markdown, and an Export button builds a
 > "\<PDF name\> - Highlights" note from every highlight (optionally filtered by color),
 > each block carrying a `plugin://` deep-link back to its exact page and position
 > (Phase 5). Clicking one scrolls the note to the right PDF and flashes the highlight it

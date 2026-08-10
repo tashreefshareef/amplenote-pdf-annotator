@@ -152,17 +152,33 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    looking markers. Note also that `<mark>` has a default yellow background of its own, so
    a foreground-only marker needs an explicit `background-color:transparent`.
 
-8. **A highlight/mark span (`==text==`) cannot contain a markdown link, in EITHER nesting
-   order.** Tried both live, through the real write path (see #7 - paste is not valid
-   evidence for this either): `==[text](url)<!--json-->==` (mark wrapping a link) and
-   `[==text<!--json-->==](url)` (link wrapping a mark) both rendered as a plain,
-   completely uncolored link - the mark's color silently dropped in both cases, no error,
-   no partial styling. If a plugin needs both a color-coded marker AND a clickable link on
-   the same line, DECOUPLE them into two separate constructs next to each other -
-   `==●<!-- {"cycleColor":"N"} -->== [text](url)`, a colored throwaway character
-   immediately followed by a plain link - rather than trying to make one construct do
-   both. Confirmed live: the decoupled form renders correctly, marker in color, link
-   plain and clickable.
+8. **A colored link IS expressible - use the `<mark>` ELEMENT, and the BACKGROUND key.**
+
+   ```
+   [<mark style="background-color:#9AD62A;">text<!-- {"backgroundCycleColor":"26"} --></mark>](url)
+   ```
+
+   Two separate facts, each of which independently defeats the obvious attempt:
+
+   - **`cycleColor` sets TEXT color; `backgroundCycleColor` sets the highlight
+     background.** They are different keys on the same mark. Applying a *text* color to a
+     link changes nothing visible - the anchor's own color wins - while a background shows
+     through. So "make this link appear in colour X" means the background key.
+   - **The `==...==` shorthand does not compose with a link, but the `<mark>` element
+     does.** `==[text](url)<!--json-->==` and `[==text<!--json-->==](url)` both really do
+     render as plain uncolored links. It is tempting to conclude "marks and links don't
+     compose" and decouple them - a colored character next to a plain link. That
+     conclusion is WRONG and cost a working feature here: the element form nests fine.
+
+   **How this was settled, and the method worth reusing:** apply the formatting BY HAND in
+   Amplenote with its own toolbar, then read the note back with a markdown dump
+   (`getNoteContent`, e.g. src/actions/dump-markdown.js). That returns Amplenote's own
+   serialization - which is the answer, not an inference from it. Any question of the form
+   "what markdown does Amplenote use for X" is answerable this way in about a minute, and
+   no amount of trying candidate syntaxes substitutes for it.
+
+   Note the dump also shows Amplenote serializing colors as the explicit `<mark>` element
+   rather than the `==...==` shorthand, even though it accepts both on input.
 
 9. **A clickable `[text](plugin://UUID?args)` markdown link does NOT route to
    `renderEmbed` - it routes to a completely separate, easy-to-miss action called

@@ -1,14 +1,19 @@
 /**
  * Tests for building the markdown exported back into an Amplenote note.
  *
- * These pin the format findings from export.js's own header: the
- * `==text<!-- {"cycleColor":"N"} -->==` color syntax, the "double-quoted block"
- * interpretation (a doubly-NESTED blockquote - `> >` for the quote, `>` for the note,
- * no literal quote marks; an earlier literal-quotes reading was reported wrong), and the DECOUPLED
- * marker+link heading - a colored `==●<!--json-->==` marker followed by a separate
- * plain `[PDF name](url)` link, since a highlight/mark span and a markdown link were
- * confirmed live not to compose in either nesting order. If any of these turn out wrong
- * once tested live, these are the tests to update alongside the fix.
+ * These pin the format findings from export.js's own header: the "double-quoted block"
+ * interpretation (a doubly-NESTED blockquote - `> >` for the quote, `>` for the note, no
+ * literal quote marks; an earlier literal-quotes reading was reported wrong), and the
+ * COLORED LINK heading - `[<mark style="background-color:HEX;">name<!--
+ * {"backgroundCycleColor":"N"} --></mark>](url)`, read off Amplenote's own serialization
+ * after applying the formatting by hand and dumping it with src/actions/dump-markdown.js.
+ *
+ * Two of those details are the ones to preserve if this ever gets rewritten, because both
+ * were arrived at the expensive way: the mark must be the ELEMENT rather than the
+ * `==...==` shorthand, which really does not compose with a link, and the key must be
+ * `backgroundCycleColor` rather than `cycleColor`, because a text color applied to a link
+ * is invisible - the anchor's own color wins. An earlier format shipped a colored `●`
+ * next to a plain link, working around a limitation that turned out not to exist.
  */
 import {
   createExportBuilder,
@@ -32,7 +37,14 @@ const highlight = (overrides = {}) => ({
   ...overrides,
 });
 
-const CYCLE_TABLE = { coral: 12, yellow: 14, green: 15, blue: 18 };
+// { cycleIndex, hex } per color, mirroring constants.js - the colored link needs the
+// index to name the color to Amplenote and the hex for the style it emits alongside.
+const CYCLE_TABLE = {
+  coral: { cycleIndex: 12, hex: "#F3998C" },
+  yellow: { cycleIndex: 14, hex: "#F4DE6C" },
+  green: { cycleIndex: 15, hex: "#BBE077" },
+  blue: { cycleIndex: 18, hex: "#84B6D9" },
+};
 
 describe("buildDeepLink", () => {
   // Scenario: the core round-trip - a deep link must carry enough to reopen the exact
@@ -74,22 +86,22 @@ describe("buildDeepLink", () => {
 });
 
 describe("buildHighlightBlock", () => {
-  // Scenario: THE core format - a colored marker (the highlight+HTML-comment syntax,
-  // carrying no link) immediately followed by a plain link with the PDF's name, then the
-  // quoted text, then the note, each on distinguishable lines.
-  test("builds the block: colored marker + link, nested quote, note one level out", () => {
+  // Scenario: THE core format - the deep link, its text wearing the highlight's own
+  // color, then the quoted text, then the note, each on distinguishable lines.
+  test("builds the block: colored link, nested quote, note one level out", () => {
     const block = buildHighlightBlock(
       "Suzuki Access Insurance 2025-2026.pdf",
       PLUGIN_UUID,
       ATT_UUID,
       highlight({ note: "worth double-checking at renewal" }),
       14,
+      "#F4DE6C",
       "note-42"
     );
     const lines = block.split("\n");
     expect(lines).toHaveLength(4);
     expect(lines[0]).toBe(
-      `==●<!-- {"cycleColor":"14"} -->== [Suzuki Access Insurance 2025-2026.pdf](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123&note=note-42)`
+      `[<mark style="background-color:#F4DE6C;">Suzuki Access Insurance 2025-2026.pdf<!-- {"backgroundCycleColor":"14"} --></mark>](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123&note=note-42)`
     );
     expect(lines[1]).toBe("> > the highlighted text");
     // The bare `>` closes the inner quote. Without it, markdown's lazy continuation pulls
@@ -105,25 +117,42 @@ describe("buildHighlightBlock", () => {
     expect(block.split("\n")).toHaveLength(2);
   });
 
-  // Scenario: THE hazard the spec's own wording ("colored link") would have missed -
-  // there is no plain colored-link syntax in Amplenote, and a highlight/mark span cannot
-  // contain a markdown link at all (confirmed live, in both nesting orders - see the
-  // file header). Color and link are separate constructs: the marker uses the
-  // ==...<!-- {"cycleColor"} -->== wrapper with NO space after the opening == (confirmed
-  // live, whitespace there silently disables the formatting), and the link right after
-  // it is left completely plain.
-  test("colors a marker, then leaves the link plain, with no leading space in the marker", () => {
-    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 18);
+  // Scenario: spec §4 asks for THE LINK ITSELF to be highlighted in the matching color,
+  // and two details decide whether that renders at all. The mark must be the <mark>
+  // ELEMENT - the ==...== shorthand does not compose with a link, which is what drove an
+  // earlier "marks and links never compose" reading and a colored-dot workaround. And the
+  // key must be backgroundCycleColor: a TEXT color on a link is invisible, because the
+  // anchor's own color wins. Both read off Amplenote's own serialization via
+  // src/actions/dump-markdown.js after applying the formatting by hand.
+  test("wraps the link text in a background-colored mark, not a separate marker", () => {
+    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 18, "#84B6D9");
     const heading = block.split("\n")[0];
-    expect(heading).toMatch(/^==\S/); // no space after the opening ==
-    expect(heading).toMatch(/<!-- \{"cycleColor":"18"\} -->== \[paper\.pdf\]\(/);
+    expect(heading).toMatch(/^\[<mark style="background-color:#84B6D9;">paper\.pdf<!-- /);
+    expect(heading).toContain('{"backgroundCycleColor":"18"} --></mark>](plugin://');
+    expect(heading).not.toContain("cycleColor\":\"18\"} -->==" ); // not the == shorthand
+    expect(heading).not.toContain("●"); // the dot workaround is gone
+  });
+
+  // Scenario: an unknown color leaves nothing to name a color with. An uncolored link
+  // beats emitting `backgroundCycleColor: undefined` and breaking the whole heading.
+  test("falls back to a plain link when there is no cycle index", () => {
+    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), undefined, undefined);
+    expect(block.split("\n")[0]).toMatch(/^\[paper\.pdf\]\(plugin:\/\//);
   });
 
   // Scenario: PDF filenames routinely contain brackets - "[DRAFT] Report.pdf" - which
-  // would prematurely close the plain link's [text] segment if not escaped.
+  // would prematurely close the link's [text] segment if not escaped.
   test("escapes a closing bracket in the PDF name", () => {
-    const block = buildHighlightBlock("[DRAFT] Report.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 14);
-    expect(block).toContain("[DRAFT\\] Report.pdf]");
+    const block = buildHighlightBlock("[DRAFT] Report.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 14, "#F4DE6C");
+    expect(block).toContain("[DRAFT\\] Report.pdf<!--");
+  });
+
+  // Scenario: the name now sits INSIDE a <mark> element, so a `<` in a filename would
+  // start a tag rather than showing as a character. It was harmless as plain link text.
+  test("escapes a less-than in the PDF name, which now sits inside an element", () => {
+    const block = buildHighlightBlock("a<b.pdf", PLUGIN_UUID, ATT_UUID, highlight(), 14, "#F4DE6C");
+    expect(block).toContain("&lt;b.pdf");
+    expect(block).not.toContain("a<b.pdf");
   });
 
   // Scenario: the highlighted text and the note must be clearly distinguishable from
@@ -150,14 +179,14 @@ describe("buildHighlightBlock", () => {
 
 /**
  * The clipboard's rich-text flavor. These exist because the markdown flavor alone was
- * CONFIRMED LIVE not to work for Copy: pasting into Amplenote's editor produced literal
- * `==●<!-- {"cycleColor":"12"} -->==` and `> >` characters, rendering nothing (the same
- * "paste does not parse markdown" finding as docs/api-notes.md #7). The HTML flavor was
- * then confirmed live to render - colored marker, clickable link, nested quote.
+ * CONFIRMED LIVE not to work for Copy: pasting into Amplenote's editor produced the
+ * markdown's literal characters, rendering nothing (the same "paste does not parse
+ * markdown" finding as docs/api-notes.md #7). The HTML flavor was then confirmed live to
+ * render - colored link, clickable anchor, nested quote.
  */
 describe("buildHighlightHtml", () => {
-  // Scenario: the HTML mirrors the markdown block exactly - colored marker, plain link,
-  // quote nested twice, note one level out - so a paste and an export look the same.
+  // Scenario: the HTML mirrors the markdown block exactly - the colored link, quote
+  // nested twice, note one level out - so a paste and an export look the same.
   test("mirrors the markdown block's structure as HTML", () => {
     const html = buildHighlightHtml(
       "paper.pdf",
@@ -168,18 +197,16 @@ describe("buildHighlightHtml", () => {
       "#F4DE6C",
       "note-42"
     );
-    // Byte-for-byte what Amplenote's OWN clipboard output contains for a cycle-colored
-    // marker, read off the text/html flavor after copying an exported block out of a note:
-    //   <mark data-text-color="15" style="color: #BBE077;">●</mark>
-    // `data-text-color` is the load-bearing part - it is what makes the paste handler
-    // build a TEXT-COLOR mark. Without it a bare <mark> becomes a HIGHLIGHT mark and
-    // arrives wearing that node's background box, which is what five CSS-only variants
-    // all failed to shake off. See buildHighlightHtml's comment.
-    expect(html).toContain('<mark data-text-color="14" style="color: #F4DE6C;">&#9679;</mark>');
-    expect(html).not.toContain("background");
+    // A pasted <mark> maps onto Amplenote's HIGHLIGHT node, which renders as a colored
+    // box - which is exactly what a highlighted link should look like. That same box was
+    // the BUG back when this marker was a `●` meant to render as a bare dot, and a long
+    // detour went into trying to remove it. (The text-color node is named by
+    // data-text-color="N"; nothing here wants it.)
+    expect(html).toContain('<mark style="background-color: #F4DE6C;">paper.pdf</mark>');
     expect(html).toContain(
-      `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">paper.pdf</a>`
+      `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">`
     );
+    expect(html).not.toContain("&#9679;"); // the dot workaround is gone
     expect(html).toContain("<blockquote><blockquote><p>the highlighted text</p></blockquote></blockquote>");
     expect(html).toContain("<blockquote><p>a plain remark</p></blockquote>");
   });
@@ -220,22 +247,20 @@ describe("buildHighlightHtml", () => {
     expect(html).toContain("<p>first line<br>second line</p>");
   });
 
-  // Scenario: an unknown color id yields no hex - the marker degrades to a bare `●`
-  // wrapped in nothing, rather than emitting `color:null` or an uncolored <mark> whose
-  // only visible effect would be that element's own background box.
-  test("emits a bare glyph, wrapped in nothing, when no hex is known", () => {
+  // Scenario: an unknown color leaves no hex to style with. The link text degrades to a
+  // plain name rather than an empty `<mark>`, whose only visible effect would be that
+  // node's default background - a box in a color nobody chose.
+  test("falls back to plain link text when no hex is known", () => {
     const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), null, null);
-    expect(html).toContain("<p>&#9679; <a href=");
-    expect(html).not.toContain("color:");
+    expect(html).toContain('<a href="plugin://plugin-uuid-1?att=attach-1&amp;page=3&amp;hl=hl-abc123">paper.pdf</a>');
+    expect(html).not.toContain("<mark");
   });
 
-  // Scenario: a color the cycle table has no index for still deserves its exact hex - the
-  // inline style alone is worth keeping, it just cannot promise the box-free rendering
-  // that only data-text-color buys.
-  test("still emits the inline color when the cycle index is unknown", () => {
+  // Scenario: the HTML flavor needs only the hex - unlike the markdown form, nothing here
+  // depends on the cycle index, so a color missing from the index table still renders.
+  test("colors the link from the hex alone, with no cycle index", () => {
     const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), undefined, "#F4DE6C");
-    expect(html).toContain('<mark style="color: #F4DE6C;">&#9679;</mark>');
-    expect(html).not.toContain("data-text-color");
+    expect(html).toContain('<mark style="background-color: #F4DE6C;">paper.pdf</mark>');
   });
 });
 
@@ -283,7 +308,7 @@ describe("buildExportAllContent", () => {
   // blockquotes visually run together as one continuous quote.
   test("separates blocks with a blank line", () => {
     const content = buildExportAllContent("paper.pdf", PLUGIN_UUID, ATT_UUID, three.slice(0, 2), CYCLE_TABLE, null);
-    expect(content).toContain("\n\n==●");
+    expect(content).toContain("\n\n[<mark");
   });
 
   // Scenario: no highlights at all (a PDF nobody has annotated yet) must not throw -
