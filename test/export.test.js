@@ -167,11 +167,13 @@ describe("buildHighlightHtml", () => {
       "#F4DE6C",
       "note-42"
     );
-    // The GLYPH is colored and the background explicitly cleared, because that is what
-    // the markdown path renders: `==●<!-- {"cycleColor" -->==` shows a colored dot, not a
-    // colored rectangle. Coloring the background instead made a pasted marker look
-    // different from an exported one. See buildHighlightHtml's comment.
-    expect(html).toContain('<mark style="background-color:transparent;color:#F4DE6C">&#9679;</mark>');
+    // A span coloring the GLYPH, not a <mark> coloring a box: the markdown path renders
+    // `==●<!-- {"cycleColor" -->==` as a colored dot, and <mark> carries a background of
+    // its own that inline `background-color:transparent` did NOT override live. See
+    // buildHighlightHtml's comment.
+    expect(html).toContain('<span style="color:#F4DE6C">&#9679;</span>');
+    expect(html).not.toContain("<mark");
+    expect(html).not.toContain("background-color");
     expect(html).toContain(
       `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">paper.pdf</a>`
     );
@@ -213,12 +215,13 @@ describe("buildHighlightHtml", () => {
     expect(html).toContain("<p>first line<br>second line</p>");
   });
 
-  // Scenario: an unknown color id yields no hex - the marker must still be a mark, just
-  // without a background, rather than emitting `background-color:null`.
-  test("emits a plain mark when no hex is known", () => {
+  // Scenario: an unknown color id yields no hex - the marker must degrade to a bare
+  // glyph rather than emitting `color:null`, and must not wrap it in an element whose
+  // only effect would be the background box the span exists to avoid.
+  test("emits a bare glyph, wrapped in nothing, when no hex is known", () => {
     const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), null);
-    expect(html).toContain("<mark>&#9679;</mark>");
-    expect(html).not.toContain("background-color");
+    expect(html).toContain("<p>&#9679; <a href=");
+    expect(html).not.toContain("color:");
   });
 });
 

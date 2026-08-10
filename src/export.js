@@ -166,19 +166,27 @@ export function createExportBuilder() {
    * CONFIRMED LIVE: the paste renders - blockquote nesting, a clickable `plugin://`
    * anchor, and inline `color` AND `background-color` on a `<mark>` are all honoured.
    *
-   * The marker colors the GLYPH and explicitly clears the background, which is what
-   * matches the markdown path: `==●<!-- {"cycleColor":"N"} -->==` renders as a small
-   * colored DOT, so Amplenote's cycle-color mark paints the text, not a background behind
-   * it. Setting background-color instead produced a colored rectangle here while an
-   * exported block a few lines above it showed a plain dot - same plugin, same highlight,
-   * two different-looking markers. `background-color:transparent` is not redundant:
-   * `<mark>` carries a default yellow background of its own that would otherwise show.
+   * The marker is a `<span>` coloring the GLYPH, which is what matches the markdown path:
+   * `==●<!-- {"cycleColor":"N"} -->==` renders as a small colored DOT, so Amplenote's
+   * cycle-color mark paints the text, not a background behind it. Setting
+   * background-color instead produced a colored rectangle here while an exported block a
+   * few lines above it showed a plain dot - same plugin, same highlight, two
+   * different-looking markers.
+   *
+   * `<mark>` was the obvious element for a thing called a highlight and it is the WRONG
+   * one here: it drags along a background of its own that an inline
+   * `background-color:transparent` did not override (tried live - the box got fainter,
+   * not gone). A span has no such default, and there is nothing to suppress. Amplenote's
+   * own editor has a text-color control, so a span carrying `color` has a mark to map onto.
+   *
+   * With no hex the marker is a bare `●` and no element at all - an uncolored wrapper
+   * would only reintroduce the box this is here to avoid.
    */
   function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
     var marker = hex
-      ? '<mark style="background-color:transparent;color:' + escapeHtml(hex) + '">&#9679;</mark>'
-      : "<mark>&#9679;</mark>";
+      ? '<span style="color:' + escapeHtml(hex) + '">&#9679;</span>'
+      : "&#9679;";
     var heading =
       "<p>" + marker + ' <a href="' + escapeHtml(url) + '">' + escapeHtml(pdfName || "PDF") + "</a></p>";
 

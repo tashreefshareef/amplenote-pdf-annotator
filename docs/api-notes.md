@@ -101,8 +101,11 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    `buildHighlightHtml` in src/export.js and `copyToClipboard` in src/embed/viewer.js.
 
    Confirmed live for the HTML flavor: Amplenote's editor accepts pasted `<blockquote>`
-   nesting, a plain `<a href="plugin://...">`, and a `<mark>` carrying inline `color`
-   and/or `background-color` - it honours both exactly as given and restyles neither.
+   nesting, a plain `<a href="plugin://...">`, and inline `color` and `background-color`,
+   both honoured as given. **A pasted `<mark>` keeps a background box of its own that an
+   inline `background-color:transparent` does not remove** - the box only got fainter. For
+   colored text with no box, use a plain `<span style="color:...">`, which has no default
+   to fight.
 
    **When matching a pasted element to one the plugin also writes as markdown, check which
    property the markdown form actually paints.** `==x<!-- {"cycleColor":"N"} -->==` colors
