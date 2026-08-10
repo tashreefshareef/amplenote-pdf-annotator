@@ -238,6 +238,17 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    hook - no markup, no CSS - to swap the glyph for something more meaningful. Don't spend
    time looking for one.
 
+   **And the two-click path is a hard constraint, not a missing feature.** Same DOM read:
+   the link's text sits inside `contenteditable="true"`, so a click on it MUST place the
+   caret - otherwise you could never edit a word that happens to be part of a link - and
+   the editor swallows the navigation, offering the href in a popup instead. The injected
+   icon carries `contenteditable="false"`, is therefore not editable text, and the browser
+   just follows its href: one click. Every link in a note works this way; none of it is
+   specific to `plugin://`. So there is no one-click text link to build, and no way to mint
+   your own non-editable widget either - you emit markdown, Amplenote maps it onto its own
+   node schema (see finding #8), and an attribute like `contenteditable` does not survive
+   that mapping. Only nodes Amplenote constructs itself get it.
+
    Consequence for any plugin that generates deep links: **the target the user has to hit
    is a small icon Amplenote renders, not the text you wrote.** In the editor a deep link
    is inherently a two-step gesture (or one precise click on a ~12px icon), and a user who
