@@ -17,7 +17,7 @@ import {
   insertAboveManagedSection,
   withExportSeparator,
 } from "./storage.js";
-import { removeEmbedMarkup, setEmbedCollapsed } from "./embed-args.js";
+import { removeEmbedMarkup, setEmbedCollapsed, updateEmbedArgs } from "./embed-args.js";
 import {
   createHighlight,
   removeHighlight,
@@ -280,6 +280,41 @@ export async function handleEmbedCall(app, payload) {
         return { ok: true };
       } catch (err) {
         return { error: `Could not resize this viewer: ${err.message}` };
+      }
+    }
+
+    /**
+     * Spend a deep link: drop `page`/`hl` from the embed's tag once the viewer has acted
+     * on them.
+     *
+     * linkTarget writes those args into the tag before navigating, because an embed on a
+     * note being OPENED cannot be passed arguments any other way. They are an instruction
+     * for that one load, but they persist in the note markup, so every later open replays
+     * them - the note scrolls itself down to the embed and the PDF jumps to a highlight
+     * nobody asked for. Reported live. Clearing them here is what makes the instruction
+     * one-shot.
+     *
+     * `collapsed` is deliberately NOT touched: it is genuine durable state (which is why
+     * it lives in the same tag), and resetting it here would re-collapse a viewer the
+     * link had just expanded.
+     */
+    case "clearDeepLink": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate this viewer." };
+      try {
+        const noteUUID = resolveNoteUUID(app, request);
+        const content = await app.getNoteContent({ uuid: noteUUID });
+        const updated = updateEmbedArgs(content, request.pluginUUID, request.attachmentUUID, {
+          page: null,
+          highlightId: null,
+        });
+        // No matching embed line - a hand-edited note, or one whose viewer was removed
+        // while this load was in flight. Nothing to clean up and nothing to report.
+        if (updated === null) return { ok: false };
+        await app.replaceNoteContent({ uuid: noteUUID }, updated);
+        return { ok: true };
+      } catch (err) {
+        return { error: `Could not clear this viewer's deep link: ${err.message}` };
       }
     }
 

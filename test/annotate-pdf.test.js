@@ -331,6 +331,69 @@ describe("setCollapsed and getViewerSummary embed calls", () => {
     ).toMatch(/plugin id/);
   });
 
+  // Scenario: REPORTED LIVE - opening any note whose viewer is expanded scrolled the note
+  // down to the embed and left the PDF on a random page. linkTarget writes page/hl into
+  // the tag before navigating (the only way to hand arguments to an embed on a note being
+  // opened), but nothing removed them, so a one-shot instruction became permanent state
+  // that every later open replayed.
+  test("clears the deep-link args once the viewer has acted on them", async () => {
+    const a = app(`prose\n\n${tag("&page=3&hl=hl-abc")}\n\nmore`);
+
+    const result = await handleEmbedCall(a, {
+      action: "clearDeepLink",
+      attachmentUUID: "att-1",
+      pluginUUID: PLUG,
+    });
+
+    expect(result.ok).toBe(true);
+    const content = a._notes.get("note-1").content;
+    expect(content).not.toContain("page=3");
+    expect(content).not.toContain("hl=hl-abc");
+    // The viewer must still be the same viewer, and the note still the user's.
+    expect(content).toContain("att=att-1");
+    expect(content).toContain("prose");
+    expect(content).toContain("more");
+  });
+
+  // Scenario: collapsed is genuine durable state living in the same tag, not part of the
+  // one-shot instruction. Clearing it here would re-collapse a viewer the link had just
+  // expanded, which is the opposite of what the link promised.
+  test("leaves the collapsed flag alone when clearing a deep link", async () => {
+    const a = app(tag("&c=1&page=3&hl=hl-abc", "16"));
+
+    await handleEmbedCall(a, { action: "clearDeepLink", attachmentUUID: "att-1", pluginUUID: PLUG });
+
+    const content = a._notes.get("note-1").content;
+    expect(content).toContain("c=1");
+    expect(content).not.toContain("page=3");
+  });
+
+  // Scenario: a note with two viewers - clearing one must not disturb the other's own
+  // deep-link args, which may be mid-flight on a different highlight.
+  test("clears only the viewer that asked", async () => {
+    const other = `<object data="plugin://${PLUG}?att=att-2&page=9&hl=hl-other" data-aspect-ratio="1" />`;
+    const a = app(`${tag("&page=3&hl=hl-abc")}\n\n${other}`);
+
+    await handleEmbedCall(a, { action: "clearDeepLink", attachmentUUID: "att-1", pluginUUID: PLUG });
+
+    expect(a._notes.get("note-1").content).toContain(other);
+  });
+
+  // Scenario: the tag is gone (hand-edited note, or the viewer removed while this load
+  // was in flight). Nothing to clean up, and nothing worth telling the reader about.
+  test("reports a quiet failure when there is no tag left to clear", async () => {
+    const a = app("no embed here");
+
+    const result = await handleEmbedCall(a, {
+      action: "clearDeepLink",
+      attachmentUUID: "att-1",
+      pluginUUID: PLUG,
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(result.error).toBeUndefined();
+  });
+
   // Scenario: a viewer that loads collapsed never fetches the PDF, so the collapsed bar
   // would be unlabelled without this — useless on a note holding several viewers.
   test("labels a collapsed viewer without loading the PDF", async () => {

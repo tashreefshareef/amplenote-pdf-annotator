@@ -617,6 +617,40 @@ generally: a single-flavor clipboard write silently discards structure — if th
 a rich-text editor, the markup has to be on the clipboard *as* `text/html`, because the
 editor will never re-parse plain text into it.
 
+---
+
+## A one-shot instruction stored in the document replayed on every later open
+
+**Symptom:** opening *any* note whose PDF viewer was expanded scrolled the note down to
+the embed and left the PDF on a seemingly random page. No link had been clicked — merely
+opening the note did it, every time.
+
+**Cause:** a deep link cannot pass arguments to an embed on a note being navigated to, so
+`linkTarget` writes `page`/`hl` into that embed's own tag *before* navigating, and the
+viewer reads them on boot. That part worked. But nothing ever removed them. Those args
+describe an *intent* — "this load should go to highlight X" — and they were stored as
+durable document state, so every later open re-read them and faithfully repeated both
+consequences: focus the embed (which drags the host note's scroll down to it) and jump the
+PDF to a highlight nobody asked for. The "random" page was whichever highlight was linked
+last.
+
+**Fix:** clear the args once acted on, in the same branch that acts on them. Cleared at the
+top of boot rather than after the render, because the render can stall indefinitely in a
+non-compositing context — a clear sequenced behind it would never run in exactly the
+off-screen case where the replay is most disruptive. Safe that early because the args were
+parsed out of the tag at load, so rewriting the tag cannot affect the load doing the
+rewriting. `collapsed` stays untouched: that one really is durable state, and resetting it
+would re-collapse a viewer the link had just expanded.
+
+**General lesson:** intent and state look identical once written down, and the only
+difference is how long each should survive. A field answering "what should *this
+particular load* do" has to be **consumed** — read *and* cleared — or it silently becomes
+a standing order. The tell is nasty: the feature works perfectly the first time and
+misbehaves every time after, so whoever builds it sees only the working case. Design the
+clearing step at the same moment as the writing step, not when someone reports the replay.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:

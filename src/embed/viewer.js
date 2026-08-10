@@ -2126,6 +2126,29 @@ export function viewerMain() {
   }
 
   /**
+   * Strip `page`/`hl` from this embed's own tag, once they have been acted on.
+   *
+   * Fire-and-forget for the same reason as setCollapsedInNote: the scroll and the flash
+   * have already happened, so the reader has what the link promised whether or not the
+   * note write lands. A failure just means the stale-args bug recurs on the next open,
+   * which is not worth an error message over.
+   *
+   * Rewriting the tag does NOT re-mount a mounted embed (confirmed live, and the whole
+   * reason src/actions/link-target.js needs its remountEmbed dance) - so this cannot
+   * bounce the viewer the reader is currently looking at, and cannot loop: the next boot
+   * has no args left to clear.
+   */
+  function clearDeepLinkArgs() {
+    callPlugin({
+      action: "clearDeepLink",
+      attachmentUUID: cfg.attachmentUUID,
+      pluginUUID: cfg.pluginUUID,
+    })["catch"](function () {
+      /* see above - a stale tag is a worse next-open, not a failure of this one */
+    });
+  }
+
+  /**
    * Leaves collapsed mode - the "Expand" button. Only calls boot() the FIRST time
    * (state.doc is set once PDF.js finishes loading the document inside boot()) - every
    * later expand, after a manual collapse, just reveals what's already rendered rather
@@ -2154,7 +2177,25 @@ export function viewerMain() {
     // Scrolling the host note needs no PDF, no highlights and no layout - only the DOM
     // element, which exists the moment this script runs. Nothing about it belongs behind
     // the render.
-    if (cfg.highlightId || cfg.page) revealSelfInHostNote();
+    if (cfg.highlightId || cfg.page) {
+      revealSelfInHostNote();
+      // Spend the deep link. `page`/`hl` are a ONE-SHOT instruction from linkTarget,
+      // which writes them into this embed's tag before navigating because there is no
+      // other way to hand arguments to an embed on a note being opened (see
+      // src/actions/link-target.js). Nothing removed them, so the instruction became
+      // permanent document state and every LATER open of that note replayed it: the tag
+      // still said "go to highlight X", so this very branch focused the embed - dragging
+      // the host note's scroll down to it - and the viewer jumped to a highlight nobody
+      // asked for. Reported as "opening any note with an expanded PDF scrolls to it and
+      // lands somewhere random".
+      //
+      // Cleared HERE rather than after the render, for the same reason the reveal moved
+      // up: renderAll can stall indefinitely (see the note above), and a clear sequenced
+      // behind it would silently never run in exactly the off-screen case where the
+      // stale-args replay is most annoying. Safe this early because cfg was parsed from
+      // the tag at load, so rewriting the tag cannot affect what THIS load does next.
+      clearDeepLinkArgs();
+    }
 
     loadPdfJs()
       .then(function (pdfjsLib) {

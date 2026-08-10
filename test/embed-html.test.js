@@ -581,7 +581,7 @@ describe("buildEmbedHtml", () => {
     // Only ever for a deep link. Stealing focus on an ordinary note load would yank the
     // page around for a reader who never asked to go anywhere - worse with several
     // viewers on one note, which would then fight over it.
-    expect(out).toMatch(/if \(cfg\.highlightId \|\| cfg\.page\) revealSelfInHostNote\(\);/);
+    expect(out).toMatch(/if \(cfg\.highlightId \|\| cfg\.page\) \{\s*revealSelfInHostNote\(\);/);
     // AND it must run before the PDF work, not after it. Sequenced after renderAll this
     // silently never fired in the live app: PDF.js renders off requestAnimationFrame,
     // which is paused in a non-compositing context - an off-screen embed, i.e. exactly
@@ -590,6 +590,28 @@ describe("buildEmbedHtml", () => {
     expect(bootBody).toContain("revealSelfInHostNote()");
     // The browser's own focus ring would be a meaningless full-viewer outline.
     expect(out).toMatch(/#pdfa-root:focus\s*\{\s*outline:\s*none/);
+  });
+
+  // Scenario: REPORTED LIVE - opening any note whose viewer was expanded scrolled the
+  // note down to the embed and left the PDF somewhere random. The deep-link args are a
+  // one-shot instruction that linkTarget writes into the tag before navigating, but
+  // nothing removed them, so the branch above re-fired on every subsequent open.
+  test("spends the deep link after acting on it, so a later open does not replay it", () => {
+    const out = html();
+    // Cleared in the SAME branch that acts on the args - the two have to agree about
+    // what a deep-link load is, or the instruction outlives the thing that consumes it.
+    expect(out).toMatch(
+      /if \(cfg\.highlightId \|\| cfg\.page\) \{[\s\S]*?revealSelfInHostNote\(\);[\s\S]*?clearDeepLinkArgs\(\);\s*\}/
+    );
+    // And before the PDF work, for the same reason as the reveal: renderAll stalls in a
+    // non-compositing context, so anything sequenced behind it never runs in exactly the
+    // off-screen case where a stale replay is most disruptive.
+    const bootBody = out.match(/function boot\(\)[\s\S]*?loadPdfJs\(\)/)[0];
+    expect(bootBody).toContain("clearDeepLinkArgs()");
+    // The collapsed flag is durable state in the same tag - clearing it would re-collapse
+    // a viewer the link had just expanded.
+    expect(out).toMatch(/action: "clearDeepLink"/);
+    expect(out).not.toMatch(/action: "clearDeepLink"[\s\S]{0,200}collapsed/);
   });
 
   // Scenario: the other half of the same report - "it doesn't highlight the actual note".
