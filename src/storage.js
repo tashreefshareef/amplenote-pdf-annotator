@@ -222,6 +222,23 @@ function extractStray(sectionContent) {
 }
 
 /**
+ * Prefix a horizontal rule when this is the FIRST highlight sent to a note, so the
+ * appended blocks are visibly separated from whatever the user wrote above them.
+ *
+ * Only the first: later sends land next to their own siblings, where a rule per block
+ * would just be repetition. "First" is decided by looking for an exported deep link -
+ * `](plugin://` is unique to one, since it is the markdown LINK form. The viewer's own
+ * embed tag uses the same scheme but as `<object data="plugin://...">`, so it cannot
+ * match, and a note holding only a viewer still counts as having no exports yet.
+ *
+ * Deliberately not a heading: the separator has to sit in the user's own note body,
+ * which may already have its own structure, and a rule imposes nothing on it.
+ */
+export function withExportSeparator(noteContent, markdown) {
+  return String(noteContent || "").includes("](plugin://") ? markdown : `---\n\n${markdown}`;
+}
+
+/**
  * Put `markdown` immediately ABOVE the managed section, keeping that section last.
  *
  * Returns null when the note has no managed section yet, so the caller can use the

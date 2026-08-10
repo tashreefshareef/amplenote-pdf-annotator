@@ -15,6 +15,7 @@ import {
   saveHighlights,
   deleteHighlights,
   insertAboveManagedSection,
+  withExportSeparator,
 } from "./storage.js";
 import { removeEmbedMarkup, setEmbedCollapsed } from "./embed-args.js";
 import {
@@ -199,9 +200,14 @@ export async function handleEmbedCall(app, payload) {
         // managed section stays pinned last. Costs a read plus a whole-note write, but
         // only on a note that HAS the section - a fresh note still takes the cheap path.
         const content = await app.getNoteContent(noteHandle);
-        const rewritten = insertAboveManagedSection(content, request.content);
+        // Both branches get the separator from the SAME note content, read once above -
+        // whether the note has a managed section is unrelated to whether it already
+        // holds exports, and deciding that twice from two different reads is how the
+        // two paths would end up disagreeing about which send is the first.
+        const block = withExportSeparator(content, request.content);
+        const rewritten = insertAboveManagedSection(content, block);
         if (rewritten === null) {
-          await app.insertNoteContent(noteHandle, "\n" + request.content + "\n", {
+          await app.insertNoteContent(noteHandle, "\n" + block + "\n", {
             atEnd: true,
           });
         } else {

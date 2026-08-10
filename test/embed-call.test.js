@@ -588,6 +588,43 @@ describe("sendToNote", () => {
     expect(final).toContain('> "quote"');
     expect(final).toContain("my own text");
   });
+
+  // Scenario: reported live - the first sent highlight landed directly against the user's
+  // own prose with only a blank line, so it read as a continuation of what they had
+  // written rather than as appended output.
+  test("separates the FIRST sent highlight from the user's own writing with a rule", async () => {
+    const app = appWithNote("# Reading notes\nmy own text");
+    await call(app, { action: "sendToNote", content: "[block one](plugin://p?att=a)\n> > quote" });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final).toContain("---");
+    expect(final.indexOf("my own text")).toBeLessThan(final.indexOf("---"));
+    expect(final.indexOf("---")).toBeLessThan(final.indexOf("block one"));
+  });
+
+  // Scenario: the rule marks a boundary, so there must be exactly ONE of them however
+  // many highlights get sent - later blocks sit beside their own siblings, where another
+  // rule would just be noise.
+  test("does not repeat the rule on later sends", async () => {
+    const app = appWithNote("# Reading notes\nmy own text");
+    await call(app, { action: "sendToNote", content: "[block one](plugin://p?att=a)\n> > first" });
+    await call(app, { action: "sendToNote", content: "[block two](plugin://p?att=a)\n> > second" });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final.match(/^---$/gm)).toHaveLength(1);
+    expect(final).toContain("block one");
+    expect(final).toContain("block two");
+  });
+
+  // Scenario: a note that already holds a viewer but no exports is still on its first
+  // send. The embed tag carries the same `plugin://` scheme, so a looser check for that
+  // string alone would see the viewer and skip the separator for good.
+  test("still adds the rule when the note holds a viewer but no exports", async () => {
+    const app = appWithNote('# Notes\n<object data="plugin://p?att=a" data-aspect-ratio="1"></object>');
+    await call(app, { action: "sendToNote", content: "[block one](plugin://p?att=a)\n> > quote" });
+
+    expect(app._notes.get(NOTE).content).toContain("---");
+  });
 });
 
 describe("exportAll", () => {
