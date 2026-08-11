@@ -183,14 +183,24 @@ export function buildEmbedHtml({
     <span class="pdfa-collapsed-count" id="pdfa-collapsed-count"></span>
     <button id="pdfa-open" class="pdfa-btn pdfa-btn-primary">Expand</button>
   </div>
+  <!-- NO BRAND LABEL HERE, deliberately, and it used to be the first thing in this bar.
+       It was carrying a real job - Amplenote renders its OWN PDF preview for an
+       attachment, both can sit in the same note, and a reader had no reliable way to tell
+       which one they were touching. What changed is the bar around it: with page, zoom,
+       shape, colour and notes controls in it, the expanded viewer no longer resembles a
+       static preview, while the COLLAPSED bar - a thin strip with a filename on it - is
+       where that confusion actually lives, and still carries the name above.
+
+       The other half of the reason is width, measured rather than felt: the bar came to
+       ~736px against a ~700px note column, so the overflow menu wrapped onto a second
+       row. The label was 82px of that, its divider another 15. -->
   <div class="pdfa-toolbar">
-    <!-- Identifies this viewer at a glance. Amplenote renders its OWN PDF preview for
-         an attachment, and both can sit in the same note looking broadly similar; a
-         reader had no reliable way to tell which one they were interacting with. -->
-    <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
-    <span class="pdfa-sep"></span>
     <!-- Material Icons (icons.js), the set Amplenote's own toolbar is drawn in. Icon-only
          buttons, so each carries an aria-label as well as its tooltip. -->
+    <!-- Grouped WITH the pager rather than divided from it: both answer "which page am I
+         on", so they read as one control and save a divider doing it. -->
+    <button id="pdfa-thumbs-toggle" class="pdfa-icon-btn" title="Show page thumbnails"
+            aria-label="Show page thumbnails">${icon(ICONS.sidebar)}</button>
     <button id="pdfa-prev" class="pdfa-icon-btn" title="Previous page"
             aria-label="Previous page">${icon(ICONS.chevronLeft)}</button>
     <span class="pdfa-label" id="pdfa-page-label">- / -</span>
@@ -224,7 +234,11 @@ export function buildEmbedHtml({
          reached the underline button the phrase would already be highlighted).
          Deliberately BEFORE the colors, reading left to right as "underline, in green". -->
     <span id="pdfa-styles"></span>
-    <span class="pdfa-sep"></span>
+    <!-- NO DIVIDER between shape and colour. They are two halves of one answer - "an
+         underline, in green" - and the bar reads left to right as that sentence. The
+         dividers that remain separate things that genuinely are separate; there were six
+         of them, which at 15px each (a 1px rule plus its margins) was 90px spent on
+         punctuation in a bar that had run out of room. -->
     <!-- The four single-click highlight color buttons, mounted by the viewer from
          config.toolbarColorIds (which four) resolved against config.colors (the whole
          catalog). Top-level toolbar buttons with no submenu is an explicit spec
@@ -237,7 +251,6 @@ export function buildEmbedHtml({
     <button id="pdfa-list-toggle" class="pdfa-icon-btn pdfa-notes-btn"
             title="Show highlights and notes" aria-label="Show highlights and notes"
             >${icon(ICONS.listBulleted)}<span class="pdfa-count" id="pdfa-count">0</span></button>
-    <span class="pdfa-sep"></span>
     <!-- Download, Export and Remove are all occasional, one-off actions - unlike the
          colors (top-level is an explicit spec requirement) or page/zoom/Notes (used
          constantly while reading) - so they live behind one overflow menu instead of
@@ -262,6 +275,13 @@ export function buildEmbedHtml({
   <div class="pdfa-status" id="pdfa-status">Loading...</div>
   <div class="pdfa-body">
     <div class="pdfa-scroll"><div id="pdfa-pages"></div></div>
+    <!-- Page thumbnails. A floating card OVERLAYING from the left, not a rail that takes
+         width: this embed is often barely wider than one page, so a panel that pushed
+         would reflow the whole document every time it opened. Same treatment the
+         highlights panel arrived at for the same reason - see .pdfa-panel in styles.js.
+         It takes turns with that panel rather than sharing the box with it; two cards on
+         a 700px embed leave a sliver of page between them. -->
+    <div class="pdfa-thumbs" id="pdfa-thumbs"></div>
     <div class="pdfa-panel" id="pdfa-panel"></div>
     <!-- Touch-only scroll controls. Deliberately AFTER the panel so the sibling
          selector that hides them behind it works - see the CSS. -->

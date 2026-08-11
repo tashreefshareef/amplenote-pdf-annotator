@@ -55,6 +55,8 @@ export function viewerMain() {
     popover: document.getElementById("pdfa-popover"),
     panel: document.getElementById("pdfa-panel"),
     listToggle: document.getElementById("pdfa-list-toggle"),
+    thumbs: document.getElementById("pdfa-thumbs"),
+    thumbsToggle: document.getElementById("pdfa-thumbs-toggle"),
     count: document.getElementById("pdfa-count"),
     more: document.getElementById("pdfa-more"),
     open: document.getElementById("pdfa-open"),
@@ -99,6 +101,16 @@ export function viewerMain() {
     // page number -> true while its render is in flight, so a burst of scroll events
     // cannot start the same page several times over.
     renderingPage: {},
+    // page number -> true once its THUMBNAIL has been drawn. Separate from `rendered`
+    // above because the two are independent: you can scroll the thumbnails panel through
+    // a hundred pages without rendering one of them at reading size, which is the whole
+    // reason the panel is worth having on a long document.
+    thumbDrawn: {},
+    // At most one thumbnail renders at a time (see pumpThumbnails). PDF.js rendering is
+    // the most expensive thing this embed does, and a panel scrolled quickly can bring a
+    // dozen into range in one frame.
+    thumbRendering: false,
+    thumbQueue: [],
     highlights: [],
     // The SOURCE pdf's own bytes, kept for Download. A deliberately SEPARATE copy from
     // whatever gets handed to pdf.js's getDocument(): some versions transfer ownership
@@ -880,8 +892,212 @@ export function viewerMain() {
     return row;
   }
 
+  // ---- page thumbnails -----------------------------------------------------
+
+  /**
+   * Build one button per page - EMPTY, at the right shape.
+   *
+   * No canvas here, and that is the point. Rendering every page of a long document the
+   * moment the panel opens is the one way this feature could make the viewer worse than
+   * not having it, and PDF.js rendering is already the most expensive thing the embed
+   * does. What gets built up front is the cheap part: a correctly-proportioned box per
+   * page, so the panel has its true scroll height immediately and nothing shifts under
+   * the reader as pictures arrive.
+   *
+   * The proportions come from state.viewports, which collectViewports fills in for EVERY
+   * page before anything renders - the same property that lets the page boxes exist at
+   * their real sizes from the start. aspect-ratio rather than a computed pixel height, so
+   * the box stays right if the panel is ever a different width.
+   */
+  function buildThumbnails() {
+    els.thumbs.innerHTML = "";
+    for (var i = 1; i <= state.pageCount; i++) {
+      (function (num) {
+        var viewport = state.viewports[num];
+        var btn = document.createElement("button");
+        btn.className = "pdfa-thumb";
+        btn.type = "button";
+        btn.dataset.page = String(num);
+        btn.title = "Go to page " + num;
+        btn.setAttribute("aria-label", "Go to page " + num);
+        btn.setAttribute("aria-current", String(num === state.current));
+
+        var sheet = document.createElement("div");
+        sheet.className = "pdfa-thumb-sheet";
+        if (viewport && viewport.width && viewport.height) {
+          sheet.style.aspectRatio = viewport.width + " / " + viewport.height;
+        }
+        btn.appendChild(sheet);
+
+        var label = document.createElement("div");
+        label.className = "pdfa-thumb-num";
+        label.textContent = String(num);
+        btn.appendChild(label);
+
+        btn.onclick = function () {
+          goToPage(num);
+        };
+        els.thumbs.appendChild(btn);
+      })(i);
+    }
+  }
+
+  /**
+   * Draw the thumbnails currently in view, one at a time.
+   *
+   * The visibility test is deliberately the same rect arithmetic ensureVisiblePagesRendered
+   * uses on the pages, with the same one-screen margin - not an IntersectionObserver. Two
+   * reasons: the behaviour is then identical in both places rather than merely similar,
+   * and the embed runs inside a sandboxed iframe in an app whose webview we do not choose,
+   * so a pattern already proven there is worth more than a tidier API.
+   *
+   * SERIAL, via pumpThumbnails: flinging the panel can bring a dozen pages into range in
+   * one frame, and firing a dozen concurrent PDF.js renders would stall the viewer - the
+   * exact failure this whole design is arranged to avoid.
+   */
+  function ensureVisibleThumbnails() {
+    if (!state.doc || !els.thumbs.classList.contains("pdfa-open")) return;
+    var boxRect = els.thumbs.getBoundingClientRect();
+    var margin = els.thumbs.clientHeight;
+    var btns = els.thumbs.querySelectorAll(".pdfa-thumb");
+
+    for (var i = 0; i < btns.length; i++) {
+      var num = Number(btns[i].dataset.page);
+      if (state.thumbDrawn[num]) continue;
+      var rect = btns[i].getBoundingClientRect();
+      var top = rect.top - boxRect.top;
+      var bottom = rect.bottom - boxRect.top;
+      if (bottom < -margin || top > els.thumbs.clientHeight + margin) continue;
+      // Claimed here, not inside the render, so a second pass over the same button while
+      // the first is still queued cannot enqueue it twice.
+      state.thumbDrawn[num] = true;
+      state.thumbQueue.push(num);
+    }
+    pumpThumbnails();
+  }
+
+  function pumpThumbnails() {
+    if (state.thumbRendering || !state.thumbQueue.length) return;
+    state.thumbRendering = true;
+    var num = state.thumbQueue.shift();
+    drawThumbnail(num)
+      .catch(function () {
+        // Let it be retried on the next pass rather than leaving a permanent blank.
+        state.thumbDrawn[num] = false;
+      })
+      .then(function () {
+        state.thumbRendering = false;
+        pumpThumbnails();
+      });
+  }
+
+  function drawThumbnail(num) {
+    var btn = els.thumbs.querySelector('.pdfa-thumb[data-page="' + num + '"]');
+    var sheet = btn && btn.querySelector(".pdfa-thumb-sheet");
+    if (!sheet) return Promise.resolve();
+
+    return state.doc.getPage(num).then(function (page) {
+      // The sheet's real width, so the picture is sized to the panel rather than to a
+      // constant that would go wrong the moment the panel's width changed.
+      var cssWidth = sheet.clientWidth || 96;
+      // Capped: a 3x phone would otherwise render nine times the pixels of a 1x screen
+      // for a picture 96px wide, which is all cost and no visible difference.
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var base = page.getViewport({ scale: 1 });
+      var viewport = page.getViewport({ scale: (cssWidth * dpr) / base.width });
+
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      return page
+        .render({ canvasContext: canvas.getContext("2d"), viewport: viewport })
+        .promise.then(function () {
+          // Appended only once it has actually painted - a canvas attached first shows as
+          // a black rectangle for the length of the render.
+          sheet.appendChild(canvas);
+        });
+    });
+  }
+
+  /**
+   * Keep the panel in step with the document: the "you are here" ring, and the boxes
+   * themselves if it was opened before there was a document to build them from.
+   *
+   * That second case is reachable by anyone: the toggle exists from the first paint, and
+   * a large PDF takes a moment to arrive. Opening the panel in that window used to leave
+   * it permanently blank - buildThumbnails would find pageCount 0, and nothing afterwards
+   * would think to try again. Handled here rather than in the boot path because this
+   * already runs from every place the page count or current page can change.
+   */
+  function updateThumbnailCurrent() {
+    if (
+      !els.thumbs.childNodes.length &&
+      els.thumbs.classList.contains("pdfa-open") &&
+      state.doc &&
+      state.pageCount
+    ) {
+      buildThumbnails();
+      ensureVisibleThumbnails();
+    }
+    if (!els.thumbs.childNodes.length) return;
+    var btns = els.thumbs.querySelectorAll(".pdfa-thumb");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute(
+        "aria-current",
+        String(Number(btns[i].dataset.page) === state.current)
+      );
+    }
+  }
+
+  /**
+   * The two panels TAKE TURNS - opening this one closes the highlights panel and vice
+   * versa. On an embed barely wider than a page, two floating cards leave a sliver of
+   * document between them.
+   *
+   * Nothing announces the swap, and it does not need to: both toggles carry aria-pressed,
+   * so the other button visibly un-presses at the same moment its panel goes. The state is
+   * in the bar you just clicked, which is where you are already looking.
+   */
+  function toggleThumbnails(open) {
+    var next = open === undefined ? !els.thumbs.classList.contains("pdfa-open") : open;
+    if (next && els.panel.classList.contains("pdfa-open")) togglePanel(false);
+
+    els.thumbs.classList.toggle("pdfa-open", next);
+    els.thumbsToggle.setAttribute("aria-pressed", String(next));
+
+    if (next) {
+      // Built on first open, not at boot: a reader who never opens the panel should never
+      // pay for it, and until collectViewports has run there are no proportions to build
+      // the boxes from.
+      if (!els.thumbs.childNodes.length) buildThumbnails();
+      updateThumbnailCurrent();
+      scrollCurrentThumbnailIntoView();
+      ensureVisibleThumbnails();
+    }
+    syncScrollNav();
+  }
+
+  /**
+   * Open the panel on the page you are actually reading, not on page 1.
+   *
+   * Without this, opening the panel at page 60 of 80 shows the top of the document and the
+   * ring marking your position is somewhere off screen - so the panel answers "where am I"
+   * with "somewhere below". Instant assignment rather than scrollIntoView for the reason
+   * recorded on goToPage: the smooth form silently does nothing when the embed is not
+   * compositing.
+   */
+  function scrollCurrentThumbnailIntoView() {
+    var btn = els.thumbs.querySelector('.pdfa-thumb[data-page="' + state.current + '"]');
+    if (!btn) return;
+    var offset = btn.getBoundingClientRect().top - els.thumbs.getBoundingClientRect().top;
+    // Centred rather than flush to the top, so the pages either side are visible too -
+    // the neighbours are most of why you opened it.
+    els.thumbs.scrollTop += offset - els.thumbs.clientHeight / 2 + btn.offsetHeight / 2;
+  }
+
   function togglePanel(open) {
     var next = open === undefined ? !els.panel.classList.contains("pdfa-open") : open;
+    if (next && els.thumbs.classList.contains("pdfa-open")) toggleThumbnails(false);
     els.panel.classList.toggle("pdfa-open", next);
     els.listToggle.setAttribute("aria-pressed", String(next));
     if (next) renderPanel();
@@ -1752,6 +1968,9 @@ export function viewerMain() {
 
   function updateLabels() {
     els.pageLabel.textContent = state.current + " / " + state.pageCount;
+    // The thumbnails panel is a second page indicator, so it goes stale in exactly the
+    // same places this one would - a scroll, a jump, a deep link. One call site for both.
+    updateThumbnailCurrent();
     // Left alone while the reader is typing in it. The zoom label is an input now, and
     // this runs from renderAll and from every scroll that changes the current page - so
     // without the guard, half-typed digits would be overwritten mid-edit by a value the
@@ -1764,8 +1983,8 @@ export function viewerMain() {
   }
 
   /**
-   * Whichever region the scroll buttons should move: the highlights panel while it is
-   * open, otherwise the pages.
+   * Whichever region the scroll buttons should move: whichever panel is open, otherwise
+   * the pages.
    *
    * Reported live: with the panel open on a phone, any highlight below the fold was
    * simply unreachable - a real problem the moment a PDF has more than two of them. Same
@@ -1777,6 +1996,10 @@ export function viewerMain() {
    */
   function activeScroller() {
     if (els.panel && els.panel.classList.contains("pdfa-open")) return els.panel;
+    // The thumbnails panel has exactly the same problem and needs the same answer: on
+    // touch a drag is claimed by the host note, so page 40's thumbnail would be as
+    // unreachable as the highlight below the fold that put these buttons here.
+    if (els.thumbs && els.thumbs.classList.contains("pdfa-open")) return els.thumbs;
     return scroller();
   }
 
@@ -2881,6 +3104,7 @@ export function viewerMain() {
     bindHoldToScroll(els.scrollUp, -1);
     bindHoldToScroll(els.scrollDown, 1);
     els.listToggle.onclick = function () { togglePanel(); };
+    els.thumbsToggle.onclick = function () { toggleThumbnails(); };
     els.more.onclick = function (event) {
       openMoreMenu(event.clientX, event.clientY);
     };
@@ -2888,6 +3112,13 @@ export function viewerMain() {
     // The panel scrolls independently - with a wheel on desktop, or by the buttons on
     // touch - so its own position has to keep them in sync too.
     els.panel.addEventListener("scroll", syncScrollNav);
+    // Same for the thumbnails, plus the reason the panel does not have: scrolling it is
+    // what brings the next pictures into range, so this is the loop that actually
+    // delivers the rest of a long document's thumbnails.
+    els.thumbs.addEventListener("scroll", function () {
+      syncScrollNav();
+      ensureVisibleThumbnails();
+    });
 
     // Scoped to the page area on purpose. On `document` it would also fire when the user
     // releases the mouse on a toolbar button - and by then the browser has collapsed the

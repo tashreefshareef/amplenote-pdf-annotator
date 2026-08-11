@@ -407,6 +407,45 @@ export const STYLES = `
     box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10);
     overflow: auto; padding: 8px; display: none; z-index: 15; }
   .pdfa-panel.pdfa-open { display: block; }
+
+  /* PAGE THUMBNAILS. Same floating-card treatment as the panel above and for the same
+     reason - it overlays the pages rather than taking width from them, so opening it
+     never reflows the document.
+
+     LEFT, where the highlights panel is right. The side is the fastest thing to read
+     about a panel: the two take turns, so which one is open has to be obvious before you
+     have read a word of it. It also matches where every desktop reader puts thumbnails.
+
+     Narrow on purpose. One thumbnail wide plus its scrollbar is about 124px, against the
+     highlights panel's 292 - a list of pictures needs no reading width, and on an embed
+     this size every pixel it does not take is page you can still see while using it. */
+  .pdfa-thumbs { position: absolute; top: 8px; left: 8px; bottom: 8px; width: 124px;
+    max-width: calc(100% - 16px);
+    background: var(--pdfa-toolbar); border: 1px solid var(--pdfa-border); border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10);
+    overflow: auto; overflow-x: hidden; padding: 8px 6px; display: none; z-index: 15; }
+  .pdfa-thumbs.pdfa-open { display: block; }
+  .pdfa-thumb { display: block; width: 100%; padding: 0; margin-bottom: 10px;
+    background: transparent; border: none; font: inherit; color: inherit; cursor: pointer;
+    border-radius: 4px; }
+  .pdfa-thumb:last-child { margin-bottom: 0; }
+  /* The sheet itself. A border rather than a shadow, because a shadow on a 92px card in a
+     124px box reads as blur. The background is white regardless of theme - it stands in
+     for paper, and a dark placeholder would flash black before the page renders. */
+  .pdfa-thumb-sheet { width: 100%; background: #fff; border: 1px solid var(--pdfa-border);
+    border-radius: 2px; display: block; overflow: hidden; }
+  .pdfa-thumb canvas { display: block; width: 100%; height: 100%; }
+  .pdfa-thumb-num { font-size: 11px; opacity: .65; text-align: center; padding-top: 3px;
+    font-variant-numeric: tabular-nums; }
+  .pdfa-thumb:hover .pdfa-thumb-sheet { border-color: var(--pdfa-accent); }
+  .pdfa-thumb:focus-visible { outline: 2px solid var(--pdfa-accent); outline-offset: 2px; }
+  /* WHERE YOU ARE. A ring plus a full-strength number - the ring alone was hard to pick
+     out against a page whose own content is mostly light, and the number alone is 11px of
+     grey in a column of eleven other numbers. */
+  .pdfa-thumb[aria-current="true"] .pdfa-thumb-sheet {
+    border-color: var(--pdfa-accent); box-shadow: 0 0 0 2px var(--pdfa-accent); }
+  .pdfa-thumb[aria-current="true"] .pdfa-thumb-num { opacity: 1; font-weight: 600;
+    color: var(--pdfa-accent); }
   .pdfa-panel-title { display: flex; justify-content: space-between; align-items: center;
     font-weight: 600; padding: 2px 4px 8px; }
   .pdfa-panel-empty { opacity: .7; padding: 6px 4px; font-size: 12px; line-height: 1.4; }
@@ -478,13 +517,9 @@ export const STYLES = `
     /* Dividers cost ~9px each and stop earning it once the rows wrap: the wrap
        itself is now what groups the controls. */
     .pdfa-sep { display: none; }
-    /* The brand is what answers "which viewer is this" - Amplenote renders its OWN
-       preview for the same attachment and the two look broadly alike. It is dropped
-       only here, at a width where a full row costs more than the ambiguity does, and
-       where the four color swatches beside a "Notes (n)" button are already a
-       signature Amplenote's own preview has nothing like. It is still on the
-       collapsed bar and heads the overflow menu. */
-    .pdfa-toolbar .pdfa-brand { display: none; }
+    /* There used to be a rule hiding the brand here, back when the expanded toolbar
+       carried one. It does not any more - see the comment above .pdfa-toolbar in
+       html.js - so the narrow case has nothing left to drop. */
     .pdfa-toolbar { gap: 4px; padding: 5px 6px; justify-content: center; }
     .pdfa-label { min-width: 44px; }
     /* Shrinks with the label it sits among - see .pdfa-zoom-field for why the zoom one

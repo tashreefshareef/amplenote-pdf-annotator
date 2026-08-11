@@ -84,6 +84,28 @@ describe("buildEmbedHtml", () => {
     expect(out).toContain('<div class="pdfa-body">');
   });
 
+  // Scenario: the thumbnails panel has to make the SAME bargain the highlights panel
+  // does - overlay, never reflow - because it is in the same box for the same reason.
+  // It also has to come from the OTHER side: the two take turns, so which one is open
+  // must be readable before a word of it has been read.
+  test("overlays the thumbnails panel from the opposite side to the highlights panel", () => {
+    const out = html();
+    const thumbs = out.match(/\.pdfa-thumbs\s*\{[^}]*\}/)[0];
+    const panel = out.match(/\.pdfa-panel\s*\{[^}]*\}/)[0];
+
+    expect(thumbs).toMatch(/position:\s*absolute/);
+    expect(thumbs).toMatch(/border-radius/);
+    expect(thumbs).toMatch(/left:\s*8px/);
+    expect(thumbs).not.toMatch(/left:\s*0/);
+    expect(panel).toMatch(/right:\s*8px/);
+
+    // Narrow. A column of pictures needs no reading width, and on this embed every pixel
+    // it does not take is page the reader can still see while using it.
+    const width = Number(thumbs.match(/width:\s*(\d+)px/)[1]);
+    const panelWidth = Number(panel.match(/width:\s*(\d+)px/)[1]);
+    expect(width).toBeLessThan(panelWidth / 2);
+  });
+
   // Scenario: spec §4 requires the highlighted text and the user's note to be clearly
   // distinguishable. In the panel that separation is visual, so it is pinned here.
   test("styles a highlight's note distinctly from its quoted text", () => {
@@ -102,7 +124,9 @@ describe("buildEmbedHtml", () => {
     for (const id of [
       "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
-      "pdfa-colors", "pdfa-hint", "pdfa-popover", "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
+      "pdfa-colors", "pdfa-styles", "pdfa-hint", "pdfa-popover",
+      "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
+      "pdfa-thumbs", "pdfa-thumbs-toggle",
       "pdfa-more", "pdfa-open", "pdfa-collapsed-count",
       "pdfa-scroll-up", "pdfa-scroll-down",
     ]) {
@@ -557,18 +581,35 @@ describe("buildEmbedHtml", () => {
     expect(out).not.toContain("pdfa-menu-name");
   });
 
-  // Scenario: the brand is what distinguishes this viewer from Amplenote's own PDF
-  // preview of the same attachment, which can sit in the same note looking broadly
-  // alike. It is dropped ONLY on a narrow embed, where a full row costs more than the
-  // ambiguity - and there it is still reachable from the overflow menu.
-  test("keeps the brand in the toolbar, dropping it only where a row is too expensive", () => {
+  // Scenario: the brand answers "which viewer is this" - Amplenote renders its OWN
+  // preview for the same attachment and the two can sit in one note looking alike. It
+  // now lives ONLY on the collapsed bar, which is the state that actually resembles a
+  // preview: a thin strip with a filename on it. The expanded viewer carries a bar of
+  // page, zoom, shape, colour and notes controls that a preview has nothing like.
+  //
+  // The other half is measured, not aesthetic: the toolbar came to ~736px against a
+  // ~700px note column, so the overflow menu wrapped to a second row. The label was 82px
+  // of that and its divider another 15.
+  test("carries the brand on the collapsed bar only, not in the toolbar", () => {
     const out = html();
     const toolbar = out.match(/<div class="pdfa-toolbar">[\s\S]*?<\/div>/)[0];
-    expect(toolbar).toContain('class="pdfa-brand"');
-    // Visible by default - only the narrow query may hide it.
-    expect(out).not.toMatch(/\n\s*\.pdfa-brand\s*\{[^}]*display:\s*none/);
-    const narrow = out.match(/@media \(max-width: 520px\)[\s\S]*?\n {2}\}/)[0];
-    expect(narrow).toMatch(/\.pdfa-toolbar \.pdfa-brand\s*\{\s*display:\s*none/);
+    expect(toolbar).not.toContain("pdfa-brand");
+
+    const collapsed = out.match(/<div class="pdfa-collapsed">[\s\S]*?<\/div>/)[0];
+    expect(collapsed).toContain('class="pdfa-brand"');
+  });
+
+  // Scenario: dividers cost ~15px each (a 1px rule plus its 5px margins) and there were
+  // six of them, which is 90px of punctuation in a bar that had run out of room. Shape
+  // and colour in particular must NOT be divided - they are two halves of one answer,
+  // "an underline, in green", and the bar reads left to right as that sentence.
+  test("does not divide the shape group from the colours", () => {
+    const toolbar = html().match(/<div class="pdfa-toolbar">[\s\S]*?<\/div>/)[0];
+    const between = toolbar.slice(
+      toolbar.indexOf('id="pdfa-styles"'),
+      toolbar.indexOf('id="pdfa-colors"')
+    );
+    expect(between).not.toContain("pdfa-sep");
   });
 
   // Scenario: the color swatches ARE buttons in this toolbar, so a bare
