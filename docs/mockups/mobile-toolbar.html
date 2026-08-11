@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mobile toolbar — narrow layout options</title>
+<style>
+  :root { --page-bg:#eef0f3; --page-fg:#1c1e21; --page-muted:#5c6169; --page-card:#fff; --page-line:#d8dbe0; }
+  body.dark { --page-bg:#16181c; --page-fg:#e6e8ea; --page-muted:#9aa1a9; --page-card:#1e2126; --page-line:#333840; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--page-bg); color:var(--page-fg); padding:26px 26px 70px;
+    font:14px/1.55 Roboto,-apple-system,"Segoe UI",sans-serif; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:32px 0 2px; }
+  .sub, .note { color:var(--page-muted); max-width:820px; }
+  .sub { margin:0 0 16px; }
+  .note { font-size:13px; margin:4px 0 14px; }
+  .row { display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start; }
+  .stage { background:var(--page-card); border:1px solid var(--page-line); border-radius:12px;
+    padding:16px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .cap { font-size:12px; color:var(--page-muted); text-align:center; max-width:360px; }
+  .measure { font-variant-numeric:tabular-nums; }
+  .win { color:#1a7f43; } body.dark .win { color:#6cd28f; }
+  .cost { color:#a1621a; } body.dark .cost { color:#e0b072; }
+  .bad { color:#b3261e; } body.dark .bad { color:#f2b8b5; }
+  table { border-collapse:collapse; font-size:13px; margin-top:8px; }
+  th,td { border:1px solid var(--page-line); padding:6px 10px; text-align:left; }
+  th { background:rgba(127,127,127,.08); font-weight:600; }
+  .toggle { position:fixed; top:14px; right:18px; z-index:99; font:inherit; font-size:12px;
+    padding:6px 12px; border-radius:999px; border:1px solid var(--page-line);
+    background:var(--page-card); color:inherit; cursor:pointer; }
+
+  /* ---- the phone: a 358px note column, the width measured on a real device ---- */
+  .phone { width:358px; background:#fff; border:1px solid var(--page-line); border-radius:10px;
+    padding:0 0 10px; overflow:hidden; }
+  body.dark .phone { background:#fbfbfa; color:#1c1e21; }
+  .chip { font:15px/1.35 Roboto,sans-serif; color:#3f7fbf; padding:12px 12px 8px; }
+
+  /* ---- the viewer's own tokens and toolbar, copied from src/embed ---- */
+  .pdfa { --pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0;
+    --pdfa-btn-hover:#eceef1; --pdfa-accent:#1a6fb5;
+    background:var(--pdfa-bg); color:var(--pdfa-fg); border:1px solid var(--pdfa-border);
+    border-radius:8px; margin:0 8px; overflow:hidden; display:flex; flex-direction:column;
+    font:13px Roboto,-apple-system,"Segoe UI",sans-serif; }
+  /* height = width / data-aspect-ratio (api-notes.md §12). 342px of box at ratio 1.0. */
+  .pdfa.ratio-1 { height:342px; }
+  .pdfa.ratio-055 { height:622px; }
+
+  .bar { display:flex; align-items:center; gap:4px; padding:5px 6px; justify-content:center;
+    background:var(--pdfa-toolbar); border-bottom:1px solid var(--pdfa-border);
+    flex:0 0 auto; flex-wrap:wrap; }
+  .bar.nowrap { flex-wrap:nowrap; }
+  .bar button { font:inherit; padding:5px 9px; border:1px solid transparent; background:transparent;
+    color:inherit; border-radius:6px; line-height:1.2; cursor:pointer; }
+  /* @media (pointer: coarse) sizing, applied unconditionally so this reads as the phone does */
+  .bar button:not(.sw) { min-height:40px; display:inline-flex; align-items:center; justify-content:center; }
+  .bar button.icon { min-width:40px; padding:8px; }
+  .icon svg { width:18px; height:18px; fill:currentColor; opacity:.75; }
+  .lbl { min-width:44px; text-align:center; opacity:.85; font-variant-numeric:tabular-nums; }
+  .zoom { width:46px; padding:5px 2px; text-align:center; border:1px solid transparent;
+    background:transparent; color:inherit; font:inherit; border-radius:6px; }
+  .swatches { display:inline-flex; gap:10px; align-items:center; }
+  .sw { width:20px; height:20px; padding:0; border-radius:50%; border:1px solid rgba(0,0,0,.28); }
+  .sw[aria-pressed="true"] { border:2px solid var(--pdfa-accent); box-shadow:inset 0 0 0 2px #fff; }
+  .count { font-size:12px; opacity:.85; margin-left:4px; font-variant-numeric:tabular-nums; }
+  .pressed { background:var(--pdfa-btn-hover); }
+  .pressed svg { opacity:1; }
+
+  /* the page area - what is left for the PDF after the chrome */
+  .pages { flex:1 1 auto; background:var(--pdfa-bg); position:relative; overflow:hidden;
+    display:flex; align-items:flex-start; justify-content:center; padding:8px; }
+  .sheet { width:92%; background:#fff; border:1px solid #e2e4e8; height:100%;
+    padding:9px 10px; font:6.5px/1.5 Georgia,serif; color:#2a2d31; overflow:hidden; }
+  .sheet h4 { font:bold 8px/1.3 Georgia,serif; margin:0 0 5px; }
+  .sheet mark.y { background:#F3DE6C; } .sheet mark.g { background:#BBE077; }
+  .sheet .strike { text-decoration:line-through; }
+  .sheet .under { text-decoration:underline; text-decoration-color:#F2998C; }
+  .sheet table { width:100%; border-collapse:collapse; margin-top:5px; font-size:6px; }
+  .sheet td, .sheet th { border:.5px solid #c9ccd1; padding:1.5px 3px; }
+  .navdot { position:absolute; right:6px; width:34px; height:34px; border-radius:50%;
+    background:rgba(255,255,255,.92); border:1px solid var(--pdfa-border);
+    display:flex; align-items:center; justify-content:center; }
+  .navdot.up { top:34%; } .navdot.down { top:calc(34% + 42px); }
+  .navdot.small { width:26px; height:26px; opacity:.55; }
+  .navdot svg { width:15px; height:15px; fill:#1c1e21; opacity:.7; }
+
+  /* the overflow menu each variant hands the rest of the controls to */
+  .menu { width:214px; padding:5px; background:#fff; border:1px solid var(--page-line);
+    border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.14); font:13px Roboto,sans-serif;
+    color:#1c1e21; display:flex; flex-direction:column; }
+  .menu .item { display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:6px; }
+  .menu .item svg { width:18px; height:18px; fill:currentColor; opacity:.75; }
+  .menu .rule { height:1px; background:var(--page-line); margin:4px 2px; }
+  .menu .grp { display:flex; align-items:center; gap:4px; padding:4px 6px; }
+  .menu .grp button { border:1px solid transparent; background:transparent; border-radius:6px;
+    padding:7px; display:inline-flex; }
+  .menu .grp svg { width:18px; height:18px; fill:currentColor; opacity:.75; }
+  .menu .grp .lbl { min-width:44px; }
+  .chrome-tag { font-size:11px; color:var(--page-muted); }
+</style>
+</head>
+<body>
+<button class="toggle" onclick="document.body.classList.toggle('dark')">Toggle dark</button>
+
+<h1>Mobile: what the toolbar costs, and three ways to spend less</h1>
+<p class="sub">Everything below is drawn at a real <strong>358px note width</strong> — the figure measured on
+the device — with the viewer's own CSS and its <code>@media (pointer: coarse)</code> sizing applied, so the
+button heights are the ones your thumb actually gets. The box height is <code>width / data-aspect-ratio</code>
+and nothing else (api-notes.md §12), so every pixel the bar takes is a pixel of PDF you lose.</p>
+
+<h2>Today</h2>
+<p class="note">Fourteen controls, left-packed, wrapping wherever they land — which is why zoom <strong>+</strong>
+is stranded next to the pen and <strong>⋮</strong> ends up on a row of its own.</p>
+<div class="row">
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts.pdf 🔗</div>
+      <div class="pdfa ratio-1" data-mock="now"></div>
+    </div>
+    <div class="cap">Today — chrome <span class="measure" data-chrome></span> of a 342px box</div>
+  </div>
+  <div class="stage">
+    <div class="menu" data-mock="menu-now"></div>
+    <div class="cap">What ⋮ holds today</div>
+  </div>
+</div>
+
+<h2>Option 1 — one designed row <span class="win">· recommended</span></h2>
+<p class="note">Page nav, the four colours and <strong>⋮</strong>. Shape, zoom, thumbnails and the highlights
+list move into the menu — the zoom and pager keep working as a compact group inside it. Nothing is removed
+from the plugin, and nothing changes above 420px.</p>
+<div class="row">
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts.pdf 🔗</div>
+      <div class="pdfa ratio-1" data-mock="one"></div>
+    </div>
+    <div class="cap">One row — chrome <span class="measure" data-chrome></span></div>
+  </div>
+  <div class="stage">
+    <div class="menu" data-mock="menu-one"></div>
+    <div class="cap">⋮ takes the rest. The shape group and the zoom stepper stay live inside it,
+      rather than becoming words.</div>
+  </div>
+</div>
+
+<h2>Option 2 — two designed rows</h2>
+<p class="note">If reaching for underline and strikethrough on the phone matters more than the row does:
+row 1 is navigation, row 2 is marking. Still designed rather than wrapped, so the grouping is the one
+you meant.</p>
+<div class="row">
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts.pdf 🔗</div>
+      <div class="pdfa ratio-1" data-mock="two"></div>
+    </div>
+    <div class="cap">Two rows — chrome <span class="measure" data-chrome></span></div>
+  </div>
+</div>
+
+<h2>What a taller box would add on top</h2>
+<p class="note">Independent of the layout: <code>data-aspect-ratio</code> 0.55 instead of 1.0 makes the same
+viewer 622px on this phone. It is written into the note markup, so <em>the same viewer is that tall on
+desktop too</em> — that is the whole trade, and it is why this is a control rather than a default.</p>
+<div class="row">
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts.pdf 🔗</div>
+      <div class="pdfa ratio-055" data-mock="one-tall"></div>
+    </div>
+    <div class="cap">One row + ratio 0.55 — <span class="measure">622px</span> box,
+      <span class="measure" data-page></span> of it PDF</div>
+  </div>
+</div>
+
+<h2>Side by side</h2>
+<table>
+  <tr><th>&nbsp;</th><th>Today</th><th>1 · one row</th><th>2 · two rows</th><th>1 + ratio 0.55</th></tr>
+  <tr><td>Toolbar rows at 358px</td><td class="bad">3</td><td>1</td><td>2</td><td>1</td></tr>
+  <tr><td>Chrome</td><td data-cell="now"></td><td data-cell="one"></td><td data-cell="two"></td><td data-cell="one"></td></tr>
+  <tr><td>Page area</td><td data-cell="now-page"></td><td data-cell="one-page"></td><td data-cell="two-page"></td><td data-cell="tall-page"></td></tr>
+  <tr><td>Taps to change shape</td><td>1</td><td>2</td><td>1</td><td>2</td></tr>
+  <tr><td>Taps to zoom</td><td>1</td><td>2</td><td>1</td><td>2</td></tr>
+  <tr><td>Taps to highlight</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+  <tr><td>Same viewer on desktop</td><td>unchanged</td><td>unchanged</td><td>unchanged</td><td class="cost">also 2× taller</td></tr>
+</table>
+<p class="note">"Taps to change shape" is the honest cost of option 1 — though a mark's shape can still be
+changed from its own card after the fact, which is the path most edits already take.</p>
+
+<script>
+var I = {
+  panel:"M20 3H4v18h16V3zM8 19H6V5h2v14z",
+  prev:"M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z",
+  next:"M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z",
+  minus:"M19 13H5v-2h14v2z",
+  add:"M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
+  highlight:"M17.75 7 14 3.25l-10 10V17h3.75l10-10zm2.96-2.96a.996.996 0 0 0 0-1.41L18.37.29a.996.996 0 0 0-1.41 0L15 2.25 18.75 6l1.96-1.96zM2 20h20v3H2z",
+  underline:"M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z",
+  strike:"M10 19h4v-3h-4v3zM5 4v3h5v3h4V7h5V4H5zM3 14h18v-2H3v2z",
+  list:"M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z",
+  more:"M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z",
+  collapse:"M7.41 18.59 8.83 20 12 16.83 15.17 20l1.41-1.41L12 14l-4.59 4.59zm9.18-13.18L15.17 4 12 7.17 8.83 4 7.41 5.41 12 10l4.59-4.59z",
+  download:"M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
+  export:"M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-8-2h2v-4h4v-2h-4V7h-2v4H7v2h4v4z",
+  palette:"M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z",
+  remove:"M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+  up:"M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z",
+  down:"M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z",
+  thumbs:"M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"
+};
+var COLORS = [["#F2998C","Coral"],["#F3DE6C","Yellow"],["#BBE077","Green"],["#84B6D9","Blue"]];
+
+function svg(name){var s=document.createElementNS("http://www.w3.org/2000/svg","svg");
+  s.setAttribute("viewBox","0 0 24 24");var p=document.createElementNS("http://www.w3.org/2000/svg","path");
+  p.setAttribute("d",I[name]);s.appendChild(p);return s;}
+function el(t,c,x){var n=document.createElement(t);if(c)n.className=c;if(x)n.textContent=x;return n;}
+function ib(name,cls){var b=el("button","icon"+(cls?" "+cls:""));b.appendChild(svg(name));return b;}
+function swatches(){var w=el("span","swatches");COLORS.forEach(function(c,i){
+  var b=el("button","sw");b.style.background=c[0];b.title=c[1];
+  b.setAttribute("aria-pressed",String(i===1));w.appendChild(b);});return w;}
+function shapes(pressed){var f=document.createDocumentFragment();
+  [["highlight",0],["underline",1],["strike",2]].forEach(function(s,i){
+    f.appendChild(ib(s[0],i===(pressed||0)?"pressed":""));});return f;}
+function pager(){var f=document.createDocumentFragment();
+  f.appendChild(ib("prev"));f.appendChild(el("span","lbl","1 / 4"));f.appendChild(ib("next"));return f;}
+function zoomGroup(){var f=document.createDocumentFragment();
+  f.appendChild(ib("minus"));var z=el("span","zoom","48%");f.appendChild(z);f.appendChild(ib("add"));return f;}
+function notesBtn(){var b=el("button","icon");b.appendChild(svg("list"));
+  b.appendChild(el("span","count","13"));b.style.minWidth="auto";b.style.padding="8px 10px";return b;}
+
+function sheet(){
+  var s=el("div","sheet");
+  s.innerHTML = '<h4><span class="strike">I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day</span></h4>'+
+    '<p><mark class="g">After years of clicking through menus, I discovered Outlook shortcuts that transformed my workday—saving me 30+ minutes daily with just a few keystrokes.</mark></p>'+
+    '<p><b>1. Essential Daily Shortcuts</b></p>'+
+    '<p><span class="under">These foundational shortcuts are the ones I use constantly throughout the day. Once you master these, you will wonder how you ever survived without them. The "Lightning Switch" shortcuts alone have revolutionized how I navigate between Outlook\'s main functions.</span></p>'+
+    '<table><tr><th>Task</th><th>Windows</th><th>Mac</th><th>What It Does</th></tr>'+
+    '<tr><td>Switch to Mail</td><td>Ctrl + 1</td><td>⌘ + 1</td><td>Instantly jump to your inbox</td></tr>'+
+    '<tr><td>Switch to Calendar</td><td>Ctrl + 2</td><td>⌘ + 2</td><td>The famous "Lightning Switch"</td></tr>'+
+    '<tr><td>Switch to Contacts</td><td>Ctrl + 3</td><td>⌘ + 3</td><td>Quick access to your address book</td></tr>'+
+    '<tr><td>Switch to Tasks</td><td>Ctrl + 4</td><td>⌘ + 4</td><td>Jump to task management</td></tr></table>';
+  return s;
+}
+function pages(smallDots){
+  var p=el("div","pages");p.appendChild(sheet());
+  var up=el("div","navdot up"+(smallDots?" small":""));up.appendChild(svg("up"));
+  var dn=el("div","navdot down"+(smallDots?" small":""));dn.appendChild(svg("down"));
+  p.appendChild(up);p.appendChild(dn);return p;
+}
+
+/* ---------- today: everything, left-packed, allowed to wrap ---------- */
+function buildNow(host){
+  var bar=el("div","bar");
+  bar.appendChild(ib("thumbs"));
+  bar.appendChild(pager());
+  bar.appendChild(zoomGroup());
+  bar.appendChild(shapes(0));
+  bar.appendChild(swatches());
+  bar.appendChild(notesBtn());
+  bar.appendChild(ib("more"));
+  host.appendChild(bar);host.appendChild(pages());
+}
+
+/* ---------- option 1: one designed row ---------- */
+function buildOne(host){
+  var bar=el("div","bar nowrap");
+  bar.appendChild(pager());
+  bar.appendChild(swatches());
+  bar.appendChild(ib("more"));
+  host.appendChild(bar);host.appendChild(pages(true));
+}
+
+/* ---------- option 2: two designed rows ---------- */
+function buildTwo(host){
+  // No thumbnails button here: measured, row 1 overflows its 338px by 2px with it, and an
+  // overflowing nowrap row is exactly the accident this layout exists to stop.
+  var one=el("div","bar nowrap");
+  one.appendChild(pager());one.appendChild(zoomGroup());one.appendChild(ib("more"));
+  var two=el("div","bar nowrap");two.style.borderTop="none";
+  two.appendChild(shapes(0));two.appendChild(swatches());two.appendChild(notesBtn());
+  host.appendChild(one);host.appendChild(two);host.appendChild(pages(true));
+}
+
+/* ---------- the menus ---------- */
+function menuItem(icon,text){var i=el("div","item");i.appendChild(svg(icon));
+  i.appendChild(document.createTextNode(text));return i;}
+function buildMenuNow(host){
+  [["collapse","Collapse"],["download","Download"],["export","Export..."],
+   ["palette","Highlight colors..."],["remove","Remove viewer..."]].forEach(function(m){
+    host.appendChild(menuItem(m[0],m[1]));});
+}
+function buildMenuOne(host){
+  var g=el("div","grp");g.appendChild(ib("minus"));g.appendChild(el("span","lbl","48%"));
+  g.appendChild(ib("add"));g.appendChild(el("span","",""));g.appendChild(shapes(0));
+  host.appendChild(g);
+  host.appendChild(el("div","rule"));
+  host.appendChild(menuItem("list","Highlights (13)"));
+  host.appendChild(menuItem("thumbs","Page thumbnails"));
+  host.appendChild(el("div","rule"));
+  buildMenuNow(host);
+}
+
+var B={now:buildNow,one:buildOne,two:buildTwo,"one-tall":buildOne,
+       "menu-now":buildMenuNow,"menu-one":buildMenuOne};
+document.querySelectorAll("[data-mock]").forEach(function(h){B[h.dataset.mock](h);});
+
+/* ---- measure what each layout actually costs, rather than claiming it ---- */
+function chromeOf(host){
+  var total=host.getBoundingClientRect().height;
+  var pageArea=host.querySelector(".pages").getBoundingClientRect().height;
+  return {chrome:Math.round(total-pageArea),page:Math.round(pageArea),total:Math.round(total)};
+}
+var M={};
+["now","one","two","one-tall"].forEach(function(k){M[k]=chromeOf(document.querySelector('[data-mock="'+k+'"]'));});
+document.querySelectorAll(".stage").forEach(function(s){
+  var host=s.querySelector("[data-mock]");if(!host||!host.querySelector(".pages"))return;
+  var m=M[host.dataset.mock];
+  var c=s.querySelector("[data-chrome]");if(c)c.textContent=m.chrome+"px";
+  var p=s.querySelector("[data-page]");if(p)p.textContent=m.page+"px";
+});
+function pct(px,total){return Math.round((px/total)*100)+"%";}
+var cells={
+  now:M.now.chrome+"px ("+pct(M.now.chrome,M.now.total)+")",
+  one:M.one.chrome+"px ("+pct(M.one.chrome,M.one.total)+")",
+  two:M.two.chrome+"px ("+pct(M.two.chrome,M.two.total)+")",
+  "now-page":M.now.page+"px",
+  "one-page":M.one.page+"px (+"+(M.one.page-M.now.page)+")",
+  "two-page":M.two.page+"px (+"+(M.two.page-M.now.page)+")",
+  "tall-page":M["one-tall"].page+"px (+"+(M["one-tall"].page-M.now.page)+")"
+};
+// querySelectorAll: "one" labels two columns (the layout on its own, and the same layout
+// with the taller ratio), and a querySelector would have filled only the first of them.
+Object.keys(cells).forEach(function(k){
+  document.querySelectorAll('[data-cell="'+k+'"]').forEach(function(td){td.textContent=cells[k];});});
+</script>
+</body>
+</html>
