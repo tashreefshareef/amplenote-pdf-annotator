@@ -762,6 +762,36 @@ clearing step at the same moment as the writing step, not when someone reports t
 
 ---
 
+## A verification harness that bundles at startup will confidently measure the old build
+
+**Symptom:** while placing the underline and strikethrough bands, the harness was reporting
+placements that did not match the arithmetic in the source. The strike came back 4.16px
+above where the formula put it, every time, on every line. The numbers were stable and
+reproducible, which is exactly what made them convincing: a flaky reading gets doubted, a
+consistent one gets believed.
+
+**Cause:** `npm run harness` bundles the embed **when the server starts**. Rebuilding with
+`npm run build` and reloading the page changes nothing — the page is served from the bundle
+made at startup. Several rounds of "fix the constant, rebuild, re-measure" were therefore
+all measuring the *original* constants. The give-away, once the numbers were taken
+seriously rather than the code: the observed band thickness implied a coefficient of 0.14
+and the observed centre implied 0.45, which were precisely the two values that had *already
+been replaced*. The harness was reporting the previous version faithfully.
+
+**Fix:** restart the harness server after any `src/` change, not just reload the page.
+
+**General lesson:** a measurement tool with its own build step has its own staleness, and a
+stale tool does not fail — it answers the question you asked about a program you are no
+longer running. Reloading a page feels like refreshing everything, so nothing about the
+loop signals that a stage was skipped. Two habits fall out of it. First, when measurements
+disagree with arithmetic you can read directly, suspect the *pipeline* before the
+arithmetic; the source is right there and can be checked by eye, while the path from source
+to running code cannot. Second, when a wrong number is suspiciously round, try to derive it
+from the code you *used* to have — reproducing an old value exactly is proof of staleness,
+where "it's a bit off" could be anything.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:
