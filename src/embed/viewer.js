@@ -149,6 +149,14 @@ export function viewerMain() {
     // popover refuses to close on scroll or an outside click, so a half-typed note
     // cannot be lost by a stray gesture.
     noteEditing: null,
+    // The button whose click opened the popover that is currently open, or null for the
+    // ones opened at a highlight or a selection. Only its OWN click can be a dismissal;
+    // a click on it while something else's popover is open is an ordinary open.
+    popoverOwner: null,
+    // The owning button an outside-mousedown just closed the popover from, or null. Read
+    // by that button's own click handler, which fires immediately after, so a menu button
+    // can tell a dismissing click from an opening one. See the mousedown listener.
+    popoverClosedFrom: null,
     // Where the open popover was asked to appear - {clientX, clientY, anchor}. Held so
     // placePopover can be re-run on a card that CHANGES SIZE while open (the mark card's
     // color drawer), which the original one-shot placement inside showPopover could not.
@@ -1712,6 +1720,20 @@ export function viewerMain() {
   }
 
   /**
+   * Did the click now running just dismiss a menu that `btn` had open?
+   *
+   * True exactly once per dismissal - the flag is consumed here, so a later click on the
+   * same button opens as normal. Toggling a menu cannot be done by testing whether it is
+   * open, because the document's mousedown listener has already closed it by the time any
+   * click handler runs; this is that listener's answer to "who closed it".
+   */
+  function dismissedMenuFrom(btn) {
+    var from = state.popoverClosedFrom;
+    state.popoverClosedFrom = null;
+    return from === btn;
+  }
+
+  /**
    * @param {boolean} force close even while a note is being edited. Everything that is
    * a deliberate dismissal passes true; incidental events (a scroll, a click on blank
    * page) pass nothing, so half-typed text survives them.
@@ -1720,6 +1742,7 @@ export function viewerMain() {
     if (state.noteEditing && !force) return;
     state.noteEditing = null;
     state.popoverPlacement = null;
+    state.popoverOwner = null;
     els.popover.classList.remove(
       "pdfa-open",
       "pdfa-editing",
@@ -3421,9 +3444,18 @@ export function viewerMain() {
     els.listToggle.onclick = function () { togglePanel(); };
     els.thumbsToggle.onclick = function () { toggleThumbnails(); };
     els.more.onclick = function () {
+      // A second click on the button CLOSES the menu it opened, which is what every other
+      // menu button in the app the embed sits in does. See the mousedown handler for why
+      // this needs a flag rather than a "is it open?" test: by the time this runs, the
+      // menu has already been closed by that handler, so the button can only tell "the
+      // user is dismissing it" from "the user is opening it" by asking who closed it.
+      if (dismissedMenuFrom(els.more)) return;
       // The button, not the event: see showPopover's anchor branch for what clicking a
       // different dot of the same glyph used to do.
       openMoreMenu(toolbarAnchor(els.more));
+      // After, not before: closePopover clears this, and openMoreMenu goes through the
+      // paths that close whatever was open first.
+      state.popoverOwner = els.more;
     };
     scroller().addEventListener("scroll", trackScroll);
     // The panel scrolls independently - with a wheel on desktop, or by the buttons on
@@ -3473,11 +3505,31 @@ export function viewerMain() {
     // state - closing it here, then letting the upcoming click open a fresh one, same
     // gesture a user already expects from any other dropdown/menu.
     document.addEventListener("mousedown", function (event) {
+      // Cleared on EVERY mousedown, before the early returns: the flag below is only ever
+      // read by the click that immediately follows this event, so one left behind by an
+      // earlier gesture would suppress an unrelated open later on.
+      state.popoverClosedFrom = null;
       if (!els.popover.classList.contains("pdfa-open")) return;
       if (els.popover.contains(event.target)) return;
+      // Captured before closing, which is what clears it.
+      var owner = state.popoverOwner;
       // Unforced - an incidental outside click must not discard a half-typed note, same
       // protection scroll and Escape already have (see closePopover's own doc comment).
       closePopover();
+      // DID THIS MOUSEDOWN LAND ON THE BUTTON THAT OWNS WHAT IT JUST CLOSED (and did it
+      // actually close - a note being edited refuses)? A menu button's own mousedown is
+      // an outside-click as far as this handler is concerned, so a second click on the
+      // button that opened the menu closed it here and then reopened it in the button's
+      // click handler a moment later - reported live as "clicking the three dots again
+      // doesn't hide the menu, it shows it again". Recording it lets that button decline
+      // to reopen.
+      //
+      // OWNERSHIP, not merely identity: clicking the same button while a HIGHLIGHT's card
+      // is open is an ordinary open, and treating it as a dismissal would mean that click
+      // did nothing at all.
+      if (owner && !els.popover.classList.contains("pdfa-open") && event.target && event.target.closest) {
+        if (event.target.closest("button") === owner) state.popoverClosedFrom = owner;
+      }
     });
 
     // A resize moves the walls the popover was placed against, and it is placed in fixed
