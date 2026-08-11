@@ -325,7 +325,7 @@ export async function handleEmbedCall(app, payload) {
         // whether the note has a managed section is unrelated to whether it already
         // holds exports, and deciding that twice from two different reads is how the
         // two paths would end up disagreeing about which send is the first.
-        const block = withExportSeparator(content, request.content);
+        const block = withExportSeparator(content, request.content, request.pluginUUID);
         const rewritten = insertAboveManagedSection(content, block);
         if (rewritten === null) {
           await app.insertNoteContent(noteHandle, "\n" + block + "\n", {

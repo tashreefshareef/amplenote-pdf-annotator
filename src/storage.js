@@ -221,21 +221,69 @@ function extractStray(sectionContent) {
   return rest.trim();
 }
 
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Does this note already hold an exported block from THIS plugin?
+ *
+ * Two conditions, both needed. The markdown LINK form (`](plugin://`) is what an export
+ * block's heading is; the viewer's own embed tag uses the same scheme as
+ * `<object data="plugin://...">`, so a note holding only a viewer still counts as having
+ * no exports. And `hl=`, which every exported deep link carries (buildDeepLink in
+ * export.js) and nothing else does - a plain link to this plugin, or to any OTHER
+ * plugin, is not an export block and must not be mistaken for one.
+ *
+ * The uuid scoping matters because the consequence of a false positive is silent: the
+ * separator is simply never added again, for the life of that note.
+ */
+function hasExportedBlock(noteContent, pluginUUID) {
+  if (!pluginUUID) return noteContent.includes("](plugin://");
+  return new RegExp("\\]\\(plugin://" + escapeRegExp(pluginUUID) + "[^)]*[?&]hl=").test(noteContent);
+}
+
+/**
+ * Is whatever the block is about to be appended after already a boundary?
+ *
+ * Looks at the region above the managed section - which is pinned last, so it is never
+ * the thing a rule would be separating - and asks what the last real line in it is. A
+ * `---` there means the note already ends with a rule (the user's own, typically at the
+ * end of a piece of writing), and adding ours would stack two rules with a gap between
+ * them. Nothing there at all means there is nothing to separate from, and a rule at the
+ * top of an otherwise empty note divides nothing.
+ */
+function alreadySeparated(noteContent) {
+  const lines = noteContent.split("\n");
+  let limit = lines.findIndex((line) => line.trim() === `# ${STORAGE_SECTION_HEADING}`);
+  if (limit === -1) limit = lines.length;
+  for (let i = limit - 1; i >= 0; i--) {
+    const text = lines[i].trim();
+    if (text === "") continue;
+    return text === "---";
+  }
+  return true;
+}
+
 /**
  * Prefix a horizontal rule when this is the FIRST highlight sent to a note, so the
  * appended blocks are visibly separated from whatever the user wrote above them.
  *
  * Only the first: later sends land next to their own siblings, where a rule per block
- * would just be repetition. "First" is decided by looking for an exported deep link -
- * `](plugin://` is unique to one, since it is the markdown LINK form. The viewer's own
- * embed tag uses the same scheme but as `<object data="plugin://...">`, so it cannot
- * match, and a note holding only a viewer still counts as having no exports yet.
+ * would just be repetition.
  *
  * Deliberately not a heading: the separator has to sit in the user's own note body,
  * which may already have its own structure, and a rule imposes nothing on it.
+ *
+ * @param pluginUUID scopes "is there already an export here?" to this plugin's own
+ *   blocks. Optional only so a caller without one degrades to the older, looser test
+ *   rather than losing the separator entirely.
  */
-export function withExportSeparator(noteContent, markdown) {
-  return String(noteContent || "").includes("](plugin://") ? markdown : `---\n\n${markdown}`;
+export function withExportSeparator(noteContent, markdown, pluginUUID) {
+  const content = String(noteContent || "");
+  if (hasExportedBlock(content, pluginUUID)) return markdown;
+  if (alreadySeparated(content)) return markdown;
+  return `---\n\n${markdown}`;
 }
 
 /**

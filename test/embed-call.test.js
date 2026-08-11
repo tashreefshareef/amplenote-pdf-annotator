@@ -868,6 +868,55 @@ describe("sent blocks follow their highlights", () => {
 
     expect(app._notes.get(NOTE).content).toContain("---");
   });
+
+  // Scenario: a link to some OTHER plugin, or a plain link to this one, is not an export
+  // block. Testing for "](plugin://" alone read one as an export and skipped the rule -
+  // and skipped it for the life of that note, silently, since the condition never
+  // changes back.
+  test("adds the rule when the note's only plugin link is not an exported block", async () => {
+    const app = appWithNote("# Notes\nsee [another plugin](plugin://other?x=1) about this");
+    await call(app, {
+      action: "sendToNote",
+      pluginUUID: "p",
+      content: "[block one](plugin://p?att=a&hl=h1)\n> > quote",
+    });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final).toContain("---");
+    expect(final.indexOf("another plugin")).toBeLessThan(final.indexOf("---"));
+  });
+
+  // Scenario: the second send has to recognize the first one's block as an export even
+  // now that the test is scoped to this plugin and its `hl=`.
+  test("does not repeat the rule when the existing block carries this plugin's deep link", async () => {
+    const app = appWithNote("# Reading notes\nmy own text");
+    const send = (id) =>
+      call(app, {
+        action: "sendToNote",
+        pluginUUID: "p",
+        content: `[block ${id}](plugin://p?att=a&page=1&hl=${id})\n> > quote`,
+      });
+    await send("h1");
+    await send("h2");
+
+    expect(app._notes.get(NOTE).content.match(/^---$/gm)).toHaveLength(1);
+  });
+
+  // Scenario: a note that already ends with the user's own rule - the ordinary shape of a
+  // finished piece of writing - got a second one stacked under it, two rules with a gap
+  // between them and nothing in between.
+  test("does not stack a second rule on a note that already ends with one", async () => {
+    const app = appWithNote("# Reading notes\nmy own text\n\n---");
+    await call(app, {
+      action: "sendToNote",
+      pluginUUID: "p",
+      content: "[block one](plugin://p?att=a&hl=h1)\n> > quote",
+    });
+
+    const final = app._notes.get(NOTE).content;
+    expect(final.match(/^---$/gm)).toHaveLength(1);
+    expect(final).toContain("block one");
+  });
 });
 
 describe("exportAll", () => {
