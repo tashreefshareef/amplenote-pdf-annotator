@@ -475,6 +475,27 @@ several of these cost real debugging time (or a live, reported bug) on this one.
     live, and cdnjs hosts no Roboto package. Keep the fallback stack real so a block costs
     a font rather than a broken toolbar.
 
+16. **A plugin cannot add a tab or panel to the note footer — the strip holding
+    Hidden / Completed / Backlinks is Amplenote's own UI, with no extension point.**
+    Checked against source 3, which lists every entry point a plugin object may define:
+    `appOption`, `dailyJotOption`, `eventOption`, `imageOption`, `insertText`,
+    `linkOption`, `linkTarget`, `noteOption`, `onEmbedCall`, `onNavigate`,
+    `onNoteCreated`, `onPluginCall`, `renderEmbed`, `replaceText`,
+    `suggestTaskTargetNotes`, `taskOption`, `validateSettings`. Every one of them hooks a
+    **menu**, a **text/selection event**, a **lifecycle event**, or an **iframe embed** —
+    none registers host-app chrome, and the sandbox gives no DOM access to the host page
+    to add any (see #6). So the whole set of surfaces a plugin can own is: the inline
+    embed (`renderEmbed`), the sidebar embed (**Pro-gated**, see below), the note ⋯ menu
+    (`noteOption`), quick-search (`appOption`), and the various per-object menus.
+
+    Worth knowing before designing, because a note-level always-visible panel is a natural
+    thing to want for any plugin that accumulates per-note records (an index, a log, a
+    list of marks) and it simply isn't on offer. **The substitutes are a panel *inside*
+    your own embed, or a managed note you write to** — both of which this project ended up
+    using. Generalize the shape of this check, too: when you want a surface, read the
+    actions list and ask which of those four kinds it is. If it's none of them, it doesn't
+    exist, and no amount of embed-side work reaches it.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and
