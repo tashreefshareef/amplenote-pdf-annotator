@@ -465,6 +465,166 @@ describe("writeHighlightsIntoPdf", () => {
   });
 });
 
+/**
+ * UNDERLINE AND STRIKETHROUGH.
+ *
+ * All three shapes are text markup annotations taking the same /QuadPoints and /C, so the
+ * risk here is not "does pdf-lib accept it" - it is the band arithmetic, which has a sign
+ * error waiting in it because PDF user space runs y UPWARD while the viewer that these
+ * numbers were measured in runs it downward. An underline placed above the text would
+ * look entirely plausible in the source.
+ */
+describe("mark shapes", () => {
+  const RECT = { x: 50, y: 700, width: 200, height: 14 };
+
+  async function annotFor(style, overrides = {}) {
+    const bytes = await writeHighlightsIntoPdf(
+      PDFLib, await makePdf(), [highlight({ style, rects: [RECT], ...overrides })], RGB_TABLE
+    );
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    return { doc, dict: resolve(doc, (await annotsOnPage(bytes)).get(0)) };
+  }
+  const num = (dict, key) => dict.get(PDFLib.PDFName.of(key)).asNumber();
+  const arr = (dict, key) => dict.get(PDFLib.PDFName.of(key)).asArray().map((n) => n.asNumber());
+
+  test("writes each shape as its own native subtype", async () => {
+    expect((await annotFor("highlight")).dict.get(PDFLib.PDFName.of("Subtype")))
+      .toEqual(PDFLib.PDFName.of("Highlight"));
+    expect((await annotFor("underline")).dict.get(PDFLib.PDFName.of("Subtype")))
+      .toEqual(PDFLib.PDFName.of("Underline"));
+    expect((await annotFor("strike")).dict.get(PDFLib.PDFName.of("Subtype")))
+      .toEqual(PDFLib.PDFName.of("StrikeOut"));
+  });
+
+  // Scenario: a mark saved before the style field existed. It must download as the
+  // highlight it has always been, not vanish and not become something else.
+  test("a mark with no recorded shape downloads as a highlight", async () => {
+    const bytes = await writeHighlightsIntoPdf(PDFLib, await makePdf(), [highlight()], RGB_TABLE);
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    const dict = resolve(doc, (await annotsOnPage(bytes)).get(0));
+    expect(dict.get(PDFLib.PDFName.of("Subtype"))).toEqual(PDFLib.PDFName.of("Highlight"));
+  });
+
+  test("an unrecognized shape downloads as a highlight rather than being dropped", async () => {
+    const { dict } = await annotFor("squiggle");
+    expect(dict.get(PDFLib.PDFName.of("Subtype"))).toEqual(PDFLib.PDFName.of("Highlight"));
+  });
+
+  // Scenario: the quads describe the TEXT for every shape - that is what a text markup
+  // annotation means, and a reader re-rendering the mark itself works from them. If the
+  // underline's thin bar leaked into /QuadPoints, selecting the annotation in a reader
+  // would select a 1pt sliver instead of the sentence.
+  test("QuadPoints describe the text, not the painted bar, for every shape", async () => {
+    const expected = [
+      RECT.x, RECT.y + RECT.height, RECT.x + RECT.width, RECT.y + RECT.height,
+      RECT.x, RECT.y, RECT.x + RECT.width, RECT.y,
+    ];
+    for (const style of ["highlight", "underline", "strike"]) {
+      expect(arr((await annotFor(style)).dict, "QuadPoints")).toEqual(expected);
+    }
+  });
+
+  // THE SIGN TEST. PDF y increases upward, so an underline belongs BELOW the rect's
+  // bottom edge - which the viewer's measurements identified as roughly the text
+  // baseline. Getting this backwards draws a line over the top of the words.
+  test("the underline paints below the text baseline, and /Rect grows to contain it", async () => {
+    const { dict } = await annotFor("underline");
+    const [, rectMinY, , rectMaxY] = arr(dict, "Rect");
+
+    // Below the quads' own bottom edge...
+    expect(rectMinY).toBeLessThan(RECT.y);
+    // ...and not so far below that it has left the line it belongs to.
+    expect(rectMinY).toBeGreaterThan(RECT.y - RECT.height);
+    // The top is unchanged - only the bottom grew.
+    expect(rectMaxY).toBe(RECT.y + RECT.height);
+  });
+
+  // Scenario: /Rect clips the /AP form. An underline drawn below a /Rect still set to the
+  // quad bounding box would be clipped away entirely - present in the file, invisible on
+  // the page, which is exactly the failure mode "finding 5" already cost us once.
+  test("the appearance BBox contains the underline's bar", async () => {
+    const { doc, dict } = await annotFor("underline");
+    const rect = arr(dict, "Rect");
+    const form = doc.context.lookup(dict.get(PDFLib.PDFName.of("AP")).get(PDFLib.PDFName.of("N")));
+    const bbox = form.dict.get(PDFLib.PDFName.of("BBox")).asArray().map((n) => n.asNumber());
+    expect(bbox).toEqual(rect);
+
+    // And the operators really do paint inside it.
+    const ops = formContentString(form);
+    const ys = [...ops.matchAll(/[\d.]+ ([\d.]+) [ml]\b/g)].map((m) => Number(m[1]));
+    expect(ys.length).toBeGreaterThan(0);
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(bbox[1]);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(bbox[3]);
+  });
+
+  test("the strikethrough paints inside the text, above the baseline", async () => {
+    const { doc, dict } = await annotFor("strike");
+    const form = doc.context.lookup(dict.get(PDFLib.PDFName.of("AP")).get(PDFLib.PDFName.of("N")));
+    const ys = [...formContentString(form).matchAll(/[\d.]+ ([\d.]+) [ml]\b/g)].map((m) => Number(m[1]));
+    const mid = (Math.min(...ys) + Math.max(...ys)) / 2;
+
+    expect(mid).toBeGreaterThan(RECT.y);                    // above the baseline
+    expect(mid).toBeLessThan(RECT.y + RECT.height / 2);     // but below the middle of the box
+    // /Rect is untouched - the bar is inside the quads already.
+    expect(arr(dict, "Rect")).toEqual([RECT.x, RECT.y, RECT.x + RECT.width, RECT.y + RECT.height]);
+  });
+
+  // Scenario: 0.4 is what keeps text readable under a FILL. A 1pt bar at 0.4 reads as a
+  // printing defect - the value that makes the highlight right makes the other two nearly
+  // invisible, so the bands are opaque and rely on the blend mode instead.
+  test("bands are opaque while the fill stays translucent", async () => {
+    expect(num((await annotFor("highlight")).dict, "CA")).toBe(0.4);
+    expect(num((await annotFor("underline")).dict, "CA")).toBe(1);
+    expect(num((await annotFor("strike")).dict, "CA")).toBe(1);
+  });
+
+  // Scenario: a strikethrough is drawn THROUGH the words it strikes, so it has to blend
+  // or it hides them - the same reasoning the on-screen overlay follows.
+  test("every shape keeps the multiply blend mode", async () => {
+    for (const style of ["highlight", "underline", "strike"]) {
+      const { doc, dict } = await annotFor(style);
+      const form = doc.context.lookup(dict.get(PDFLib.PDFName.of("AP")).get(PDFLib.PDFName.of("N")));
+      const gs = doc.context.lookup(
+        form.dict.get(PDFLib.PDFName.of("Resources"))
+          .get(PDFLib.PDFName.of("ExtGState")).get(PDFLib.PDFName.of("GS0"))
+      );
+      expect(gs.get(PDFLib.PDFName.of("BM"))).toEqual(PDFLib.PDFName.of("Multiply"));
+    }
+  });
+
+  // Scenario: a multi-line underline is ONE annotation with a bar per line, not one bar
+  // spanning the block - the same rule finding 3 sets for quads.
+  test("a multi-line mark gets one bar per line inside a single annotation", async () => {
+    const rects = [
+      { x: 50, y: 700, width: 200, height: 14 },
+      { x: 50, y: 680, width: 120, height: 14 },
+    ];
+    const bytes = await writeHighlightsIntoPdf(
+      PDFLib, await makePdf(), [highlight({ style: "underline", rects })], RGB_TABLE
+    );
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    const annots = await annotsOnPage(bytes);
+    expect(annots.size()).toBe(1);
+
+    const form = doc.context.lookup(
+      resolve(doc, annots.get(0)).get(PDFLib.PDFName.of("AP")).get(PDFLib.PDFName.of("N"))
+    );
+    // One "m" starts each subpath, so one per line.
+    expect([...formContentString(form).matchAll(/[\d.]+ [\d.]+ m\b/g)]).toHaveLength(2);
+  });
+
+  // Scenario: a note belongs to the mark whatever shape it is, and the popup is what
+  // carries it into other readers (finding 2). Easy to lose by branching on shape.
+  test("a note still gets its bidirectionally-linked popup on a band shape", async () => {
+    const { doc, dict } = await annotFor("strike", { note: "still worth remembering" });
+    const popupRef = dict.get(PDFLib.PDFName.of("Popup"));
+    expect(popupRef).toBeDefined();
+    const popup = doc.context.lookup(popupRef);
+    expect(popup.get(PDFLib.PDFName.of("Subtype"))).toEqual(PDFLib.PDFName.of("Popup"));
+    expect(dict.get(PDFLib.PDFName.of("Contents")).asString()).toContain("still worth remembering");
+  });
+});
+
 describe("createAnnotationWriter", () => {
   // Scenario: the embed cannot import this module - it gets the factory's SOURCE
   // injected into the page and calls it there, against window.PDFLib instead of the

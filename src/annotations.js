@@ -59,6 +59,63 @@ export function createAnnotationWriter() {
   var FALLBACK_RGB = [0.957, 0.871, 0.424];
 
   /**
+   * Mark shape -> PDF annotation subtype. Duplicated from MARK_STYLES in constants.js for
+   * the same reason FALLBACK_RGB is - this module cannot import anything.
+   *
+   * All three are TEXT MARKUP annotations (ISO 32000-1 12.5.6.10) and take exactly the
+   * same /QuadPoints and /C, which is why the shape costs almost nothing here: a
+   * downloaded file gets a real underline or strikeout that a reader can select, recolor
+   * and delete through its own UI, not a drawing of one.
+   */
+  var SUBTYPES = { highlight: "Highlight", underline: "Underline", strike: "StrikeOut" };
+
+  /**
+   * Where the ink goes for the two band shapes, as fractions of the line rect.
+   *
+   * The same numbers the on-screen overlay uses (markBandRect in embed/viewer.js), which
+   * is the point - a download has to look like what was on screen. They were measured
+   * there by reading rendered ink off the PDF.js canvas; the finding that matters here is
+   * that the stored rect ends at roughly the BASELINE and excludes descenders, so an
+   * underline sits below the rect rather than inside it.
+   *
+   * PDF user space has y increasing UPWARD, so "below the baseline" is a SUBTRACTION here
+   * where the viewer adds. Getting that sign wrong puts the underline above the text,
+   * which is exactly the sort of thing that looks fine until someone opens the file.
+   *
+   * The thickness floor is in POINTS, not pixels, so it is much smaller than the viewer's:
+   * a 10pt line of text would otherwise get the same 1.5-unit bar as a 13px one on screen,
+   * which is a rule rather than an underline.
+   */
+  var STRIKE_CENTRE = 0.77;
+  var UNDERLINE_GAP = 0.15;
+  var BAND_THICKNESS = 0.12;
+  var MIN_BAND_THICKNESS = 0.6;
+
+  /**
+   * The rectangles actually painted for one mark - what the appearance stream fills.
+   *
+   * A highlight paints its rects as they are. The other two paint a bar per rect, which is
+   * why this is separate from /QuadPoints: the QUADS always describe the TEXT (that is
+   * what a text markup annotation means, and it is what a reader uses to re-flow or
+   * re-render the mark), while these are only about ink.
+   */
+  function paintedRects(rects, style) {
+    if (style !== "underline" && style !== "strike") return rects;
+    var out = [];
+    for (var i = 0; i < rects.length; i++) {
+      var r = rects[i];
+      var thickness = Math.max(MIN_BAND_THICKNESS, r.height * BAND_THICKNESS);
+      // Measured from the rect's TOP in both cases, to stay readable against the viewer's
+      // version - hence "height - height * STRIKE_CENTRE" rather than a lone 0.23.
+      var y = style === "underline"
+        ? r.y - Math.max(MIN_BAND_THICKNESS, r.height * UNDERLINE_GAP) - thickness
+        : r.y + (r.height - r.height * STRIKE_CENTRE) - thickness / 2;
+      out.push({ x: r.x, y: y, width: r.width, height: thickness });
+    }
+    return out;
+  }
+
+  /**
    * Build the /AP /N Form XObject Adobe's tools require to render the highlight at all
    * (see the file header - finding 5). One filled rectangle per quad, painted with the
    * given color inside an isolated graphics state carrying /BM /Multiply, the blend mode
@@ -73,14 +130,18 @@ export function createAnnotationWriter() {
    *
    * @returns {PDFRef} the registered Form XObject, ready to hang off /AP /N.
    */
-  function buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, bbox) {
+  function buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, bbox, alpha) {
     var gsRef = pdfDoc.context.register(
       pdfDoc.context.obj({
         Type: PDFLib.PDFName.of("ExtGState"),
+        // Multiply for all three shapes, not just the fill. A strikethrough is drawn
+        // through the words it strikes, so blending is what keeps them legible underneath
+        // - the same reasoning the on-screen overlay follows. Over white paper multiply is
+        // identity, so an underline is still full-strength colour.
         BM: PDFLib.PDFName.of("Multiply"),
         // Baked into the appearance itself, not just the annotation's own /CA, since a
         // reader that renders the /AP is not guaranteed to also apply /CA on top of it.
-        ca: PDFLib.PDFNumber.of(0.4),
+        ca: PDFLib.PDFNumber.of(alpha),
       })
     );
 
@@ -166,8 +227,15 @@ export function createAnnotationWriter() {
    */
   function buildHighlightAnnotation(PDFLib, pdfDoc, highlight, rgbTriple, pageSize) {
     var rects = highlight.rects;
+    // Unknown or absent shape paints as a highlight, matching normalizeMarkStyle on the
+    // plugin side - a mark written before the field existed has no style at all, and it
+    // must download as what it has always been rather than not downloading.
+    var style = SUBTYPES[highlight.style] ? highlight.style : "highlight";
 
     // One quad set per rect, all inside a SINGLE annotation dict - see finding 3 above.
+    // THE QUADS ARE THE TEXT, for every shape: that is what a text markup annotation
+    // means, and a reader re-rendering the mark itself works from these, not from the
+    // thin bar an underline happens to paint.
     var quadPoints = [];
     var minX = rects[0].x, minY = rects[0].y;
     var maxX = rects[0].x + rects[0].width, maxY = rects[0].y + rects[0].height;
@@ -184,11 +252,30 @@ export function createAnnotationWriter() {
       maxY = Math.max(maxY, y2);
     }
 
+    // /Rect HAS TO CONTAIN THE APPEARANCE, not just the quads. An underline is painted
+    // BELOW the text - below the quad bounding box entirely - and a reader clips the /AP
+    // form to /Rect, so leaving /Rect at the quad box would clip every underline in the
+    // document out of existence. Union, rather than replacing the quad box, so the other
+    // two shapes are completely unaffected.
+    var painted = paintedRects(rects, style);
+    var boxMinX = minX, boxMinY = minY, boxMaxX = maxX, boxMaxY = maxY;
+    for (var p = 0; p < painted.length; p++) {
+      var pr = painted[p];
+      boxMinX = Math.min(boxMinX, pr.x);
+      boxMinY = Math.min(boxMinY, pr.y);
+      boxMaxX = Math.max(boxMaxX, pr.x + pr.width);
+      boxMaxY = Math.max(boxMaxY, pr.y + pr.height);
+    }
+
+    // A fill sits UNDER the text and has to be seen through; a 1pt bar does not. At 0.4
+    // an underline reads as a printing defect rather than a mark - the value that makes
+    // the highlight right is the value that makes the other two nearly invisible.
+    var alpha = style === "highlight" ? 0.4 : 1;
+
     var dict = pdfDoc.context.obj({
       Type: PDFLib.PDFName.of("Annot"),
-      Subtype: PDFLib.PDFName.of("Highlight"),
-      // /Rect is the bounding box of every quad, not the quads themselves.
-      Rect: pdfDoc.context.obj([minX, minY, maxX, maxY]),
+      Subtype: PDFLib.PDFName.of(SUBTYPES[style]),
+      Rect: pdfDoc.context.obj([boxMinX, boxMinY, boxMaxX, boxMaxY]),
       QuadPoints: pdfDoc.context.obj(quadPoints),
       C: pdfDoc.context.obj(rgbTriple),
       // Printable, and what makes the annotation show up in a reader's comment panel.
@@ -197,7 +284,7 @@ export function createAnnotationWriter() {
       M: PDFLib.PDFString.of(new Date().toISOString()),
       // Opacity, so the underlying text stays readable - verified at this value
       // against all four spec colors in the spike.
-      CA: PDFLib.PDFNumber.of(0.4),
+      CA: PDFLib.PDFNumber.of(alpha),
     });
 
     if (highlight.note) {
@@ -206,7 +293,9 @@ export function createAnnotationWriter() {
 
     // Finding 5 - without this, the annotation is invisible in Adobe's tools even
     // though it is present in the file and visible in Chrome/PDFGear/PDF.js.
-    var apRef = buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, [minX, minY, maxX, maxY]);
+    var apRef = buildAppearanceStream(
+      PDFLib, pdfDoc, painted, rgbTriple, [boxMinX, boxMinY, boxMaxX, boxMaxY], alpha
+    );
     dict.set(PDFLib.PDFName.of("AP"), pdfDoc.context.obj({ N: apRef }));
 
     var highlightRef = pdfDoc.context.register(dict);
@@ -291,6 +380,10 @@ export function createAnnotationWriter() {
     writeHighlightsIntoPdf: writeHighlightsIntoPdf,
     buildHighlightAnnotation: buildHighlightAnnotation,
     appendAnnotationRefs: appendAnnotationRefs,
+    // Exported for the test suite: the band arithmetic is the part of this module with a
+    // sign error waiting in it (PDF y runs upward), and it is worth asserting directly
+    // rather than only through a parsed annotation dictionary.
+    paintedRects: paintedRects,
   };
 }
 
@@ -300,3 +393,4 @@ const annotationWriter = createAnnotationWriter();
 export const writeHighlightsIntoPdf = annotationWriter.writeHighlightsIntoPdf;
 export const buildHighlightAnnotation = annotationWriter.buildHighlightAnnotation;
 export const appendAnnotationRefs = annotationWriter.appendAnnotationRefs;
+export const paintedRects = annotationWriter.paintedRects;
