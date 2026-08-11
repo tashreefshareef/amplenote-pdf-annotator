@@ -332,18 +332,85 @@ export const STYLES = `
      letting it scroll - which measures as "fits" while looking broken. */
   .pdfa-popover.pdfa-menu > * { flex: 0 0 auto; }
   .pdfa-popover.pdfa-menu .pdfa-btn:hover { background: var(--pdfa-btn-hover); }
-  /* THE SHAPE ROW on an existing mark's popover: highlight / underline / strikethrough,
-     above the eleven swatches. flex-basis 100% forces its own line in a popover that is
-     otherwise a wrapping row of swatches and buttons - without it the three buttons pack
-     in beside the first few colors and the card reads as one undifferentiated grid.
-     The rule under it separates the two questions the card asks (what shape, what color)
-     without spending a whole divider element on it. */
-  .pdfa-shape-row { display: flex; gap: 2px; flex: 0 0 100%; padding-bottom: 5px;
-    margin-bottom: 2px; border-bottom: 1px solid var(--pdfa-border); }
+  /* ---- THE MARK CARD (openHighlightPopover) --------------------------------
+     A FIXED WIDTH AND EXPLICIT ROWS, and both halves of that are load-bearing.
+
+     This card used to be eighteen children pushed flat into .pdfa-popover's wrapping row
+     with only a max-width to shape them - three shape buttons, eleven swatches and four
+     text buttons - so the wrap point was decided at open time by whatever width the box
+     happened to measure. Seventeen pixels either way (the overflow-y scrollbar appearing
+     is the usual cause) moved the eleventh swatch onto its own line and shuffled "Add
+     note" up beside it: the same highlight drew two visibly different cards. Reported
+     live as "it adjusts the structure based on where it appeared", and that is exactly
+     what it did.
+
+     A content-sized wrapping box cannot be fixed by tuning the max-width, because the
+     input to the wrap is a MEASUREMENT. Naming the width and giving each row its own
+     nowrap element is what moves the decision back to design time. The numbers add up
+     to the width on purpose - 2 border + 6 padding + 100 (the shape group: three 32px
+     buttons 2px apart) + 1 rule + 101 (four 20px swatches, 7px apart) + 32 (the More
+     circle in its own button box) + three 6px gaps + 6 padding = 266, and the width is
+     270 so there are four pixels of slack for space-between to hand to the gaps.
+
+     A BUTTON HERE IS 32px, NOT 30: an 18px icon, 6px of padding either side, and the
+     1px transparent border .pdfa-btn keeps so the primary variant can color one in
+     without moving anything. Both attempts at this width forgot that border and both
+     overflowed by exactly the 2px per button it costs. Measure the card, do not add up
+     the rules.
+
+     THE SLACK IS THE POINT, together with "flex: 0 0 auto" on the row's children. At
+     exactly-fits the row is one rounding error from overflowing, and an overflowing
+     flex row does not clip the last item politely - it SHRINKS whatever can shrink.
+     The first casualty was the 1px divider (down to 0), and what got pushed past the
+     card's overflow-x:hidden edge was the "+". Caught by measuring the live card. */
+  .pdfa-popover.pdfa-mark { flex-direction: column; flex-wrap: nowrap; align-items: stretch;
+    width: 270px; gap: 6px; padding: 6px; }
+  .pdfa-mark-row { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+  .pdfa-mark-row > * { flex: 0 0 auto; }
+  .pdfa-mark-row.pdfa-mark-top { justify-content: space-between; }
+  .pdfa-mark-colors { display: flex; align-items: center; gap: 7px; }
+  .pdfa-mark-row .pdfa-spacer { flex: 1 1 auto; }
+  /* Separates the two questions the card asks - what this mark LOOKS like, and what you
+     can DO with it - which used to be carried by .pdfa-shape-row's bottom border back
+     when the shape group had a whole line to itself. */
+  .pdfa-vrule { width: 1px; align-self: stretch; background: var(--pdfa-border); }
+  .pdfa-hrule { height: 1px; flex: 0 0 auto; background: var(--pdfa-border); }
+  /* THE SHAPE GROUP: highlight / underline / strikethrough. An inline group now, not a
+     full-width row - it shares row 1 with the swatches, and the vertical rule is what
+     keeps the two from reading as one undifferentiated strip of controls. */
+  .pdfa-shape-row { display: flex; gap: 2px; }
+  /* MORE COLORS. A 30px button box around a 20px dashed circle, so it hovers like the
+     icon buttons either side of it and its ring is held 11px off the card's edge -
+     anything drawn to the very edge of a tight card reads as clipped. Dashed rather
+     than filled because it is the one circle in the row that is not a color. */
+  .pdfa-more-colors { padding: 5px; border: 1px solid transparent; background: transparent;
+    color: inherit; border-radius: 6px; cursor: pointer; display: inline-flex; }
+  .pdfa-more-colors:hover { background: var(--pdfa-btn-hover); }
+  .pdfa-more-dot { width: 20px; height: 20px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; border: 1px dashed var(--pdfa-border); }
+  .pdfa-more-colors .pdfa-icon { width: 14px; height: 14px; opacity: .7; }
+  .pdfa-more-colors:hover .pdfa-icon { opacity: 1; }
+  /* THE DRAWER: the catalog MINUS the four already on the strip above, so no color
+     appears twice in one card. Seven is what that leaves, and seven fixed columns is
+     what stops the grid re-wrapping - the whole defect this card was rebuilt to kill.
+     Centred, because a 188px row left-aligned under a 246px strip reads as misaligned
+     rather than as a second row of the same thing. */
+  .pdfa-drawer { display: none; grid-template-columns: repeat(7, 20px); gap: 8px;
+    justify-content: center; padding-top: 2px; }
+  .pdfa-drawer.pdfa-open { display: grid; }
+  /* Icon-only actions (Copy / Send to note / Remove). They keep their labels as tooltips
+     and as their accessible names - see iconButton in viewer.js. */
+  .pdfa-btn.pdfa-icon-only { padding: 6px; }
   /* Icon-only, so it drops .pdfa-btn's text padding and squares up. The pressed state is
      the same tint the toolbar uses for its own active control, for the same reason: the
-     mark's CURRENT shape has to be readable before you can choose a different one. */
-  .pdfa-shape-btn { padding: 6px; }
+     mark's CURRENT shape has to be readable before you can choose a different one.
+
+     .pdfa-btn.pdfa-shape-btn, not .pdfa-shape-btn: as a single class it TIED with
+     .pdfa-btn's "padding: 6px 10px" and lost on source order, so the squaring-up this
+     rule describes never happened and the buttons rendered 40px wide. Measured, not
+     read - it is invisible until something downstream depends on the width, which the
+     mark card's fixed geometry now does. */
+  .pdfa-btn.pdfa-shape-btn { padding: 6px; }
   .pdfa-shape-btn[aria-pressed="true"] { background: var(--pdfa-btn-hover); }
   .pdfa-shape-btn[aria-pressed="true"] .pdfa-icon { opacity: 1; }
   .pdfa-export-colors { display: flex; gap: 6px; padding: 2px 0 8px; }
@@ -609,6 +676,21 @@ export const STYLES = `
        declared here only so the three read as one control rather than three loose
        buttons once they are that wide. */
     #pdfa-styles { display: inline-flex; align-items: center; gap: 0; }
+    /* THE MARK CARD gets the same treatment as the toolbar, for the same reason: the
+       ::after hit areas above reach 5px past each swatch on both sides, so swatches
+       7px apart have OVERLAPPING targets and the later one in the DOM wins - a near
+       miss silently recolors the mark. 12px is the smallest gap that separates them.
+       The width grows by exactly the 15px that adds (see .pdfa-popover.pdfa-mark).
+
+       The drawer's padding does the same job vertically: those hit areas reach 10px
+       above and below a 20px circle, so the strip's row and the drawer's need 20px
+       between them before a tap in the band can only mean one of the two. */
+    .pdfa-popover.pdfa-mark { width: 285px; }
+    .pdfa-mark-colors { gap: 12px; }
+    .pdfa-drawer { gap: 12px; padding-top: 14px; }
+    /* Square targets for the three icon-only actions. Free: row 2's spacer absorbs it,
+       so the card's width does not move. */
+    .pdfa-btn.pdfa-icon-only { min-width: 38px; justify-content: center; }
     /* The whole collapsed bar becomes the tap target, not just its Expand button.
        The bar's box is sized by data-aspect-ratio as a fraction of the note width
        (see constants.js), so on a phone it is ~22px tall - too short to ever hold a

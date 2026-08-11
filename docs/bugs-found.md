@@ -847,6 +847,62 @@ where "it's a bit off" could be anything.
 
 ---
 
+## The same popover drew itself two different ways, because its layout was an output of its own measurement
+
+**Symptom:** reported live, with two screenshots of the same control: a highlight's popover
+showed its eleven color swatches as ten-plus-a-stranded-one in one, and as a single row of
+eleven in the other, with the action buttons shuffled onto different lines to match. Nothing
+about the highlight or the popover's contents differed between them. It read as "the dialog
+adjusts its structure based on where it appeared".
+
+**Cause:** the card was eighteen children pushed flat into one `flex-wrap: wrap` container
+with `max-width: 320px` and no width of its own. A shrink-to-fit box's used width is
+*measured* at layout time, and the wrap point is computed from that measurement — so
+anything that moved the width by ~17px (the `overflow-y: auto` scrollbar appearing is the
+easy one) moved a swatch onto the next line and dragged every button after it. The
+structure was not being chosen; it was falling out of an arithmetic the code never named.
+
+**Fix:** name the width (`width: 270px`), give each row its own `flex-wrap: nowrap`
+element, and put the colors that no longer fit behind a "+" that opens a fixed 7-column
+grid. Nothing in the card can now re-wrap, because nothing in it wraps.
+
+**General lesson:** wrapping is a layout *algorithm*, not a layout *decision*. The moment a
+wrapping container is also content-sized, its structure becomes a function of a number
+computed at runtime — and every incidental thing that perturbs that number (a scrollbar, a
+font that loads late, a 1px border, a longer label in another locale) silently redesigns
+the UI. The tell is a bug report about appearance that no content change explains. Tuning
+the max-width never fixes this class of bug, because the input to the wrap is the
+measurement, not the cap: either pin the width, or lay the thing out in rows/grid tracks
+that are declared rather than discovered.
+
+---
+
+## A CSS override that tied on specificity, and lost silently for months
+
+**Symptom:** while fitting the rebuilt popover to a fixed width, the arithmetic said the
+row needed 246px and the browser said 252. The three icon-only shape buttons were 40px
+wide each, not the 30px their rule specified.
+
+**Cause:** `.pdfa-shape-btn { padding: 6px }` was written to override `.pdfa-btn { padding:
+6px 10px }` on a button carrying both classes. Both selectors are one class — a specificity
+*tie* — so the later rule in the stylesheet wins, and `.pdfa-btn` is defined further down.
+The override had never applied. Its own comment ("drops .pdfa-btn's text padding and
+squares up") described an intention the cascade had quietly refused.
+
+**Fix:** `.pdfa-btn.pdfa-shape-btn { padding: 6px }` — outrank the base rule instead of
+tying with it. (The same shape, `.pdfa-btn.pdfa-icon-only`, is why the new icon-only
+buttons worked first time.)
+
+**General lesson:** "modifier overrides base" is only true if the modifier actually
+outranks the base; single-class-vs-single-class is a coin toss decided by file order, and
+the loser fails *silently* — no warning, no visual clue, just a control that is a bit
+bigger than its rule says. It stays invisible until something downstream depends on the
+exact number, which is why it surfaced here only when a fixed width had to be computed
+from the parts. Write modifiers as `.base.modifier` when they override the base, and when
+a measured size disagrees with the stylesheet, suspect the cascade before the arithmetic.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:

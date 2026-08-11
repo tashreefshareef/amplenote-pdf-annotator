@@ -149,6 +149,10 @@ export function viewerMain() {
     // popover refuses to close on scroll or an outside click, so a half-typed note
     // cannot be lost by a stray gesture.
     noteEditing: null,
+    // Where the open popover was asked to appear - {clientX, clientY, anchor}. Held so
+    // placePopover can be re-run on a card that CHANGES SIZE while open (the mark card's
+    // color drawer), which the original one-shot placement inside showPopover could not.
+    popoverPlacement: null,
   };
 
   function status(message, isError) {
@@ -385,6 +389,26 @@ export function viewerMain() {
       event.stopPropagation();
       onClick();
     };
+    return el;
+  }
+
+  /**
+   * The same button with its label demoted to a tooltip and an aria-label.
+   *
+   * The mark card's row of actions, where three labels beside a fourth was most of what
+   * made the card read as busy. The label is not dropped - it is what a screen reader
+   * announces and what a hover says - so the only thing lost is the always-on text.
+   *
+   * If the config carries no path for `iconKey`, button() falls back to rendering the
+   * label as text and this leaves it there: a nameless empty square would be worse than
+   * a wider card.
+   */
+  function iconButton(label, className, onClick, iconKey) {
+    var el = button(label, "pdfa-icon-only" + (className ? " " + className : ""), onClick, iconKey);
+    var text = el.querySelector("span");
+    if (text) el.removeChild(text);
+    el.title = label;
+    el.setAttribute("aria-label", label);
     return el;
   }
 
@@ -1605,9 +1629,10 @@ export function viewerMain() {
    * frame moves as one unit when the surrounding note scrolls.
    *
    * @param mode "editing" (the note editor), "exporting" (export all's color filter, and
-   *   the remove-viewer confirm, which reuses its column layout), or "menu" (the toolbar
-   *   overflow menu) switch the popover into a column layout with its own width; omit
-   *   for the default single-row layout every other context uses.
+   *   the remove-viewer confirm, which reuses its column layout), "menu" (the toolbar
+   *   overflow menu) or "mark" (an existing highlight's card) switch the popover into a
+   *   column layout with its own width; omit for the default single-row layout the
+   *   selection popover uses.
    * @param anchor {right, bottom} to hang below instead of following the cursor - see
    *   toolbarAnchor. Anything opened from a fixed control wants this; anything opened at
    *   a highlight or a selection wants the cursor.
@@ -1620,10 +1645,29 @@ export function viewerMain() {
     // The palette picker reuses "exporting"'s column layout and only overrides its width
     // - eleven swatches at the 220px filter width wrap into a ragged three rows.
     els.popover.classList.toggle("pdfa-palette", mode === "palette");
+    els.popover.classList.toggle("pdfa-mark", mode === "mark");
     for (var i = 0; i < children.length; i++) els.popover.appendChild(children[i]);
 
     // Must be visible before measuring - a display:none element has no size.
     els.popover.classList.add("pdfa-open");
+    state.popoverPlacement = { clientX: clientX, clientY: clientY, anchor: anchor || null };
+    placePopover();
+  }
+
+  /**
+   * Put the open popover where its placement asked for, given the size it is NOW.
+   *
+   * Split out of showPopover because the mark card grows a row while it is open (the "+"
+   * color drawer), and a card placed to fit two rows can run off the bottom of a short
+   * embed once it has three - which in an iframe means the third row is simply
+   * unreachable, not merely untidy.
+   */
+  function placePopover() {
+    var at = state.popoverPlacement;
+    if (!at) return;
+    var clientX = at.clientX;
+    var clientY = at.clientY;
+    var anchor = at.anchor;
     var width = els.popover.offsetWidth;
     var height = els.popover.offsetHeight;
     var left, top;
@@ -1675,12 +1719,14 @@ export function viewerMain() {
   function closePopover(force) {
     if (state.noteEditing && !force) return;
     state.noteEditing = null;
+    state.popoverPlacement = null;
     els.popover.classList.remove(
       "pdfa-open",
       "pdfa-editing",
       "pdfa-exporting",
       "pdfa-menu",
-      "pdfa-palette"
+      "pdfa-palette",
+      "pdfa-mark"
     );
     els.popover.innerHTML = "";
   }
@@ -1728,20 +1774,25 @@ export function viewerMain() {
   /**
    * Contexts 2 and 3: an existing highlight, either just created or clicked.
    *
-   * The WHOLE catalog here, deliberately unlike the toolbar and the selection popover.
-   * This is a floating card that can wrap, so it can afford every color, and it is what
-   * keeps the four-slot toolbar from making anything unreachable: the setting decides
-   * what is one click away, never what is possible. It is also the only place a highlight
-   * already wearing a non-toolbar color can show its own swatch as the pressed one.
+   * TWO ROWS, in a card whose width is named in the stylesheet rather than measured. Row
+   * one is what this mark LOOKS like - shape, then colors; row two is what you can DO
+   * with it. See .pdfa-popover.pdfa-mark in styles.js for why the width is fixed: this
+   * card used to be eighteen children in one wrapping row, and it redrew itself
+   * differently depending on how wide it happened to measure when it opened.
+   *
+   * THE WHOLE CATALOG IS STILL REACHABLE, deliberately unlike the toolbar and the
+   * selection popover - the setting decides what is one click away, never what is
+   * possible - but only the four on the strip are shown at rest. The other seven live
+   * behind "+", which is what took this card from eighteen visible targets to nine.
    */
   function openHighlightPopover(highlight, clientX, clientY, justCreated) {
     var children = [];
+    var top = document.createElement("div");
+    top.className = "pdfa-mark-row pdfa-mark-top";
 
-    // SHAPE FIRST, on its own row above the colors. Without it a mark could only be
-    // changed by removing it and drawing it again - which loses its note, and on a mark
-    // already sent to a note also destroys the exported block. Free to put here in a way
-    // it is not in the toolbar: this card wraps at 320px and already carries eleven
-    // swatches, so a row of three costs layout nothing.
+    // SHAPE FIRST. Without it a mark could only be changed by removing it and drawing it
+    // again - which loses its note, and on a mark already sent to a note also destroys
+    // the exported block.
     var shapes = styleList();
     var currentStyle = styleOf(highlight);
     if (shapes.length > 1) {
@@ -1767,38 +1818,134 @@ export function viewerMain() {
           shapeRow.appendChild(btn);
         })(shapes[s]);
       }
-      children.push(shapeRow);
+      top.appendChild(shapeRow);
+      var rule = document.createElement("span");
+      rule.className = "pdfa-vrule";
+      top.appendChild(rule);
     }
 
-    var list = colorList();
-    for (var i = 0; i < list.length; i++) {
-      children.push(
-        makeSwatch(list[i], list[i].id === highlight.color, function (colorId) {
-          recolorHighlight(highlight.id, colorId);
-        }, "Change to")
-      );
+    function pick(colorId) {
+      recolorHighlight(highlight.id, colorId);
     }
 
+    // THE STRIP: the toolbar's own four, so the swatch under your cursor is the one you
+    // already know from the bar. A mark wearing a color that is NOT one of them takes the
+    // last seat with its own - the pressed ring has to be visible without opening
+    // anything, or the card cannot say what color the mark currently is.
+    var strip = toolbarColors().slice();
+    var onStrip = false;
+    for (var i = 0; i < strip.length; i++) if (strip[i].id === highlight.color) onStrip = true;
+    if (!onStrip && strip.length) {
+      var catalog = colorList();
+      for (var c = 0; c < catalog.length; c++) {
+        if (catalog[c].id === highlight.color) strip[strip.length - 1] = catalog[c];
+      }
+    }
+    var colors = document.createElement("span");
+    colors.className = "pdfa-mark-colors";
+    for (var k = 0; k < strip.length; k++) {
+      colors.appendChild(makeSwatch(strip[k], strip[k].id === highlight.color, pick, "Change to"));
+    }
+    top.appendChild(colors);
+
+    // "+" AND WHAT IT HOLDS: the catalog MINUS the strip. Showing all eleven and dimming
+    // the four already above them was the alternative, and it is what the palette PICKER
+    // does - but there seeing which colors are spoken for IS the task, and here it would
+    // only mean the same circle appearing twice in one card.
+    var rest = [];
+    var full = colorList();
+    for (var f = 0; f < full.length; f++) {
+      var taken = false;
+      for (var t = 0; t < strip.length; t++) if (strip[t].id === full[f].id) taken = true;
+      if (!taken) rest.push(full[f]);
+    }
+    if (rest.length) {
+      var drawer = document.createElement("div");
+      drawer.className = "pdfa-drawer";
+      drawer.id = "pdfa-color-drawer";
+      for (var r = 0; r < rest.length; r++) {
+        drawer.appendChild(makeSwatch(rest[r], rest[r].id === highlight.color, pick, "Change to"));
+      }
+      top.appendChild(moreColorsButton(drawer));
+      children.push(top);
+      children.push(drawer);
+    } else {
+      children.push(top);
+    }
+
+    var hrule = document.createElement("div");
+    hrule.className = "pdfa-hrule";
+    children.push(hrule);
+
+    var bottom = document.createElement("div");
+    bottom.className = "pdfa-mark-row";
     // A highlight has at most one note (spec section 4), so this is one button whose
-    // label reflects which of the two operations it is.
+    // label reflects which of the two operations it is. THE ONLY LABELLED ACTION: the
+    // spec wants adding a note offered the moment a highlight is made, and a row of four
+    // labels is most of what made this card read as busy.
     var hasNote = !!highlight.note;
-    children.push(
+    bottom.appendChild(
       button(hasNote ? "Edit note" : "Add note", justCreated && !hasNote ? "pdfa-btn-primary" : "", function () {
         openNoteEditor(highlight, clientX, clientY);
       }, "note")
     );
+    var spacer = document.createElement("span");
+    spacer.className = "pdfa-spacer";
+    bottom.appendChild(spacer);
     // "Copy" and "Send to note" - spec section 4. Not offered on a highlight still
     // waiting on its first save (no id yet - see applyHighlight), same guard the click
     // hit-test already applies before this popover can even open for one.
-    children.push(button("Copy", "", function () { copyHighlight(highlight); }, "copy"));
-    children.push(button("Send to note", "", function () { sendHighlightToNote(highlight); }, "send"));
-    children.push(
-      button("Remove", "pdfa-remove", function () {
+    bottom.appendChild(iconButton("Copy", "", function () { copyHighlight(highlight); }, "copy"));
+    bottom.appendChild(
+      iconButton("Send to note", "", function () { sendHighlightToNote(highlight); }, "send")
+    );
+    bottom.appendChild(
+      iconButton("Remove", "pdfa-remove", function () {
         removeHighlightById(highlight.id);
       }, "remove")
     );
+    children.push(bottom);
 
-    showPopover(children, clientX, clientY);
+    showPopover(children, clientX, clientY, "mark");
+  }
+
+  /**
+   * The mark card's "More colors" control: a dashed circle that opens `drawer` in place.
+   *
+   * In place, and not as a second popover: the colors are one question, and a menu that
+   * replaces the card would take the strip - and the pressed swatch on it - off screen at
+   * the exact moment you are choosing against it.
+   */
+  function moreColorsButton(drawer) {
+    var btn = document.createElement("button");
+    btn.className = "pdfa-more-colors";
+    btn.setAttribute("aria-controls", drawer.id);
+    var dot = document.createElement("span");
+    dot.className = "pdfa-more-dot";
+    btn.appendChild(dot);
+
+    function render(open) {
+      dot.innerHTML = "";
+      var glyph = iconEl(open ? "minus" : "add");
+      if (glyph) dot.appendChild(glyph);
+      else dot.textContent = open ? "-" : "+";
+      btn.title = open ? "Fewer colors" : "More colors";
+      btn.setAttribute("aria-label", btn.title);
+      btn.setAttribute("aria-expanded", String(open));
+    }
+    render(false);
+
+    btn.onclick = function (event) {
+      event.stopPropagation();
+      var open = !drawer.classList.contains("pdfa-open");
+      drawer.classList.toggle("pdfa-open", open);
+      render(open);
+      // The card just changed height. Placing it again is what keeps the new row inside
+      // the embed - an iframe cannot spill into the host note, so a row that lands below
+      // the fold is unreachable rather than merely untidy.
+      placePopover();
+    };
+    return btn;
   }
 
   /**
@@ -3331,6 +3478,15 @@ export function viewerMain() {
       // Unforced - an incidental outside click must not discard a half-typed note, same
       // protection scroll and Escape already have (see closePopover's own doc comment).
       closePopover();
+    });
+
+    // A resize moves the walls the popover was placed against, and it is placed in fixed
+    // client coordinates - so a card that fitted when it opened can end up hanging off
+    // the bottom of the iframe, where the host note cannot show it. Placed again rather
+    // than closed: an embed resizes on things the reader did not do to this card (the
+    // browser window, the note's own layout), and a half-typed note must survive those.
+    window.addEventListener("resize", function () {
+      if (els.popover.classList.contains("pdfa-open")) placePopover();
     });
 
     // Shapes before colors, matching the bar's own left-to-right reading: pick a shape,

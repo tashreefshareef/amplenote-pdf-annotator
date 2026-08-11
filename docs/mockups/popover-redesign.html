@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Highlight popover — redesign mockups</title>
+<style>
+  /* ---- page chrome (not part of the design) ---- */
+  :root {
+    --page-bg: #eef0f3; --page-fg: #1c1e21; --page-muted: #5c6169; --page-card: #fff;
+    --page-line: #d8dbe0;
+  }
+  body.dark {
+    --page-bg: #16181c; --page-fg: #e6e8ea; --page-muted: #9aa1a9; --page-card: #1e2126;
+    --page-line: #333840;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page-bg); color: var(--page-fg);
+    font: 14px/1.5 Roboto, -apple-system, "Segoe UI", sans-serif; padding: 28px 28px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 34px 0 2px; }
+  .sub { color: var(--page-muted); margin: 0 0 18px; max-width: 780px; }
+  .note { color: var(--page-muted); font-size: 13px; max-width: 640px; margin: 4px 0 12px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start; }
+  .stage { background: var(--page-card); border: 1px solid var(--page-line); border-radius: 12px;
+    padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 300px; }
+  .stage .cap { font-size: 12px; color: var(--page-muted); text-align: center; }
+  .verdict { font-size: 12.5px; }
+  .win { color: #1a7f43; } body.dark .win { color: #6cd28f; }
+  .cost { color: #a1621a; } body.dark .cost { color: #e0b072; }
+  .bad { color: #b3261e; } body.dark .bad { color: #f2b8b5; }
+  table { border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { border: 1px solid var(--page-line); padding: 6px 10px; text-align: left; }
+  th { background: rgba(127,127,127,.08); font-weight: 600; }
+  .toggle { position: fixed; top: 14px; right: 18px; z-index: 99;
+    font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--page-line); background: var(--page-card); color: inherit; cursor: pointer; }
+  .measure { font-size: 11px; color: var(--page-muted); font-variant-numeric: tabular-nums; }
+
+  /* ---- the viewer's own tokens (copied from src/embed/html.js) ---- */
+  .pdfa { --pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0;
+    --pdfa-btn:#fff; --pdfa-btn-hover:#eceef1; --pdfa-error:#b3261e; --pdfa-accent:#1a6fb5; }
+  body.dark .pdfa { --pdfa-bg:#1e2126; --pdfa-fg:#e6e8ea; --pdfa-toolbar:#252930; --pdfa-border:#3a3f47;
+    --pdfa-btn:#2d323a; --pdfa-btn-hover:#3a4049; --pdfa-error:#f2b8b5; --pdfa-accent:#79b8ef; }
+
+  /* ---- shared popover shell (as shipped) ---- */
+  .pop { background: var(--pdfa-toolbar); color: var(--pdfa-fg);
+    border: 1px solid var(--pdfa-border); border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10);
+    font: 13px/1.25 Roboto, -apple-system, "Segoe UI", sans-serif; }
+  .pdfa-icon { width: 18px; height: 18px; fill: currentColor; opacity: .75; flex: 0 0 auto; }
+  .btn { font: inherit; padding: 6px 10px; display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid transparent; background: transparent; color: inherit;
+    border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: var(--pdfa-btn-hover); }
+  .btn:hover .pdfa-icon { opacity: 1; }
+  .btn-primary { border-color: var(--pdfa-accent); color: var(--pdfa-accent); }
+  .btn-danger { color: var(--pdfa-error); }
+  .sw { width: 20px; height: 20px; padding: 0; border-radius: 50%; cursor: pointer;
+    border: 1px solid rgba(0,0,0,.28); flex: 0 0 auto; }
+  .sw[aria-pressed="true"] { border: 2px solid var(--pdfa-accent);
+    box-shadow: inset 0 0 0 2px var(--pdfa-toolbar); }
+  .icon-btn { padding: 6px; border-radius: 6px; border: 1px solid transparent;
+    background: transparent; color: inherit; cursor: pointer; display: inline-flex; }
+  .icon-btn:hover { background: var(--pdfa-btn-hover); }
+  .icon-btn[aria-pressed="true"] { background: var(--pdfa-btn-hover); }
+  .icon-btn[aria-pressed="true"] .pdfa-icon { opacity: 1; }
+  .vrule { width: 1px; align-self: stretch; background: var(--pdfa-border); margin: 2px 1px; }
+
+  /* ---- A. THE CURRENT CARD, exactly as shipped: one wrapping flex row ---- */
+  .now { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 6px 8px;
+    max-width: 320px; }
+  .now .shape-row { display: flex; gap: 2px; flex: 0 0 100%; padding-bottom: 5px;
+    margin-bottom: 2px; border-bottom: 1px solid var(--pdfa-border); }
+  .now.narrow { width: 279px; }   /* what a scrollbar / a measure leaves: 10 + 1 */
+  .now.wide   { width: 296px; }   /* the same card, 17px wider: 11 in a line */
+
+  /* ---- shared: fixed width, explicit rows. No wrapping decisions at runtime. ---- */
+  .card { display: flex; flex-direction: column; gap: 6px; padding: 6px; }
+  .row { display: flex; align-items: center; gap: 6px; }
+  .row.tight { gap: 4px; }
+  .hr { height: 1px; background: var(--pdfa-border); margin: 1px 2px; }
+  .spacer { flex: 1 1 auto; }
+
+  /* B. two-row card */
+  .opt-b { width: 252px; }
+  .opt-b .swatches { display: flex; gap: 7px; align-items: center; }
+
+  /* the + / more-colors chip */
+  .more { width: 20px; height: 20px; border-radius: 50%; padding: 0; cursor: pointer;
+    border: 1px dashed var(--pdfa-border); background: transparent; color: var(--pdfa-fg);
+    display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  .more .pdfa-icon { width: 14px; height: 14px; opacity: .6; }
+  .more:hover { background: var(--pdfa-btn-hover); }
+  .more:hover .pdfa-icon { opacity: 1; }
+
+  /* the expanded palette drawer — a fixed column count, so it cannot re-wrap. Seven
+     columns is the catalogue minus the four already on the strip above it. */
+  .drawer { display: grid; grid-template-columns: repeat(7, 20px); gap: 8px;
+    padding: 4px 2px 2px; }
+  .drawer.hidden { display: none; }
+  /* the alternative: all eleven, with the ones already on the strip dimmed rather than
+     dropped - the same vocabulary the palette PICKER already uses (.pdfa-taken). */
+  .drawer.all { grid-template-columns: repeat(6, 20px); }
+  .drawer .taken { opacity: .3; }
+
+  /* C. single-row card */
+  .opt-c { display: flex; align-items: center; gap: 6px; padding: 5px 6px; width: 214px; }
+  .opt-c .swatches { display: flex; gap: 6px; }
+
+  /* D. minimal card */
+  .opt-d { display: flex; align-items: center; gap: 5px; padding: 5px 6px; width: 178px; }
+  .opt-d .swatches { display: flex; gap: 6px; }
+
+  /* the overflow menu the compact options hand the rest of the actions to */
+  .menu { width: 196px; padding: 5px; display: flex; flex-direction: column; }
+  .menu .btn { justify-content: flex-start; padding: 8px 10px; }
+
+  /* a scrap of "page" behind a card, so the sizes read against something */
+  .paper { background: #fff; border: 1px solid var(--page-line); border-radius: 4px;
+    padding: 10px 12px; width: 300px; font: 12.5px/1.5 Georgia, serif; color: #2a2d31;
+    position: relative; }
+  body.dark .paper { background: #f6f6f4; }
+  .paper mark { background: rgba(243,222,108,.85); color: inherit; }
+</style>
+</head>
+<body>
+<button class="toggle" onclick="document.body.classList.toggle('dark')">Toggle dark</button>
+
+<h1>Highlight popover — redesign options</h1>
+<p class="sub">Every card below is drawn at 1:1 with the viewer's real tokens, swatch sizes and icons.
+Click things — the swatches, the shape buttons and the <strong>+</strong> are live.</p>
+
+<h2>What is wrong today</h2>
+<p class="note">The card is a <em>single wrapping flex row</em> holding three different kinds of thing —
+a full-width shape row, eleven 20px circles, and four text buttons — inside a <code>max-width: 320px</code>
+box whose used width is measured at open time. So the wrap point moves: the same highlight gets
+10 + 1 swatches or 11, and "Add note" lands on a different line. Nothing about the popover's
+<em>content</em> changed between these two.</p>
+<div class="grid">
+  <div class="stage pdfa">
+    <div class="pop now narrow" data-mock="now"></div>
+    <div class="cap"><span class="measure">279px</span> — the 11th colour drops, and the buttons shuffle up beside it</div>
+  </div>
+  <div class="stage pdfa">
+    <div class="pop now wide" data-mock="now"></div>
+    <div class="cap"><span class="measure">296px</span> — 17px wider and the same card reads completely differently</div>
+  </div>
+</div>
+<p class="note"><strong>18 targets in one card</strong> (3 shapes + 11 colours + 4 actions) is the other half of
+"too busy" — every option below cuts that count and pins the width so the layout is decided at design
+time, not at open time.</p>
+
+<h2>Option A — two rows, fixed width <span class="win">· recommended</span></h2>
+<p class="note">Row 1 answers "what should this mark look like": shape, then the four toolbar colours
+plus a <strong>+</strong> that opens the rest in place. Row 2 is what you can <em>do</em> with it, with
+"Add note" keeping its label because it is the suggested next step and the other three riding as icons.
+<strong>9 visible targets, 252px, two rows always.</strong>
+<em>Shipped at 270 &times; 91</em> — the real buttons carry the 1px transparent border
+<code>.pdfa-btn</code> keeps, which these mockup buttons do not, so the card measures
+18px wider in the viewer than it does here.</p>
+<div class="grid">
+  <div class="stage pdfa">
+    <div class="pop card opt-b" data-mock="optB"></div>
+    <div class="cap">Resting state — <span class="measure">252 × 93</span></div>
+  </div>
+  <div class="stage pdfa">
+    <div class="pop card opt-b" data-mock="optB" data-open="1"></div>
+    <div class="cap">After <strong>+</strong> — the <strong>seven</strong> colours the strip cannot already
+      reach, as a fixed 7-column row</div>
+  </div>
+  <div class="stage pdfa">
+    <div class="pop card opt-b" data-mock="optB" data-note="1"></div>
+    <div class="cap">A mark that already has a note, wearing a non-toolbar colour</div>
+  </div>
+</div>
+
+<h3 style="font-size:14px; margin:26px 0 2px;">What <strong>+</strong> should contain</h3>
+<p class="note">The drawer holds <em>the catalogue minus whatever the strip is already showing</em> — no colour
+appears twice in one card, and 7 fit on a single row, so the expanded card is 125px tall instead of 153.
+The alternative is to keep all eleven and dim the four, which is the vocabulary the palette
+<em>picker</em> already speaks (<code>.pdfa-taken</code>, styles.js) and which fixes every colour at a
+permanent position — worth it only if you think people will build muscle memory for where "mint" lives.</p>
+<div class="grid">
+  <div class="stage pdfa">
+    <div class="pop card opt-b" data-mock="optB" data-open="1"></div>
+    <div class="cap"><strong>Seven, no repeats</strong> — <span class="measure">252 × 125</span> · recommended</div>
+  </div>
+  <div class="stage pdfa">
+    <div class="pop card opt-b" data-mock="optB" data-open="1" data-dim="1"></div>
+    <div class="cap">All eleven, the strip's four dimmed — <span class="measure">252 × 153</span></div>
+  </div>
+  <div class="stage pdfa">
+    <div class="pop card opt-b" data-mock="optB" data-note="1" data-open="1"></div>
+    <div class="cap">The off-toolbar case: <em>orchid</em> holds the strip's 4th seat, so the drawer
+      hands back <em>blue</em> in its place</div>
+  </div>
+</div>
+<p class="verdict"><span class="win">Wins:</span> one shape click preserved · colours never re-wrap · height
+never changes with the mark. <span class="cost">Costs:</span> Copy / Send / Remove lose their labels
+(tooltips + aria-labels carry them).</p>
+
+<h2>Option B — one row plus an overflow</h2>
+<p class="note">The whole card is a single 214px strip: four colours, <strong>+</strong>, a divider, the note
+button, and a <strong>⋮</strong> holding shape, Copy, Send to note and Remove. This is the smallest card that
+still puts colour one click away.</p>
+<div class="grid">
+  <div class="stage pdfa">
+    <div class="pop opt-c" data-mock="optC"></div>
+    <div class="cap">Resting — <span class="measure">214 × 44</span></div>
+  </div>
+  <div class="stage pdfa">
+    <div class="pop card opt-c" data-mock="optC" data-open="1"></div>
+    <div class="cap">After <strong>+</strong> — the strip stays, the drawer opens under it</div>
+  </div>
+  <div class="stage pdfa">
+    <div class="pop menu" data-mock="menu"></div>
+    <div class="cap">What <strong>⋮</strong> holds</div>
+  </div>
+</div>
+<p class="verdict"><span class="win">Wins:</span> tiny, covers almost no text, one shape of card in every
+context. <span class="cost">Costs:</span> changing a mark's shape becomes two clicks, and Remove is hidden
+behind a menu — worth measuring against how often you restyle.</p>
+
+<h2>Option C — colours only, everything else on ⋮</h2>
+<p class="note">The most aggressive read of "compact": the card is a colour picker with an escape hatch.
+Same idea as the fast-path popover you already show on a fresh selection, so a mark's card and a
+selection's card finally look like the same object.</p>
+<div class="grid">
+  <div class="stage pdfa">
+    <div class="pop opt-d" data-mock="optD"></div>
+    <div class="cap">Resting — <span class="measure">178 × 44</span></div>
+  </div>
+  <div class="stage pdfa">
+    <div class="paper">
+      Windows never lets you see the whole disk. <mark>You get a drive letter, a filesystem and a
+      volume label. None of that depends on the shape of the hardware underneath.</mark> A folder
+      cannot do this.
+      <div style="position:absolute; left:96px; top:52px;" class="pdfa">
+        <div class="pop opt-d" data-mock="optD"></div>
+      </div>
+    </div>
+    <div class="cap">In place, over a highlight — how much text each card hides is the real test</div>
+  </div>
+</div>
+<p class="verdict"><span class="win">Wins:</span> smallest footprint, one consistent card everywhere.
+<span class="cost">Costs:</span> "Add note" — the thing the spec wants offered the moment a highlight is
+made — is no longer visible without opening a menu.</p>
+
+<h2>Side by side</h2>
+<table>
+  <tr><th>&nbsp;</th><th>Today</th><th>A · two rows</th><th>B · one row + ⋮</th><th>C · colours only</th></tr>
+  <tr><td>Size</td><td>279–296 × 153</td><td>252 × 93</td><td>214 × 44</td><td>178 × 44</td></tr>
+  <tr><td>Visible targets</td><td>18</td><td>9</td><td>7</td><td>6</td></tr>
+  <tr><td>Layout stable?</td><td class="bad">no — re-wraps</td><td>yes</td><td>yes</td><td>yes</td></tr>
+  <tr><td>Recolour (toolbar colour)</td><td>1 click</td><td>1</td><td>1</td><td>1</td></tr>
+  <tr><td>Recolour (rare colour)</td><td>1 click</td><td>2</td><td>2</td><td>2</td></tr>
+  <tr><td>Change shape</td><td>1 click</td><td>1</td><td>2</td><td>2</td></tr>
+  <tr><td>Add note</td><td>1 click</td><td>1</td><td>1</td><td>2</td></tr>
+  <tr><td>Remove</td><td>1 click</td><td>1</td><td>2</td><td>2</td></tr>
+</table>
+
+<script>
+var ICONS = {
+  note: "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 9h-4v4h-2v-4H7V9h4V5h2v4h4v2z",
+  copy: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
+  send: "M2.01 21 23 12 2.01 3 2 10l15 2-15 2z",
+  remove: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+  highlight: "M17.75 7 14 3.25l-10 10V17h3.75l10-10zm2.96-2.96a.996.996 0 0 0 0-1.41L18.37.29a.996.996 0 0 0-1.41 0L15 2.25 18.75 6l1.96-1.96zM2 20h20v3H2z",
+  underline: "M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z",
+  strike: "M10 19h4v-3h-4v3zM5 4v3h5v3h4V7h5V4H5zM3 14h18v-2H3v2z",
+  add: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
+  less: "M19 13H5v-2h14v2z",
+  moreVert: "M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"
+};
+var COLORS = [
+  ["coral","Coral","#F2998C"],["peach","Peach","#F9B68D"],["yellow","Yellow","#F3DE6C"],
+  ["green","Green","#BBE077"],["mint","Mint","#65D2AA"],["sky","Sky","#87D7E4"],
+  ["blue","Blue","#84B6D9"],["purple","Purple","#B49EE2"],["orchid","Orchid","#DA99E0"],
+  ["pink","Pink","#E893BD"],["grey","Grey","#DFDFDF"]
+];
+var TOOLBAR = ["coral","yellow","green","blue"];
+var SHAPES = [["highlight","Highlight"],["underline","Underline"],["strike","Strikethrough"]];
+
+function icon(name, cls) {
+  var s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true");
+  s.setAttribute("class", "pdfa-icon" + (cls ? " " + cls : ""));
+  var p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", ICONS[name]); s.appendChild(p); return s;
+}
+function el(tag, cls, text) {
+  var n = document.createElement(tag); if (cls) n.className = cls;
+  if (text) n.appendChild(document.createTextNode(text)); return n;
+}
+function textBtn(label, iconName, cls) {
+  var b = el("button", "btn" + (cls ? " " + cls : ""));
+  if (iconName) b.appendChild(icon(iconName));
+  b.appendChild(document.createTextNode(label)); return b;
+}
+function iconBtn(iconName, label, cls) {
+  var b = el("button", "icon-btn" + (cls ? " " + cls : ""));
+  b.title = label; b.setAttribute("aria-label", label);
+  b.appendChild(icon(iconName)); return b;
+}
+function swatch(color, pressed, group) {
+  var b = el("button", "sw"); b.style.background = color[2];
+  b.title = color[1]; b.setAttribute("aria-label", color[1]);
+  b.setAttribute("aria-pressed", String(!!pressed)); b.dataset.group = group;
+  b.onclick = function () {
+    var root = b.closest("[data-mock]");
+    root.querySelectorAll('.sw[data-group="' + group + '"]').forEach(function (o) {
+      o.setAttribute("aria-pressed", "false");
+    });
+    b.setAttribute("aria-pressed", "true");
+  };
+  return b;
+}
+function shapeRow(current, cls) {
+  var row = el("div", "row tight" + (cls ? " " + cls : ""));
+  SHAPES.forEach(function (s) {
+    var b = iconBtn(s[0], s[1]);
+    b.setAttribute("aria-pressed", String(s[0] === current));
+    b.onclick = function () {
+      row.querySelectorAll(".icon-btn").forEach(function (o) { o.setAttribute("aria-pressed", "false"); });
+      b.setAttribute("aria-pressed", "true");
+    };
+    row.appendChild(b);
+  });
+  return row;
+}
+function moreBtn(drawer) {
+  var b = el("button", "more");
+  b.title = "More colours"; b.setAttribute("aria-label", "More colours");
+  var openNow = !drawer.classList.contains("hidden");
+  b.setAttribute("aria-expanded", String(openNow));
+  b.appendChild(icon(openNow ? "less" : "add"));
+  b.onclick = function () {
+    var open = drawer.classList.toggle("hidden") === false;
+    b.setAttribute("aria-expanded", String(open));
+    b.innerHTML = ""; b.appendChild(icon(open ? "less" : "add"));
+  };
+  return b;
+}
+/**
+ * @param shown  ids already sitting on the strip above. They are DROPPED from the drawer,
+ *   so no colour appears twice in one card - unless `dim` is set, in which case they stay
+ *   in place and go to 30%, which keeps every colour at a fixed position.
+ */
+function catalogDrawer(group, open, shown, dim) {
+  var d = el("div", "drawer" + (dim ? " all" : "") + (open ? "" : " hidden"));
+  COLORS.forEach(function (c) {
+    var taken = shown && shown.indexOf(c[0]) !== -1;
+    if (taken && !dim) return;
+    var s = swatch(c, false, group);
+    if (taken) { s.classList.add("taken"); s.title = c[1] + " - already on the row above"; }
+    d.appendChild(s);
+  });
+  return d;
+}
+var seq = 0;
+
+/* ---------- today's card, verbatim ---------- */
+function buildNow(host) {
+  var sr = el("span", "shape-row");
+  SHAPES.forEach(function (s, i) {
+    var b = iconBtn(s[0], s[1]); b.setAttribute("aria-pressed", String(i === 0)); sr.appendChild(b);
+  });
+  host.appendChild(sr);
+  var g = "now" + (seq++);
+  COLORS.forEach(function (c) { host.appendChild(swatch(c, c[0] === "sky", g)); });
+  host.appendChild(textBtn("Add note", "note", "btn-primary"));
+  host.appendChild(textBtn("Copy", "copy"));
+  host.appendChild(textBtn("Send to note", "send"));
+  host.appendChild(textBtn("Remove", "remove", "btn-danger"));
+}
+
+/* ---------- Option A ---------- */
+function buildOptB(host) {
+  var g = "b" + (seq++);
+  var hasNote = host.dataset.note === "1";
+  var current = hasNote ? "orchid" : "yellow";
+
+  var top = el("div", "row");
+  top.appendChild(shapeRow(hasNote ? "underline" : "highlight"));
+  top.appendChild(el("div", "vrule"));
+  var sws = el("div", "swatches");
+  var shown = TOOLBAR.slice();
+  if (shown.indexOf(current) === -1) shown[3] = current;   // the mark's own colour always has a seat
+  shown.forEach(function (id) {
+    var c = COLORS.filter(function (x) { return x[0] === id; })[0];
+    sws.appendChild(swatch(c, id === current, g));
+  });
+  top.appendChild(sws);
+  var drawer = catalogDrawer(g, host.dataset.open === "1", shown, host.dataset.dim === "1");
+  top.appendChild(moreBtn(drawer));
+  host.appendChild(top);
+  host.appendChild(drawer);
+
+  host.appendChild(el("div", "hr"));
+  var bottom = el("div", "row");
+  bottom.appendChild(textBtn(hasNote ? "Edit note" : "Add note", "note", hasNote ? "" : "btn-primary"));
+  bottom.appendChild(el("div", "spacer"));
+  bottom.appendChild(iconBtn("copy", "Copy"));
+  bottom.appendChild(iconBtn("send", "Send to note"));
+  bottom.appendChild(iconBtn("remove", "Remove", "btn-danger"));
+  host.appendChild(bottom);
+}
+
+/* ---------- Option B ---------- */
+function buildOptC(host) {
+  var g = "c" + (seq++);
+  var strip = el("div", "row");
+  var sws = el("div", "swatches");
+  TOOLBAR.forEach(function (id) {
+    var c = COLORS.filter(function (x) { return x[0] === id; })[0];
+    sws.appendChild(swatch(c, id === "yellow", g));
+  });
+  strip.appendChild(sws);
+  var drawer = catalogDrawer(g, host.dataset.open === "1", TOOLBAR);
+  strip.appendChild(moreBtn(drawer));
+  strip.appendChild(el("div", "vrule"));
+  strip.appendChild(iconBtn("note", "Add note"));
+  strip.appendChild(iconBtn("moreVert", "More actions"));
+
+  if (host.dataset.open === "1") { host.appendChild(strip); host.appendChild(drawer); }
+  else { while (strip.firstChild) host.appendChild(strip.firstChild); host.appendChild(drawer); }
+}
+
+/* ---------- Option C ---------- */
+function buildOptD(host) {
+  var g = "d" + (seq++);
+  var sws = el("div", "swatches");
+  TOOLBAR.forEach(function (id) {
+    var c = COLORS.filter(function (x) { return x[0] === id; })[0];
+    sws.appendChild(swatch(c, id === "yellow", g));
+  });
+  host.appendChild(sws);
+  var drawer = catalogDrawer(g, false, TOOLBAR);
+  drawer.style.position = "absolute"; drawer.style.visibility = "hidden";
+  host.appendChild(moreBtn(drawer));
+  host.appendChild(drawer);
+  host.appendChild(el("div", "vrule"));
+  host.appendChild(iconBtn("moreVert", "More actions"));
+}
+
+/* ---------- the overflow menu ---------- */
+function buildMenu(host) {
+  var sr = shapeRow("highlight");
+  sr.style.padding = "2px 6px 6px"; sr.style.borderBottom = "1px solid var(--pdfa-border)";
+  sr.style.marginBottom = "3px";
+  host.appendChild(sr);
+  host.appendChild(textBtn("Copy", "copy"));
+  host.appendChild(textBtn("Send to note", "send"));
+  host.appendChild(textBtn("Remove", "remove", "btn-danger"));
+}
+
+var BUILD = { now: buildNow, optB: buildOptB, optC: buildOptC, optD: buildOptD, menu: buildMenu };
+document.querySelectorAll("[data-mock]").forEach(function (host) { BUILD[host.dataset.mock](host); });
+</script>
+</body>
+</html>
