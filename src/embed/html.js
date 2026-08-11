@@ -244,21 +244,33 @@ export function buildEmbedHtml({
          catalog). Top-level toolbar buttons with no submenu is an explicit spec
          requirement (section 4), which is why the slot is here and not in a panel. -->
     <span id="pdfa-colors"></span>
-    <span class="pdfa-hint" id="pdfa-hint"></span>
+    <!-- No hint span here any more. It held "Pick a color" for the length of a selection,
+         which wrapped the toolbar to a second row exactly when someone was reaching for
+         it - and said nothing the four swatches under the cursor were not already saying.
+         Its one real message, that a drag crossed a page break, moved into the selection
+         popover (openSelectionPopover), where it is about the selection in hand. -->
     <span class="pdfa-sep"></span>
     <!-- The list glyph replaces the word "Notes"; the count stays, since that is the part
          the word was not carrying. -->
     <button id="pdfa-list-toggle" class="pdfa-icon-btn pdfa-notes-btn"
             title="Show highlights and notes" aria-label="Show highlights and notes"
             >${icon(ICONS.listBulleted)}<span class="pdfa-count" id="pdfa-count">0</span></button>
+    <!-- Pushes the overflow button into the corner. The bar's controls are left-packed
+         and no longer fill it, so the button used to stop ~66px short of the right edge
+         and its menu hung there with it - floating mid-bar rather than placed. In the
+         corner the menu lands on the same 8px inset both panels use, and the top-right is
+         where an overflow menu is looked for anyway.
+
+         It collapses on a narrow embed (see the max-width query in styles.js): there the
+         bar wraps and centres its rows, and a growing spacer would eat the free space
+         justify-content needs to do that. -->
+    <span class="pdfa-spacer"></span>
     <!-- Download, Export and Remove are all occasional, one-off actions - unlike the
          colors (top-level is an explicit spec requirement) or page/zoom/Notes (used
          constantly while reading) - so they live behind one overflow menu instead of
          three permanent buttons competing for space in an embed that's often barely
          wider than a page. Nothing here is spec-mandated to be top-level; this is our
-         own toolbar design, not an Amplenote requirement. Grouped with the other
-         controls on the left, not off by the filename, so it reads as part of the
-         toolbar rather than a stray button wrapped onto its own line. -->
+         own toolbar design, not an Amplenote requirement. -->
     <button id="pdfa-more" class="pdfa-icon-btn" title="More actions"
             aria-label="More actions">${icon(ICONS.moreVert)}</button>
   </div>

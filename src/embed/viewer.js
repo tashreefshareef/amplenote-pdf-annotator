@@ -51,7 +51,6 @@ export function viewerMain() {
     zoomLabel: document.getElementById("pdfa-zoom-label"),
     colors: document.getElementById("pdfa-colors"),
     styles: document.getElementById("pdfa-styles"),
-    hint: document.getElementById("pdfa-hint"),
     popover: document.getElementById("pdfa-popover"),
     panel: document.getElementById("pdfa-panel"),
     listToggle: document.getElementById("pdfa-list-toggle"),
@@ -1206,18 +1205,21 @@ export function viewerMain() {
     return { rects: rects, text: words.join(" "), lastCssRect: lastCssRect };
   }
 
+  /**
+   * NO LONGER TOUCHES THE TOOLBAR. This used to write "Pick a color" into a hint span in
+   * the bar for the length of a selection, and reported live: on a selection wide enough
+   * to matter the extra ~90px wrapped the toolbar to a second row, so making a selection
+   * visibly rearranged the controls you were reaching for.
+   *
+   * The instruction itself was redundant anyway - the selection popover opens under the
+   * cursor with the four swatches in it, which says "pick a color" by being that. The one
+   * part that carried real information, the warning that a drag crossed a page boundary
+   * and only one page will be marked, moved into that popover: it belongs where the
+   * decision is being made rather than in a bar at the top of the viewer.
+   */
   function setPending(selection) {
     state.pendingSelection = selection;
     state.lastCapturedText = selection ? selection.rawText || "" : "";
-    if (!selection) {
-      els.hint.textContent = "";
-      els.hint.style.display = "none";
-      return;
-    }
-    els.hint.textContent = selection.spilled
-      ? "Pick a color (page " + selection.page + " only)"
-      : "Pick a color";
-    els.hint.style.display = "inline";
   }
 
   /**
@@ -1505,6 +1507,17 @@ export function viewerMain() {
    * the same edge). Measured at open time rather than cached: the bar wraps to two rows on
    * a narrow embed, which moves both.
    */
+  /**
+   * Where an anchored menu's right edge sits, measured from the viewer's.
+   *
+   * 9, not 8, and the extra pixel is the point: both panels are inset 8px inside
+   * .pdfa-body, which itself starts 1px in from the root's edge because the card has a
+   * border. A menu at 8 would sit one pixel proud of every other floating surface in the
+   * viewer, which is exactly the kind of misalignment that reads as sloppy without being
+   * obvious enough to name.
+   */
+  var MENU_EDGE_INSET = 9;
+
   function toolbarAnchor(btn) {
     var bar = els.root.querySelector(".pdfa-toolbar");
     return {
@@ -1555,7 +1568,13 @@ export function viewerMain() {
       // the button's: that is what makes the gap the same one the panels leave (both are
       // inset 8px from the top of the body, which starts at that same edge), instead of a
       // gap measured from inside the toolbar's own padding.
-      left = anchor.right - width;
+      // Right edge to the button's, but never closer than MENU_EDGE_INSET to the viewer's
+      // own edge. In a real note the overflow button is the last control in the bar and
+      // sits about 9px from that edge, so a menu aligned straight to it inherits the same
+      // 9px - which reads as pinned to the side rather than placed. The floor only bites
+      // in that case; anywhere the button is further in, the menu still hangs directly
+      // under it, which is the alignment that says which control it belongs to.
+      left = Math.min(anchor.right - width, window.innerWidth - width - MENU_EDGE_INSET);
       top = anchor.bottom + 8;
     } else {
       left = clientX - width / 2;
@@ -1606,6 +1625,19 @@ export function viewerMain() {
   function openSelectionPopover(selection) {
     var list = toolbarColors();
     var children = [];
+
+    // The one thing the old toolbar hint said that the swatches do not say themselves:
+    // this drag crossed a page boundary, and only the page it started on gets marked.
+    // Here rather than in the bar because it is about THIS selection - it belongs beside
+    // the buttons that are about to act on it, and it costs the toolbar no width.
+    if (selection.spilled) {
+      var spill = document.createElement("div");
+      spill.className = "pdfa-spill-hint";
+      spill.textContent = "Page " + selection.page + " only";
+      spill.title = "A selection that crosses a page break is marked on the page it started on.";
+      children.push(spill);
+    }
+
     for (var i = 0; i < list.length; i++) {
       children.push(
         makeSwatch(list[i], list[i].id === state.activeColorId, function (colorId) {
@@ -2735,6 +2767,17 @@ export function viewerMain() {
    * moved through what is meant to read as one menu.
    */
   function openMoreMenu(anchor) {
+    // The menu opens at the top right, which is where the highlights panel already is -
+    // it would land on top of it, and every row it offers is about the document rather
+    // than about the list. Same taking-turns rule the two panels follow, for the same
+    // reason: one floating card at a time on an embed this narrow.
+    //
+    // Only THIS control closes it. A colour, a zoom step or a page turn does not, and
+    // must not: reviewing the list while marking up the page is a real way to work, and
+    // those controls are nowhere near the panel.
+    if (els.panel.classList.contains("pdfa-open")) togglePanel(false);
+    if (els.thumbs.classList.contains("pdfa-open")) toggleThumbnails(false);
+
     // No filename heading. It lived here after being dropped from its own toolbar row for
     // duplicating Amplenote's attachment chip - but the chip sits immediately above the
     // embed, so the menu copy was the same duplication, and truncated to an ellipsis by

@@ -279,7 +279,11 @@ export const STYLES = `
      the bar's padding, and here the padding is set by the other controls' text. */
   .pdfa-color[aria-pressed="true"], .pdfa-toolbar .pdfa-color[aria-pressed="true"] {
     border: 2px solid var(--pdfa-accent); box-shadow: inset 0 0 0 2px var(--pdfa-toolbar); }
-  .pdfa-hint { display: none; opacity: .75; font-size: 12px; white-space: nowrap; }
+  /* Sits above the four swatches in the selection popover when a drag crossed a page
+     break. Its own line (flex-basis 100%) in a popover that is otherwise a single row of
+     circles, so the swatches keep their shape and the warning is read before them. */
+  .pdfa-spill-hint { flex: 0 0 100%; font-size: 11px; opacity: .75; padding: 0 2px 4px;
+    text-align: center; }
 
   /* Remove / recolor actions for an existing highlight. Positioned "fixed" because the
      embed is its own iframe, so a click's client coordinates are already relative to
@@ -537,6 +541,10 @@ export const STYLES = `
     /* There used to be a rule hiding the brand here, back when the expanded toolbar
        carried one. It does not any more - see the comment above .pdfa-toolbar in
        html.js - so the narrow case has nothing left to drop. */
+    /* The spacer that corners the overflow button on a wide bar has to go here, or it
+       absorbs the free space justify-content below needs to centre the wrapped rows -
+       and a lone button pushed hard right on its own row is worse than a centred one. */
+    .pdfa-toolbar .pdfa-spacer { display: none; }
     .pdfa-toolbar { gap: 4px; padding: 5px 6px; justify-content: center; }
     .pdfa-label { min-width: 44px; }
     /* Shrinks with the label it sits among - see .pdfa-zoom-field for why the zoom one

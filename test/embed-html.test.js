@@ -124,7 +124,7 @@ describe("buildEmbedHtml", () => {
     for (const id of [
       "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
-      "pdfa-colors", "pdfa-styles", "pdfa-hint", "pdfa-popover",
+      "pdfa-colors", "pdfa-styles", "pdfa-popover",
       "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
       "pdfa-thumbs", "pdfa-thumbs-toggle",
       "pdfa-panel-scroll", "pdfa-thumbs-scroll",
@@ -598,6 +598,25 @@ describe("buildEmbedHtml", () => {
 
     const collapsed = out.match(/<div class="pdfa-collapsed">[\s\S]*?<\/div>/)[0];
     expect(collapsed).toContain('class="pdfa-brand"');
+  });
+
+  // Scenario: the overflow button is cornered by a growing spacer so its menu lands on the
+  // same inset the panels use. That spacer has to COLLAPSE on a narrow embed, where the bar
+  // wraps and centres its rows - a growing spacer absorbs exactly the free space
+  // justify-content needs, so leaving it in would strand a lone button hard right on its
+  // own row. Pinned here because the media query cannot be exercised in the harness: the
+  // embed's viewport is the iframe, which the test page cannot resize.
+  test("corners the overflow button, but not once the bar wraps", () => {
+    const out = html();
+    const toolbar = out.match(/<div class="pdfa-toolbar">[\s\S]*?<\/div>/)[0];
+    // The spacer sits between the notes button and the overflow button, nowhere else.
+    const tail = toolbar.slice(toolbar.indexOf('id="pdfa-list-toggle"'));
+    expect(tail).toContain("pdfa-spacer");
+    expect(tail.indexOf("pdfa-spacer")).toBeLessThan(tail.indexOf('id="pdfa-more"'));
+
+    const narrow = out.match(/@media \(max-width: 520px\)[\s\S]*?\n {2}\}/)[0];
+    expect(narrow).toMatch(/\.pdfa-toolbar \.pdfa-spacer\s*\{\s*display:\s*none/);
+    expect(narrow).toMatch(/justify-content:\s*center/);
   });
 
   // Scenario: dividers cost ~15px each (a 1px rule plus its 5px margins) and there were
