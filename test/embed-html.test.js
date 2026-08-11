@@ -649,6 +649,49 @@ describe("buildEmbedHtml", () => {
     expect(coarse).toMatch(/#pdfa-colors\s*\{[^}]*gap:\s*10px/);
   });
 
+  // Scenario: reported live from a phone - fourteen controls left-packed at ~342px wrapped
+  // to three rows and spent 141px of a 342px box on chrome, with the wrap order deciding
+  // the grouping (zoom "+" beside the pen, the overflow button alone on row three). Below
+  // the breakpoint the bar keeps the pager, the four colours and the overflow button, and
+  // everything else moves into that menu.
+  test("drops the narrow toolbar to one designed row rather than letting it wrap", () => {
+    const out = html();
+    const narrow = out.match(/@media \(max-width: 420px\)[\s\S]*?\n {2}\}/)[0];
+    // nowrap is the load-bearing half: hiding controls without it still wraps the moment
+    // something is a pixel wider than expected, which is the failure being replaced.
+    expect(narrow).toMatch(/\.pdfa-toolbar\s*\{[^}]*flex-wrap:\s*nowrap/);
+    for (const hidden of [
+      "#pdfa-thumbs-toggle",
+      "#pdfa-zoom-out",
+      "#pdfa-zoom-in",
+      "#pdfa-styles",
+      ".pdfa-zoom-field",
+      ".pdfa-notes-btn",
+    ]) {
+      expect(narrow).toContain(hidden);
+    }
+    // What must NOT be hidden: the pager, the swatches and the way to reach everything
+    // else. A bar that drops any of these has not compacted, it has broken.
+    expect(narrow).not.toContain("#pdfa-colors");
+    expect(narrow).not.toContain("#pdfa-more");
+    expect(narrow).not.toContain("#pdfa-prev");
+    expect(narrow).not.toContain("#pdfa-next");
+  });
+
+  // Scenario: the same controls have to remain REACHABLE once the bar drops them, and as
+  // controls rather than as one-shot menu rows - a zoom stepper turned into a row would
+  // mean reopening the menu per 25%.
+  test("gives the menu live rows for what the narrow bar hands it", () => {
+    const out = html();
+    expect(out).toMatch(/\.pdfa-menu-tools\s*\{[^}]*display:\s*flex/);
+    expect(out).toContain("pdfa-menu-rule");
+    // The viewer only builds those rows below the same breakpoint the CSS uses. The
+    // number is repeated in the two languages, so a change to one has to find the other.
+    expect(out).toContain("NARROW_VIEWER_WIDTH = 420");
+    expect(out).toContain("Fit to this screen");
+    expect(out).toContain("Restore height");
+  });
+
   // Scenario: on Android the host note claims the vertical drag, so the page area could
   // not be scrolled by dragging it at all - while horizontal dragging worked, since
   // nothing competes for that axis. That is decided outside this iframe, so the fix has

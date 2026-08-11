@@ -58,9 +58,8 @@ const plugin = {
    * Amplenote passes embed parameters as a single query string, e.g. "att=abc&page=3".
    */
   renderEmbed: function (app, ...args) {
-    const { attachmentUUID, page, highlightId, collapsed, attachmentName } = parseEmbedArgs(
-      args[0]
-    );
+    const { attachmentUUID, page, highlightId, collapsed, attachmentName, aspectRatio } =
+      parseEmbedArgs(args[0]);
 
     if (!attachmentUUID) {
       return `<p style="font:13px sans-serif;padding:12px">
@@ -80,6 +79,11 @@ const plugin = {
       // the first paint - no round-trip, and no dependence on the runtime attachment
       // lookup that was silently returning "" (see parseEmbedArgs).
       attachmentName,
+      // Whether THIS viewer is wearing a height its reader chose. The viewer cannot read
+      // its own tag, and it needs to know: on a wide box that is the only thing that makes
+      // "Restore height" appear, and on a narrow one it is how "Fit to this screen" knows
+      // it has already been used.
+      aspectRatio,
       lightDarkMode: app.context.lightDarkMode,
       // Needed to build the `plugin://` deep link in an exported highlight - see
       // src/export.js. Available here the same way annotate-pdf.js already gets it.

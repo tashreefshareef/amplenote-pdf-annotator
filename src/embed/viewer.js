@@ -718,7 +718,9 @@ export function viewerMain() {
   function renderAll() {
     if (state.rendering) return Promise.resolve();
     state.rendering = true;
-    closePopover(true);
+    // Forced, because the pages this popover may be pinned to are about to be rebuilt -
+    // but only for the ones actually pinned to them. See closeCursorPopover.
+    closeCursorPopover(true);
     status("Rendering...");
 
     // Where the reader was, as a fraction of the scrollable range. Emptying els.pages
@@ -1727,6 +1729,25 @@ export function viewerMain() {
    * open, because the document's mousedown listener has already closed it by the time any
    * click handler runs; this is that listener's answer to "who closed it".
    */
+  /**
+   * Close a popover pinned to a POINT - a highlight, a selection, the cursor - and leave
+   * one anchored to a toolbar control alone.
+   *
+   * The distinction is what the two kinds are attached to. A card opened at a highlight
+   * has to go when the pages move or are rebuilt, because the thing it belongs to slides
+   * out from under it. A menu hangs off the toolbar, which does not move at all, so there
+   * is nothing for it to end up pointing at.
+   *
+   * Found by measuring, and it took two goes: the narrow bar's zoom stepper lives in that
+   * menu now, and BOTH re-rendering the pages (renderAll, which force-closes) and the
+   * scroll that re-render fires (trackScroll) were closing the menu holding the button
+   * being pressed. Stepping the zoom shut the menu on the first tap.
+   */
+  function closeCursorPopover(force) {
+    if (state.popoverPlacement && state.popoverPlacement.anchor) return;
+    closePopover(force);
+  }
+
   function dismissedMenuFrom(btn) {
     var from = state.popoverClosedFrom;
     state.popoverClosedFrom = null;
@@ -2655,7 +2676,9 @@ export function viewerMain() {
     // The popover is positioned in fixed client coordinates, so it would hang in place
     // over unrelated content once the page moves under it. Not while a note is being
     // typed, though - see closePopover.
-    closePopover();
+    //
+    // Anchored menus are exempt - see closeCursorPopover.
+    closeCursorPopover();
     var pages = els.pages.querySelectorAll(".pdfa-page");
     var best = state.current;
     var bestDist = Infinity;
@@ -3007,6 +3030,153 @@ export function viewerMain() {
    * so hanging them anywhere else would make the card jump to a different place as you
    * moved through what is meant to read as one menu.
    */
+  /**
+   * Is this viewer narrow enough that its toolbar has dropped to one row?
+   *
+   * The EMBED's own width, not the device's - the iframe viewport IS the box Amplenote
+   * hands us, so "narrow" already means "this viewer is narrow" and catches a cramped
+   * desktop sidebar that a device check would miss. Kept in step with the matching
+   * @media rule in styles.js by hand; there is no way to share a number between them.
+   */
+  var NARROW_VIEWER_WIDTH = 420;
+  function isNarrowViewer() {
+    return window.innerWidth <= NARROW_VIEWER_WIDTH;
+  }
+
+  function menuDivider() {
+    var rule = document.createElement("div");
+    rule.className = "pdfa-menu-rule";
+    return rule;
+  }
+
+  /** The zoom stepper, as it sits in the bar on a wide viewer. */
+  function menuZoomRow() {
+    var row = document.createElement("div");
+    row.className = "pdfa-menu-tools";
+    var label = document.createElement("span");
+    label.className = "pdfa-label";
+    label.textContent = zoomText();
+
+    function step(delta) {
+      return function (event) {
+        event.stopPropagation();
+        setZoom(state.scale + delta);
+        // The menu stays open - a zoom is a thing you do more than once - so this label is
+        // the only readout of what just happened. updateLabels writes the toolbar's copy,
+        // which is hidden at this width.
+        label.textContent = zoomText();
+      };
+    }
+    row.appendChild(iconMenuButton("minus", "Zoom out", step(-0.25)));
+    row.appendChild(label);
+    row.appendChild(iconMenuButton("add", "Zoom in", step(0.25)));
+    return row;
+  }
+
+  /** The shape group, likewise - the same three buttons, driving the same state. */
+  function menuStyleRow() {
+    var row = document.createElement("div");
+    row.className = "pdfa-menu-tools";
+    var list = styleList();
+    for (var i = 0; i < list.length; i++) {
+      (function (entry) {
+        var btn = iconMenuButton(entry.id, entry.label, function (event) {
+          event.stopPropagation();
+          state.activeStyle = entry.id;
+          // The bar's own copy is hidden at this width but still the source of truth for
+          // every other path that reads it, so it is updated exactly as a bar click would.
+          updateStyleButtons();
+          updateColorButtons();
+          var btns = row.querySelectorAll("button");
+          for (var j = 0; j < btns.length; j++) {
+            btns[j].setAttribute("aria-pressed", String(btns[j].dataset.style === state.activeStyle));
+          }
+        });
+        btn.dataset.style = entry.id;
+        btn.setAttribute("aria-pressed", String(entry.id === state.activeStyle));
+        row.appendChild(btn);
+      })(list[i]);
+    }
+    return row;
+  }
+
+  /** An icon-only button for the menu's control rows. */
+  function iconMenuButton(iconKey, label, onClick) {
+    var btn = document.createElement("button");
+    btn.className = "pdfa-btn pdfa-icon-only";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    var glyph = iconEl(iconKey);
+    if (glyph) btn.appendChild(glyph);
+    else btn.textContent = label;
+    btn.onclick = onClick;
+    return btn;
+  }
+
+  /**
+   * The ratio that would make this viewer fill most of the screen it is currently on.
+   *
+   * The box is width/ratio and the width is fixed by the note's own column, so the only
+   * unknown is how tall to ask for. `screen.height` is the reader's whole screen in CSS
+   * pixels; 85% of it leaves room for the app's own chrome without the viewer running off
+   * the bottom. The fallback matters as much as the formula - `screen` may be unavailable
+   * or nonsense inside a sandboxed iframe, and 0.55 is a reasonable phone box either way.
+   *
+   * Bounds live plugin-side (normalizeAspectRatio, constants.js) and are applied there
+   * too: this side computes, the other side decides what it will accept.
+   */
+  function fittedAspectRatio() {
+    var width = window.innerWidth;
+    var screenHeight = window.screen && Number(window.screen.height);
+    if (!width || !Number.isFinite(screenHeight) || screenHeight < 200) return 0.55;
+    var ratio = width / (screenHeight * 0.85);
+    return Math.round(ratio * 100) / 100;
+  }
+
+  /**
+   * "Fit to this screen" on a narrow viewer, "Restore height" on a wide one that is
+   * wearing a height some other device chose.
+   *
+   * Deliberately not automatic in either direction. A wide box could put the height back
+   * by itself, but a phone and a desktop with the same note open would then each keep
+   * correcting the other - an unbounded loop of real note writes, because every rewrite
+   * re-renders the embed at the other end. One tap, on the device that minds.
+   */
+  function heightMenuItem() {
+    var fitted = !!cfg.aspectRatio;
+    if (!isNarrowViewer()) {
+      // Nothing to offer a wide viewer at its default height: its box is already the one
+      // this plugin picked for it, and "fit to screen" on a desktop would only ever make
+      // it taller than the window. Null rather than an empty row - a divider standing in
+      // for a missing item is how a menu grows a line above its first entry.
+      if (!fitted) return null;
+      return button("Restore height", "", function () {
+        closePopover(true);
+        setViewerHeightInNote(null);
+      }, "collapse");
+    }
+    return button(fitted ? "Restore height" : "Fit to this screen", "", function () {
+      closePopover(true);
+      setViewerHeightInNote(fitted ? null : fittedAspectRatio());
+    }, fitted ? "collapse" : "expand");
+  }
+
+  /**
+   * Ask the plugin to rewrite this viewer's box proportions.
+   *
+   * Fire-and-forget like setCollapsedInNote, and for the same reason: the write either
+   * lands and Amplenote re-renders the embed at its new height, or it does not and the
+   * viewer is exactly as it was. Neither outcome needs an error over the top of it.
+   */
+  function setViewerHeightInNote(aspectRatio) {
+    callPlugin({
+      action: "setViewerHeight",
+      aspectRatio: aspectRatio,
+      attachmentUUID: cfg.attachmentUUID,
+      pluginUUID: cfg.pluginUUID,
+    })["catch"](function () {});
+  }
+
   function openMoreMenu(anchor) {
     // The menu opens at the top right, which is where the highlights panel already is -
     // it would land on top of it, and every row it offers is about the document rather
@@ -3025,6 +3195,34 @@ export function viewerMain() {
     // the menu's width on top of that. The collapsed bar keeps its copy, which is the one
     // state with no chip in view.
     var children = [];
+
+    // THE NARROW BAR'S MISSING CONTROLS. Below NARROW_VIEWER_WIDTH the toolbar keeps only
+    // what has to be one tap away - the pager, the four colors, this button - and hands
+    // the rest here (styles.js has the matching rule, and the breakpoint is repeated
+    // there because CSS cannot read this file). Fourteen controls left-packed at a phone's
+    // ~342px wrapped to three rows and spent 141px of a 342px box on chrome; one row
+    // spends 53px. Measured both ways in docs/mockups/mobile-toolbar.html.
+    //
+    // As LIVE CONTROLS, not menu rows that read "Zoom in": these are steppers and toggles,
+    // and turning them into one-shot rows would make zooming a matter of reopening the
+    // menu per 25%.
+    if (isNarrowViewer()) {
+      children.push(menuZoomRow(), menuStyleRow(), menuDivider());
+      children.push(
+        button("Highlights (" + state.highlights.length + ")", "", function () {
+          closePopover(true);
+          togglePanel(true);
+        }, "list"),
+        button("Page thumbnails", "", function () {
+          closePopover(true);
+          toggleThumbnails(true);
+        }, "thumbs"),
+        menuDivider()
+      );
+    }
+
+    var height = heightMenuItem();
+    if (height) children.push(height);
 
     children.push(
       button("Collapse", "", function () {

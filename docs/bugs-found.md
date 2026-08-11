@@ -893,6 +893,15 @@ squares up") described an intention the cascade had quietly refused.
 tying with it. (The same shape, `.pdfa-btn.pdfa-icon-only`, is why the new icon-only
 buttons worked first time.)
 
+**It recurred the same day, in the same stylesheet**, which is the best evidence that the
+lesson is about the cascade and not about one rule. Hiding the toolbar's shape group and
+notes button below a breakpoint used `#pdfa-styles` (tied with the `@media (pointer:
+coarse)` block's own `#pdfa-styles`, and lost on order) and `.pdfa-notes-btn` (outranked
+outright by `.pdfa-toolbar button.pdfa-icon-btn`). Both stayed visible and the one-row bar
+overflowed by 53px. Written as `.pdfa-toolbar #pdfa-styles` and `.pdfa-toolbar
+button.pdfa-notes-btn`, both work. Note the shape of the trap: the *later* block was the
+more specific one both times, so reading the new rule in isolation tells you nothing.
+
 **General lesson:** "modifier overrides base" is only true if the modifier actually
 outranks the base; single-class-vs-single-class is a coin toss decided by file order, and
 the loser fails *silently* — no warning, no visual clue, just a control that is a bit

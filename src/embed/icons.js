@@ -73,6 +73,17 @@ export const MENU_ICONS = {
   highlight: "M17.75 7 14 3.25l-10 10V17h3.75l10-10zm2.96-2.96a.996.996 0 0 0 0-1.41L18.37.29a.996.996 0 0 0-1.41 0L15 2.25 18.75 6l1.96-1.96zM2 20h20v3H2z",
   underline: "M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z",
   strike: "M10 19h4v-3h-4v3zM5 4v3h5v3h4V7h5V4H5zM3 14h18v-2H3v2z",
+  // THE NARROW BAR'S EXILES. Below the breakpoint the highlights panel and the thumbnails
+  // lose their toolbar buttons and become menu rows, so their glyphs have to travel too -
+  // the same two the bar itself uses (ICONS.listBulleted, ICONS.sidebar), repeated here
+  // because MENU_ICONS is a separate object and viewer.js can reach only this one.
+  list:
+    "M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z",
+  thumbs:
+    "M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 19H4V5h5v14z",
+  // unfold_more - collapse's own glyph reversed, for "make this box taller". The pair
+  // reads as one axis, which is what the two menu items actually are.
+  expand: "M12 5.83 15.17 9l1.41-1.41L12 3 7.42 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.58-4.59L15.17 15 12 18.17z",
   // add / remove - the "+" and "-" inside the mark card's More colors circle. Material's
   // own, the same two paths ICONS already carries for the zoom controls; they are repeated
   // here rather than shared because MENU_ICONS is a separate object that TRAVELS IN CONFIG

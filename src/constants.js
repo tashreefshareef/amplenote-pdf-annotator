@@ -174,6 +174,24 @@ export const EXPANDED_ASPECT_RATIO = 1.0;
 export const COLLAPSED_ASPECT_RATIO = 16;
 
 /**
+ * The range a viewer may set its own box to, via "Fit to this screen".
+ *
+ * That control exists because one ratio has to serve every screen (above), and on a phone
+ * the same number that gives a comfortable desktop box gives ~342px - about 40% of which
+ * was toolbar. A reader who mostly uses one device can now say so; the tag is rewritten
+ * with a ratio computed from THAT device's screen, exactly as collapsing rewrites it.
+ *
+ * The bounds are what keeps a computed number from producing a box nobody asked for. 0.35
+ * is ~2.9x the width - a full phone screen and no more; 1.2 is slightly wider than tall,
+ * the old default, and the shortest a viewer should be while still claiming to show a
+ * page. A value outside the range is rejected rather than clamped when it arrives from the
+ * embed (see normalizeAspectRatio): the embed is the untrusted side of that bridge, and a
+ * silently clamped junk value would be indistinguishable from a deliberate one.
+ */
+export const MIN_FIT_ASPECT_RATIO = 0.35;
+export const MAX_FIT_ASPECT_RATIO = 1.2;
+
+/**
  * Pinned CDN versions (spec section 3 requires recording these for reproducibility).
  *
  * VERIFIED LOADING inside a live Amplenote embed on 2026-08-06 - these exact URLs

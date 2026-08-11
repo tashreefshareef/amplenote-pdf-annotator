@@ -17,7 +17,12 @@ import {
   insertAboveManagedSection,
   withExportSeparator,
 } from "./storage.js";
-import { removeEmbedMarkup, setEmbedCollapsed, updateEmbedArgs } from "./embed-args.js";
+import {
+  removeEmbedMarkup,
+  setEmbedCollapsed,
+  updateEmbedArgs,
+  normalizeAspectRatio,
+} from "./embed-args.js";
 import { parseToolbarColorIds } from "./colors.js";
 import { COLOR_SETTING_NAME } from "./constants.js";
 import { removeExportBlock, replaceExportBlock } from "./exports-in-note.js";
@@ -399,6 +404,47 @@ export async function handleEmbedCall(app, payload) {
         // it, which since chip anchoring is anywhere in the body.
         await app.replaceNoteContent({ uuid: noteUUID }, updated);
         return { ok: true };
+      } catch (err) {
+        return { error: `Could not resize this viewer: ${err.message}` };
+      }
+    }
+
+    /**
+     * Set (or clear) this viewer's own box height - "Fit to this screen" / "Restore
+     * height" in the overflow menu.
+     *
+     * THE SAME MACHINERY AS COLLAPSE, for the same reason: an embed cannot resize itself,
+     * so a height is a note write or it is nothing (api-notes.md §12). What is different
+     * is why: one `data-aspect-ratio` serves every device the note opens on, and on a
+     * phone the box that suits a desktop is ~342px. The viewer measures the screen it is
+     * actually on and offers to fit it.
+     *
+     * The chosen ratio therefore comes from the EMBED, which is the untrusted side of this
+     * bridge - normalizeAspectRatio rejects anything outside the sane range rather than
+     * clamping it, and a rejected value means "restore the default", which is also how the
+     * desktop's "Restore height" arrives (no ratio at all).
+     *
+     * Deliberately NOT automatic on the other device. A wide box could notice a
+     * phone-sized ratio and put it back by itself, but then two devices with the note open
+     * would each keep correcting the other - an unbounded loop of real note writes. The
+     * flag is offered as a one-tap menu item on the wide side instead. See the mockup in
+     * docs/mockups/mobile-toolbar.html for what each option costs.
+     */
+    case "setViewerHeight": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      if (!request.pluginUUID) return { error: "Missing plugin id - cannot locate this viewer." };
+      try {
+        const noteUUID = resolveNoteUUID(app, request);
+        const content = await app.getNoteContent({ uuid: noteUUID });
+        const aspectRatio = normalizeAspectRatio(request.aspectRatio);
+        const updated = updateEmbedArgs(content, request.pluginUUID, request.attachmentUUID, {
+          aspectRatio,
+        });
+        // Same reasoning as setCollapsed: a box that did not resize is cosmetic, and an
+        // error over it would be louder than the thing it is reporting.
+        if (updated === null) return { ok: false };
+        await app.replaceNoteContent({ uuid: noteUUID }, updated);
+        return { ok: true, aspectRatio };
       } catch (err) {
         return { error: `Could not resize this viewer: ${err.message}` };
       }

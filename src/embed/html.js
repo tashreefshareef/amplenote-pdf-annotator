@@ -96,6 +96,8 @@ export function buildEmbedHtml({
   pluginUUID = null,
   noteUUID = null,
   collapsed = false,
+  // The height this viewer's reader chose, or null for the default - see parseEmbedArgs.
+  aspectRatio = null,
   // Which of the catalog's colors get the toolbar's four circles, from the plugin's
   // `Highlight colors` setting (parsed plugin-side - see plugin.js). Defaulted here as
   // well as there so a caller that knows nothing about settings - a test, the harness -
@@ -119,6 +121,10 @@ export function buildEmbedHtml({
     // that scenario, which read as "highlights disappeared" even though they were still
     // correctly saved in the note.
     noteUUID,
+    // Null unless this viewer wears a chosen height. The viewer cannot read its own tag,
+    // so this is how the overflow menu knows whether to offer "Fit to this screen" or
+    // "Restore height".
+    aspectRatio,
     pdfJsSrc: CDN.pdfJs,
     workerSrc: CDN.pdfJsWorker,
     // Loaded lazily, only when Download is clicked - see viewer.js's loadPdfLib.

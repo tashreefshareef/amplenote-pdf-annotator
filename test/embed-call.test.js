@@ -919,6 +919,84 @@ describe("sent blocks follow their highlights", () => {
   });
 });
 
+describe("setViewerHeight", () => {
+  const TAG = (extra) =>
+    `# Notes\n<object data="plugin://p${extra || ""}" data-aspect-ratio="1" />`;
+
+  // Scenario: "Fit to this screen" on a phone. One data-aspect-ratio serves every device
+  // the note opens on, so the only way a phone gets a taller box is by rewriting the tag.
+  test("writes the chosen height into the viewer's tag", async () => {
+    const app = appWithNote(TAG("?att=a"));
+
+    const result = await call(app, {
+      action: "setViewerHeight",
+      attachmentUUID: "a",
+      pluginUUID: "p",
+      aspectRatio: 0.46,
+    });
+
+    expect(result.ok).toBe(true);
+    const content = app._notes.get(NOTE).content;
+    expect(content).toContain('data-aspect-ratio="0.46"');
+    expect(content).toContain("ar=0.46");
+  });
+
+  // Scenario: "Restore height" - offered on the wide side, where the viewer is wearing a
+  // height a phone chose. No ratio at all means the default.
+  test("clears the chosen height when given none", async () => {
+    const app = appWithNote(`# Notes\n<object data="plugin://p?att=a&ar=0.46" data-aspect-ratio="0.46" />`);
+
+    const result = await call(app, {
+      action: "setViewerHeight",
+      attachmentUUID: "a",
+      pluginUUID: "p",
+    });
+
+    expect(result.ok).toBe(true);
+    const content = app._notes.get(NOTE).content;
+    expect(content).not.toContain("ar=");
+    expect(content).toContain('data-aspect-ratio="1"');
+  });
+
+  // Scenario: the ratio is computed inside the embed from `screen.height`, which is the
+  // untrusted side of this bridge. A value outside the sane range restores the default
+  // rather than being clamped into a box nobody asked for.
+  test("treats an out-of-range height as no height", async () => {
+    const app = appWithNote(TAG("?att=a"));
+
+    const result = await call(app, {
+      action: "setViewerHeight",
+      attachmentUUID: "a",
+      pluginUUID: "p",
+      aspectRatio: 0.01,
+    });
+
+    expect(result.aspectRatio).toBeNull();
+    expect(app._notes.get(NOTE).content).not.toContain("ar=");
+  });
+
+  test("refuses to run without an attachment or a plugin id", async () => {
+    const app = appWithNote(TAG("?att=a"));
+    expect((await call(app, { action: "setViewerHeight", pluginUUID: "p" })).error).toMatch(/attachment/i);
+    expect((await call(app, { action: "setViewerHeight", attachmentUUID: "a" })).error).toMatch(/plugin id/i);
+  });
+
+  // Scenario: the viewer's tag is not in this note (a stale embed, a copied note). Same
+  // answer collapse gives - a box that did not resize is cosmetic, not an error worth
+  // showing over the tap that asked for it.
+  test("reports a miss without raising an error", async () => {
+    const app = appWithNote("# Notes\nno viewer here");
+    const result = await call(app, {
+      action: "setViewerHeight",
+      attachmentUUID: "a",
+      pluginUUID: "p",
+      aspectRatio: 0.5,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeUndefined();
+  });
+});
+
 describe("exportAll", () => {
   // Scenario: THE core "export all" requirement - auto-creates a destination note when
   // one doesn't exist yet.

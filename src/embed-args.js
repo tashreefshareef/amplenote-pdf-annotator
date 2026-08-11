@@ -15,11 +15,38 @@ import {
   ATTACHMENT_SCHEME,
   COLLAPSED_ASPECT_RATIO,
   EXPANDED_ASPECT_RATIO,
+  MIN_FIT_ASPECT_RATIO,
+  MAX_FIT_ASPECT_RATIO,
 } from "./constants.js";
 
-/** The box proportions that match a given collapsed state - see constants.js. */
-export function aspectRatioFor(collapsed) {
-  return collapsed ? COLLAPSED_ASPECT_RATIO : EXPANDED_ASPECT_RATIO;
+/**
+ * A viewer-chosen box ratio, or null for "use the default".
+ *
+ * Rejects rather than clamps anything outside the range, and rejects non-numbers outright.
+ * This is the boundary the embed's own arithmetic crosses (it computes a ratio from
+ * `screen.height`, which no plugin-side code can check), and null here means the viewer
+ * simply keeps the default height - a safe answer for every bad input, where a clamp would
+ * turn a nonsense value into a confident one.
+ */
+export function normalizeAspectRatio(value) {
+  const ratio = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(ratio)) return null;
+  if (ratio < MIN_FIT_ASPECT_RATIO || ratio > MAX_FIT_ASPECT_RATIO) return null;
+  // Two decimals is finer than any screen can show and keeps the note markup readable.
+  return Math.round(ratio * 100) / 100;
+}
+
+/**
+ * The box proportions for a given collapsed state and chosen height - see constants.js.
+ *
+ * Collapsed WINS over a chosen height, and must: the collapsed box is a title bar, and a
+ * viewer that had been fitted to a phone screen would otherwise collapse to a full-screen
+ * blank rectangle. The chosen height comes back when it is expanded, because it is stored
+ * in the tag's args rather than in the ratio it happens to be wearing.
+ */
+export function aspectRatioFor(collapsed, aspectRatio) {
+  if (collapsed) return COLLAPSED_ASPECT_RATIO;
+  return normalizeAspectRatio(aspectRatio) || EXPANDED_ASPECT_RATIO;
 }
 
 /**
@@ -50,6 +77,7 @@ export function parseEmbedArgs(arg) {
     noteUUID: null,
     collapsed: false,
     attachmentName: "",
+    aspectRatio: null,
   };
   if (!arg || typeof arg !== "string") return empty;
 
@@ -89,6 +117,11 @@ export function parseEmbedArgs(arg) {
     // Carrying it in the tag also means a collapsed viewer knows its own name without
     // loading anything.
     attachmentName: params.get("n") || "",
+    // A height the reader chose for THIS viewer ("Fit to this screen"), or null for the
+    // default. In the args rather than read back off `data-aspect-ratio` because the
+    // attribute is not stable state: collapsing overwrites it with the collapsed ratio,
+    // and expanding again has to restore the chosen height rather than the default.
+    aspectRatio: normalizeAspectRatio(params.get("ar")),
   };
 }
 
@@ -104,10 +137,16 @@ export function buildEmbedArgs({
   highlightId,
   collapsed,
   attachmentName,
+  aspectRatio,
 } = {}) {
   const params = new URLSearchParams();
   if (attachmentUUID) params.set("att", attachmentUUID);
   if (collapsed) params.set("c", "1");
+  // Omitted when it is the default, so an untouched viewer's tag stays as short as it was
+  // before this existed - and so "no ar" keeps meaning "whatever the current default is",
+  // which is what lets EXPANDED_ASPECT_RATIO be changed for everyone later.
+  const chosen = normalizeAspectRatio(aspectRatio);
+  if (chosen) params.set("ar", String(chosen));
   // URLSearchParams percent-encodes this, which matters beyond tidiness: the query ends up
   // inside data="..." in the note markup, so a filename containing a double quote would
   // otherwise terminate the attribute and break the tag.
@@ -131,7 +170,7 @@ export function buildEmbedMarkup(pluginUUID, args = {}, aspectRatio = null) {
   // Defaults to whichever ratio matches the collapsed flag, so the box and the state it
   // encodes can never disagree - an explicit ratio is only for tests and callers that
   // genuinely want a one-off size.
-  if (aspectRatio === null) aspectRatio = aspectRatioFor(args.collapsed);
+  if (aspectRatio === null) aspectRatio = aspectRatioFor(args.collapsed, args.aspectRatio);
   const query = buildEmbedArgs(args);
   const target = query ? `plugin://${pluginUUID}?${query}` : `plugin://${pluginUUID}`;
   return `<object data="${target}" data-aspect-ratio="${aspectRatio}" />`;
@@ -268,7 +307,7 @@ export function updateEmbedArgs(noteContent, pluginUUID, attachmentUUID, updates
   // The box has to be resized here too, or the collapsed flag is decorative - an embed
   // cannot resize itself (see constants.js). Hand-edited tags may have lost the attribute
   // entirely, so append it rather than assuming a replace will match.
-  const ratio = aspectRatioFor(merged.collapsed);
+  const ratio = aspectRatioFor(merged.collapsed, merged.aspectRatio);
   const ratioMatch = updatedLine.match(/data-aspect-ratio="[^"]*"/);
   updatedLine = ratioMatch
     ? updatedLine.replace(ratioMatch[0], `data-aspect-ratio="${ratio}"`)

@@ -371,6 +371,24 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       devices*, so one ratio serves every screen - a bar sized to 45px at a ~720px desktop
       note width gets 22px at a ~358px phone width, and clips. There is no per-device
       escape. The only lever is making the *content* compress into whatever it is given.
+
+      **"Per-device" is therefore always "the device that renders rewrites the note", and
+      that is why it must be manual.** There is nowhere else to put the number: settings
+      are account-wide, `localStorage` inside the embed cannot change the box, and the box
+      is decided by markup both devices read. If each end auto-corrects a ratio it thinks
+      is wrong for it, a phone and a desktop with the same note open will each keep
+      correcting the other - every lap a real note write, because the rewrite re-renders
+      the embed at the far end. Offer it as a control on the device that minds (here: "Fit
+      to this screen" on a narrow box, "Restore height" on a wide one that is wearing a
+      fitted ratio) and store the chosen ratio in the tag's ARGS, not by reading back
+      `data-aspect-ratio` - collapsing overwrites that attribute, so expanding again has to
+      restore the choice from somewhere the collapse did not touch.
+
+      The screen a phone actually has is readable from inside the embed: `screen.height` is
+      the whole screen in CSS pixels, and `innerWidth` is the box - so the ratio that fills
+      ~85% of the screen is `innerWidth / (screen.height * 0.85)`. Measured on a 354px box
+      against an 812px screen: 0.51. Validate it plugin-side anyway; the embed is the
+      untrusted end of that bridge.
     - **Media queries inside an embed key off the embed's own box, not the device** - the
       iframe viewport IS the box Amplenote hands you. That is a convenience, not a
       limitation: `max-width` means "this viewer is narrow" (and catches a cramped desktop

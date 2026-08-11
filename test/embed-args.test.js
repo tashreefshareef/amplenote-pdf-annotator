@@ -15,6 +15,8 @@ import {
   removeEmbedMarkup,
   setEmbedCollapsed,
   updateEmbedArgs,
+  normalizeAspectRatio,
+  aspectRatioFor,
 } from "../src/embed-args.js";
 // Asserted against the constants, never against a literal: the expanded ratio is a
 // tuning value that has already been changed once (1.2 -> 1.0, to give the PDF more of
@@ -37,6 +39,7 @@ describe("parseEmbedArgs", () => {
       noteUUID: null,
       collapsed: false,
       attachmentName: "",
+      aspectRatio: null,
     });
   });
 
@@ -59,6 +62,7 @@ describe("parseEmbedArgs", () => {
       noteUUID: null,
       collapsed: false,
       attachmentName: "",
+      aspectRatio: null,
     };
     expect(parseEmbedArgs(undefined)).toEqual(empty);
     expect(parseEmbedArgs("")).toEqual(empty);
@@ -109,6 +113,7 @@ describe("buildEmbedArgs", () => {
       noteUUID: null,
       collapsed: false,
       attachmentName: "",
+      aspectRatio: null,
     });
   });
 
@@ -355,6 +360,56 @@ describe("collapsed state in the embed tag", () => {
   test("adds the attribute when the tag has none", () => {
     const bare = `<object data="plugin://plug-1?att=att-1" />`;
     expect(setEmbedCollapsed(bare, "plug-1", "att-1", true)).toContain('data-aspect-ratio="16"');
+  });
+
+  // Scenario: "Fit to this screen" on a phone. The chosen height has to survive in the
+  // tag, or the next render puts the box back to the shared default.
+  test("round-trips a chosen height through build and parse", () => {
+    const query = buildEmbedArgs({ attachmentUUID: "a", aspectRatio: 0.46 });
+    expect(query).toContain("ar=0.46");
+    expect(parseEmbedArgs(query).aspectRatio).toBe(0.46);
+  });
+
+  // Scenario: an untouched viewer's tag must look exactly as it did before this existed -
+  // "no ar" has to keep meaning "whatever the default is", or changing the default later
+  // stops reaching every existing viewer.
+  test("writes no height at all when none was chosen", () => {
+    expect(buildEmbedArgs({ attachmentUUID: "a" })).not.toContain("ar=");
+    expect(buildEmbedMarkup("plug-1", { attachmentUUID: "a" })).toContain(
+      `data-aspect-ratio="${EXPANDED_ASPECT_RATIO}"`
+    );
+  });
+
+  // Scenario: the ratio is computed INSIDE the embed, from screen.height, which no
+  // plugin-side code can vouch for. Junk and out-of-range values mean "use the default",
+  // never "use this number anyway".
+  test("rejects a height that is junk or out of range, rather than clamping it", () => {
+    expect(normalizeAspectRatio(0.46)).toBe(0.46);
+    expect(normalizeAspectRatio("0.5")).toBe(0.5);
+    expect(normalizeAspectRatio(0.05)).toBeNull();
+    expect(normalizeAspectRatio(40)).toBeNull();
+    expect(normalizeAspectRatio(NaN)).toBeNull();
+    expect(normalizeAspectRatio("tall")).toBeNull();
+    expect(normalizeAspectRatio(null)).toBeNull();
+    expect(buildEmbedArgs({ attachmentUUID: "a", aspectRatio: 40 })).not.toContain("ar=");
+  });
+
+  // Scenario: a fitted viewer gets collapsed. The collapsed box wins - otherwise
+  // "collapse" on a phone-fitted viewer produces a full-screen blank rectangle - and the
+  // chosen height comes back on expand, because it lives in the args and not in the
+  // attribute it happens to be wearing.
+  test("lets collapse override a chosen height without forgetting it", () => {
+    expect(aspectRatioFor(true, 0.46)).toBe(COLLAPSED_ASPECT_RATIO);
+    expect(aspectRatioFor(false, 0.46)).toBe(0.46);
+    expect(aspectRatioFor(false, null)).toBe(EXPANDED_ASPECT_RATIO);
+
+    const fitted = `<object data="plugin://plug-1?att=att-1&ar=0.46" data-aspect-ratio="0.46" />`;
+    const collapsed = setEmbedCollapsed(fitted, "plug-1", "att-1", true);
+    expect(collapsed).toContain(`data-aspect-ratio="${COLLAPSED_ASPECT_RATIO}"`);
+    expect(collapsed).toContain("ar=0.46");
+
+    const expanded = setEmbedCollapsed(collapsed, "plug-1", "att-1", false);
+    expect(expanded).toContain('data-aspect-ratio="0.46"');
   });
 
   // Scenario: the flag round-trips, so a re-render after the rewrite comes back up in the
