@@ -362,6 +362,67 @@ export function createGeometry() {
     return String(text === null || text === undefined ? "" : text).replace(/\s+/g, " ").trim();
   }
 
+  /**
+   * Grow a stored highlight rect vertically to the line box the text actually occupies.
+   *
+   * WHY THIS IS NEEDED AT ALL. A stored rect comes from PDF text extraction, which gives
+   * an ascender-to-baseline box: measured against rendered ink in the harness, the
+   * ascenders start about 0.23 of the way down it and the BASELINE lands at about 1.08 -
+   * past its bottom edge - with descenders continuing to 1.23. So the painted band both
+   * sat a few pixels high and cut the tails off every g, y, p and j. Reported as a gap
+   * between wrapped lines, which is the same defect seen from the other side: a band
+   * shorter than its line leaves the leading unpainted.
+   *
+   * The line boxes are the TEXT LAYER's own span rects - the same boxes the browser
+   * paints when you drag a selection over those words. Matching them is what makes an
+   * applied highlight sit exactly where the blue selection sat a moment earlier, which is
+   * the only definition of "right" here that does not need a magic number: no ratio is
+   * chosen, no leading is assumed, and a heading or a table cell with its own line height
+   * is handled because its spans are simply taller.
+   *
+   * SELECTED BY THE RECT'S MIDLINE, not by its top edge. The stored rect is offset upward
+   * (see above), so its top can sit above the span that contains its text - matching on
+   * the top would pick up the line ABOVE on tightly-set text. The midline is solidly
+   * inside the line it belongs to.
+   *
+   * ONLY THE VERTICAL CHANGES. The horizontal extent stays the stored rect's, because
+   * that is the run of text the user actually selected - a span is a whole text run and
+   * is usually wider than the selection inside it.
+   *
+   * @param rect       {x,y,width,height} in the overlay's coordinate space.
+   * @param lineBoxes  [{top,bottom,left,right}] for the page, same space. May be empty or
+   *                   null - a scanned page has no text layer at all.
+   * @returns a new rect, or the SAME one when nothing matches, so a page whose text layer
+   *   has not been built yet still paints its highlights rather than losing them.
+   */
+  function expandRectToLineBox(rect, lineBoxes) {
+    if (!rect || !lineBoxes || !lineBoxes.length) return rect;
+
+    var midY = rect.y + rect.height / 2;
+    var left = rect.x;
+    var right = rect.x + rect.width;
+    var top = null;
+    var bottom = null;
+
+    for (var i = 0; i < lineBoxes.length; i++) {
+      var b = lineBoxes[i];
+      if (midY < b.top || midY > b.bottom) continue;
+      // Touching at an edge is not overlapping - a span that merely abuts the end of the
+      // selection is on the same line but outside it, and must not stretch the band.
+      if (b.right <= left || b.left >= right) continue;
+      top = top === null ? b.top : Math.min(top, b.top);
+      bottom = bottom === null ? b.bottom : Math.max(bottom, b.bottom);
+    }
+
+    if (top === null) return rect;
+    // EXACTLY the union, not a union with the stored rect. The stored rect's top sits
+    // about 0.7px ABOVE the span's on measured text, so keeping it would make the band
+    // fractionally taller than the browser's own selection - and matching that selection
+    // is the entire point of this function. A stored rect taller than its spans is not a
+    // case that arises: it is merged from word rects measured inside those same spans.
+    return { x: rect.x, y: top, width: rect.width, height: bottom - top };
+  }
+
   return {
     clientRectToLocal: clientRectToLocal,
     rectFromCorners: rectFromCorners,
@@ -376,6 +437,7 @@ export function createGeometry() {
     rectContainsPoint: rectContainsPoint,
     hitTestHighlights: hitTestHighlights,
     normalizeQuoteText: normalizeQuoteText,
+    expandRectToLineBox: expandRectToLineBox,
   };
 }
 
@@ -390,6 +452,7 @@ export const textTokenRanges = geometry.textTokenRanges;
 export const unionClientRects = geometry.unionClientRects;
 export const clientRectsToPdfRects = geometry.clientRectsToPdfRects;
 export const pdfRectToViewportRect = geometry.pdfRectToViewportRect;
+export const expandRectToLineBox = geometry.expandRectToLineBox;
 export const itemRelativeRect = geometry.itemRelativeRect;
 export const mergeLineRects = geometry.mergeLineRects;
 export const rectContainsPoint = geometry.rectContainsPoint;

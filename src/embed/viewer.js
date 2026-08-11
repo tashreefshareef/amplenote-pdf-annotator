@@ -102,6 +102,10 @@ export function viewerMain() {
     viewports: {},
     // page number -> true once its canvas AND text layer are actually built.
     rendered: {},
+    // page number -> { scale, layer, boxes } - the text layer's own line boxes, which a
+    // highlight fill is grown to match. See lineBoxesFor for why it is cached and what
+    // invalidates it.
+    lineBoxes: {},
     // page number -> true while its render is in flight, so a burst of scroll events
     // cannot start the same page several times over.
     renderingPage: {},
@@ -742,6 +746,57 @@ export function viewerMain() {
     };
   }
 
+  /**
+   * The text layer's own line boxes for one page, in the overlay's coordinate space.
+   *
+   * These are what a highlight fill is grown to match - see expandRectToLineBox in
+   * geometry.js for why, and why the answer is the text layer rather than a ratio.
+   *
+   * CACHED, because this is the one part of drawing that scales with the PAGE rather than
+   * with the number of highlights: a dense page carries hundreds of spans and drawing runs
+   * on every scroll-triggered render. The key is the scale AND the layer element itself -
+   * zooming moves every box, and re-rendering a page builds a brand new textLayer, so
+   * holding the element is what makes a stale cache impossible rather than merely
+   * unlikely.
+   *
+   * Returns null when the page has no text layer yet, which is also what a scanned page
+   * looks like; the caller leaves such rects exactly as they are.
+   */
+  function lineBoxesFor(wrap, pageNum) {
+    var layer = wrap.querySelector(".textLayer");
+    if (!layer) return null;
+
+    var cached = state.lineBoxes[pageNum];
+    if (cached && cached.scale === state.scale && cached.layer === layer) return cached.boxes;
+
+    var origin = wrap.getBoundingClientRect();
+    var spans = layer.querySelectorAll("span");
+    var boxes = [];
+    // MEASURED THROUGH A RANGE, not by the span's own getBoundingClientRect. A span is an
+    // inline box, so its border box is the font's content box - ascent plus descent - and
+    // measuring it gave bands 15px tall against native selection's 17. The browser paints
+    // a selection over the LINE box, which includes the leading, and a Range is what
+    // reports that. One Range reused across every span; building one each time is the
+    // expensive way to get the same answer.
+    var range = document.createRange();
+    for (var i = 0; i < spans.length; i++) {
+      range.selectNodeContents(spans[i]);
+      var rects = range.getClientRects();
+      for (var q = 0; q < rects.length; q++) {
+        var r = rects[q];
+        if (!r.width || !r.height) continue;
+        boxes.push({
+          top: r.top - origin.top,
+          bottom: r.bottom - origin.top,
+          left: r.left - origin.left,
+          right: r.right - origin.left,
+        });
+      }
+    }
+    state.lineBoxes[pageNum] = { scale: state.scale, layer: layer, boxes: boxes };
+    return boxes;
+  }
+
   /** Redraw one page's overlay, or every page's when called with no argument. */
   function drawHighlights(pageNum) {
     var selector = pageNum ? '.pdfa-page[data-page="' + pageNum + '"]' : ".pdfa-page";
@@ -756,6 +811,10 @@ export function viewerMain() {
 
       layer.innerHTML = "";
       var convert = toViewportPoint(viewport);
+      // Swept once per page, and only if something on it is actually a fill - a page of
+      // underlines, or a scan with no text at all, should not pay for it.
+      var lineBoxes = null;
+      var sweptText = false;
 
       for (var j = 0; j < state.highlights.length; j++) {
         var h = state.highlights[j];
@@ -773,8 +832,20 @@ export function viewerMain() {
         // underline is clickable across the whole line it underlines, not just on the 2px
         // band, which is the difference between a control and a target practice.
         var styleId = styleOf(h);
+        if (styleId === "highlight" && !sweptText) {
+          lineBoxes = lineBoxesFor(wrap, num);
+          sweptText = true;
+        }
+
         for (var k = 0; k < h.rects.length; k++) {
-          var vr = markBandRect(geom.pdfRectToViewportRect(h.rects[k], convert), styleId);
+          var stored = geom.pdfRectToViewportRect(h.rects[k], convert);
+          // A FILL grows to the line box the browser would select; a band is placed from
+          // the STORED rect, whose bottom edge is the baseline those offsets were measured
+          // against. Growing the rect first would move every underline and strikethrough
+          // in the document by the height of the leading.
+          var vr = styleId === "highlight"
+            ? geom.expandRectToLineBox(stored, lineBoxes)
+            : markBandRect(stored, styleId);
           var el = document.createElement("div");
           el.className = "pdfa-hl" + (styleId === "highlight" ? "" : " pdfa-hl-band");
           el.style.left = vr.x + "px";

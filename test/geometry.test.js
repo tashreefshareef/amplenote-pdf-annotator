@@ -27,6 +27,7 @@ import {
   rectContainsPoint,
   hitTestHighlights,
   normalizeQuoteText,
+  expandRectToLineBox,
 } from "../src/geometry.js";
 
 /**
@@ -570,6 +571,7 @@ describe("createGeometry", () => {
       [
         "clientRectToLocal",
         "clientRectsToPdfRects",
+        "expandRectToLineBox",
         "textTokenRanges",
         "unionClientRects",
         "hitTestHighlights",
@@ -611,4 +613,103 @@ describe("normalizeQuoteText", () => {
     expect(normalizeQuoteText(null)).toBe("");
     expect(normalizeQuoteText(undefined)).toBe("");
   });
+});
+
+/**
+ * GROWING A HIGHLIGHT FILL TO ITS LINE BOX.
+ *
+ * The numbers below are the ones measured in the harness on 15px text at a 25.05px line
+ * pitch: a stored rect 13 tall sitting 0.7 above the text's own 17-tall box, whose ink
+ * runs from +3 to +16 of the stored rect - i.e. past its bottom edge. That is the shape
+ * of the bug, so it is the shape of the fixture.
+ */
+describe("expandRectToLineBox", () => {
+  // A line's text-layer span, and the stored rect the extractor produces for it.
+  const line = (top) => ({ top, bottom: top + 17, left: 50, right: 400 });
+  const storedFor = (top) => ({ x: 50, y: top - 0.7, width: 300, height: 13 });
+
+  test("grows the band to the line box the browser would select", () => {
+    const out = expandRectToLineBox(storedFor(100), [line(100)]);
+    expect(out.y).toBeCloseTo(100, 5);
+    expect(out.height).toBeCloseTo(17, 5);
+  });
+
+  // Scenario: the reported symptom. Two wrapped lines 25.05 apart, each band 13 tall,
+  // leaves a 12px strip. Matching the line box takes it to 8.05 - which is exactly what
+  // native selection leaves, and is the deal this option makes.
+  test("narrows the gap between wrapped lines to native selection's own", () => {
+    const boxes = [line(100), line(125.05)];
+    const first = expandRectToLineBox(storedFor(100), boxes);
+    const second = expandRectToLineBox(storedFor(125.05), boxes);
+
+    const before = storedFor(125.05).y - (storedFor(100).y + storedFor(100).height);
+    const after = second.y - (first.y + first.height);
+    expect(before).toBeCloseTo(12.05, 2);
+    expect(after).toBeCloseTo(8.05, 2);
+  });
+
+  // Scenario: the defect underneath the reported one. The stored rect stops above the
+  // baseline, so descenders hang outside their own highlight.
+  test("covers ink that ran past the stored rect's bottom edge", () => {
+    const stored = storedFor(100);
+    const inkBottom = stored.y + 16; // measured: ink reaches +16 of a 13-tall rect
+    expect(stored.y + stored.height).toBeLessThan(inkBottom);
+
+    const out = expandRectToLineBox(stored, [line(100)]);
+    expect(out.y + out.height).toBeGreaterThanOrEqual(inkBottom);
+  });
+
+  // Scenario: the rect sits HIGH of its own line. Matching on the top edge would pick up
+  // the line above on tightly-set text; the midline cannot.
+  test("picks its own line, not the one above, when lines are tightly set", () => {
+    const boxes = [line(100), line(114)]; // 14px pitch against a 17px box - they overlap
+    const out = expandRectToLineBox(storedFor(114), boxes);
+    // Its own line's box - NOT line one's, whose 100..117 the stored rect's top of 113.3
+    // sits inside. Matching on the top edge would have produced 100 here.
+    expect(out.y).toBe(114);
+    expect(out.y + out.height).toBe(131);
+  });
+
+  test("leaves the horizontal extent alone - a span is wider than the selection in it", () => {
+    const stored = { x: 120, y: 99.3, width: 60, height: 13 };
+    const out = expandRectToLineBox(stored, [line(100)]);
+    expect(out.x).toBe(120);
+    expect(out.width).toBe(60);
+  });
+
+  test("unions every span the selection crosses on one line", () => {
+    const tall = { top: 96, bottom: 121, left: 200, right: 400 };
+    const out = expandRectToLineBox(storedFor(100), [line(100), tall]);
+    expect(out.y).toBeCloseTo(96, 5);
+    expect(out.y + out.height).toBeCloseTo(121, 5);
+  });
+
+  // Scenario: a span that merely abuts the end of the selection is on the same line but
+  // outside it, and must not stretch the band sideways-adjacent text into it.
+  test("ignores a span that only touches the selection's edge", () => {
+    const abutting = { top: 90, bottom: 130, left: 350, right: 500 };
+    const stored = { x: 50, y: 99.3, width: 300, height: 13 }; // right edge exactly 350
+    const out = expandRectToLineBox(stored, [abutting]);
+    expect(out).toBe(stored);
+  });
+
+  // Scenario: a scanned page has no text layer at all, and a page can be drawn before
+  // its text layer is built. Either way the highlight must still paint.
+  test("returns the rect untouched when there are no line boxes", () => {
+    const stored = storedFor(100);
+    expect(expandRectToLineBox(stored, null)).toBe(stored);
+    expect(expandRectToLineBox(stored, [])).toBe(stored);
+    expect(expandRectToLineBox(stored, [line(500)])).toBe(stored);
+  });
+
+  // Scenario: the band must be the line box EXACTLY, not the line box unioned with the
+  // stored rect. The stored top sits ~0.7px above the span's, so keeping it would leave
+  // the band fractionally taller than the browser's own selection - which is the one
+  // thing this option is defined by.
+  test("lands exactly on the line box, not a union with the stored rect", () => {
+    const out = expandRectToLineBox(storedFor(100), [line(100)]);
+    expect(out.y).toBe(100);
+    expect(out.height).toBe(17);
+  });
+
 });
