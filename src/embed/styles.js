@@ -401,12 +401,25 @@ export const STYLES = `
 
      max-width leaves the same 8px on the other side, so the card stays inset rather than
      growing flush again on a narrow embed. */
+  /* THE SCROLL IS ON AN INNER ELEMENT, and this outer one only clips. Reported live: the
+     panel's top-right and bottom-right corners were square while the other two were
+     round. The cause is that a classic (space-taking) scrollbar is NOT clipped to its
+     scroll container's border-radius in Chromium - it is laid out at the padding-box edge
+     and painted straight over the curve, so the corners look mitred exactly on the side
+     the scrollbar is on. Nothing about the radius or the border was wrong.
+
+     There is no property that fixes it in place: scrollbar-width only makes the square
+     thinner, and overflow:overlay is gone. Splitting the two jobs is the fix - this
+     element owns the shape and clips (overflow: hidden), the child inside it owns the
+     scrolling, and the scrollbar is then inside a box with square corners of its own.
+     The same split is why .pdfa-thumbs below is shaped this way too. */
   .pdfa-panel { position: absolute; top: 8px; right: 8px; bottom: 8px; width: 292px;
     max-width: calc(100% - 16px);
     background: var(--pdfa-toolbar); border: 1px solid var(--pdfa-border); border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10);
-    overflow: auto; padding: 8px; display: none; z-index: 15; }
+    overflow: hidden; display: none; z-index: 15; }
   .pdfa-panel.pdfa-open { display: block; }
+  .pdfa-panel-scroll { height: 100%; overflow: auto; padding: 8px; }
 
   /* PAGE THUMBNAILS. Same floating-card treatment as the panel above and for the same
      reason - it overlays the pages rather than taking width from them, so opening it
@@ -419,12 +432,16 @@ export const STYLES = `
      Narrow on purpose. One thumbnail wide plus its scrollbar is about 124px, against the
      highlights panel's 292 - a list of pictures needs no reading width, and on an embed
      this size every pixel it does not take is page you can still see while using it. */
+  /* Clips only; the child scrolls. See .pdfa-panel above for the scrollbar-versus-radius
+     reason - this panel has a scrollbar on every document long enough to be worth opening
+     it for, so it would show the same square corners on every single use. */
   .pdfa-thumbs { position: absolute; top: 8px; left: 8px; bottom: 8px; width: 124px;
     max-width: calc(100% - 16px);
     background: var(--pdfa-toolbar); border: 1px solid var(--pdfa-border); border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10);
-    overflow: auto; overflow-x: hidden; padding: 8px 6px; display: none; z-index: 15; }
+    overflow: hidden; display: none; z-index: 15; }
   .pdfa-thumbs.pdfa-open { display: block; }
+  .pdfa-thumbs-scroll { height: 100%; overflow: auto; overflow-x: hidden; padding: 8px 6px; }
   .pdfa-thumb { display: block; width: 100%; padding: 0; margin-bottom: 10px;
     background: transparent; border: none; font: inherit; color: inherit; cursor: pointer;
     border-radius: 4px; }
@@ -548,8 +565,11 @@ export const STYLES = `
     .pdfa-scrollnav { display: flex; }
     /* Room for those buttons down the panel's right edge, so a highlight's text never
        runs underneath them. Only on touch, and only while the panel is open - a mouse
-       never sees the buttons at all, so it must not pay for the gutter. */
-    .pdfa-panel.pdfa-open { padding-right: 54px; }
+       never sees the buttons at all, so it must not pay for the gutter.
+
+       On the SCROLLING child, not the card: the card clips and has no padding of its own
+       now (see .pdfa-panel), so padding here would have done nothing at all. */
+    .pdfa-panel.pdfa-open .pdfa-panel-scroll { padding-right: 54px; }
     /* :not(.pdfa-color) is load-bearing. The swatches ARE buttons in this toolbar, so
        without it they inherit min-height and render as 40x20 ellipses - caught by
        measuring, not by reading. They get their bigger hit area from ::after below,

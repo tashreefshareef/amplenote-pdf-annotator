@@ -57,6 +57,11 @@ export function viewerMain() {
     listToggle: document.getElementById("pdfa-list-toggle"),
     thumbs: document.getElementById("pdfa-thumbs"),
     thumbsToggle: document.getElementById("pdfa-thumbs-toggle"),
+    // Each panel is TWO elements: the card carries the shape, the open state and the
+    // clipping, the inner one carries the content and the scrolling. Anything about
+    // position or visibility wants the card; anything about scrollTop wants the scroller.
+    panelScroll: document.getElementById("pdfa-panel-scroll"),
+    thumbsScroll: document.getElementById("pdfa-thumbs-scroll"),
     count: document.getElementById("pdfa-count"),
     more: document.getElementById("pdfa-more"),
     open: document.getElementById("pdfa-open"),
@@ -808,7 +813,7 @@ export function viewerMain() {
   }
 
   function renderPanel() {
-    els.panel.innerHTML = "";
+    els.panelScroll.innerHTML = "";
 
     var title = document.createElement("div");
     title.className = "pdfa-panel-title";
@@ -816,7 +821,7 @@ export function viewerMain() {
     label.textContent = "Highlights";
     title.appendChild(label);
     title.appendChild(button("Close", "", function () { togglePanel(false); }));
-    els.panel.appendChild(title);
+    els.panelScroll.appendChild(title);
 
     var list = sortedHighlights();
     if (!list.length) {
@@ -824,12 +829,12 @@ export function viewerMain() {
       empty.className = "pdfa-panel-empty";
       empty.textContent =
         "No highlights yet. Select some text in the PDF and pick a color.";
-      els.panel.appendChild(empty);
+      els.panelScroll.appendChild(empty);
       return;
     }
 
     for (var i = 0; i < list.length; i++) {
-      els.panel.appendChild(panelRow(list[i]));
+      els.panelScroll.appendChild(panelRow(list[i]));
     }
   }
 
@@ -910,7 +915,7 @@ export function viewerMain() {
    * the box stays right if the panel is ever a different width.
    */
   function buildThumbnails() {
-    els.thumbs.innerHTML = "";
+    els.thumbsScroll.innerHTML = "";
     for (var i = 1; i <= state.pageCount; i++) {
       (function (num) {
         var viewport = state.viewports[num];
@@ -937,7 +942,7 @@ export function viewerMain() {
         btn.onclick = function () {
           goToPage(num);
         };
-        els.thumbs.appendChild(btn);
+        els.thumbsScroll.appendChild(btn);
       })(i);
     }
   }
@@ -957,9 +962,9 @@ export function viewerMain() {
    */
   function ensureVisibleThumbnails() {
     if (!state.doc || !els.thumbs.classList.contains("pdfa-open")) return;
-    var boxRect = els.thumbs.getBoundingClientRect();
-    var margin = els.thumbs.clientHeight;
-    var btns = els.thumbs.querySelectorAll(".pdfa-thumb");
+    var boxRect = els.thumbsScroll.getBoundingClientRect();
+    var margin = els.thumbsScroll.clientHeight;
+    var btns = els.thumbsScroll.querySelectorAll(".pdfa-thumb");
 
     for (var i = 0; i < btns.length; i++) {
       var num = Number(btns[i].dataset.page);
@@ -967,7 +972,7 @@ export function viewerMain() {
       var rect = btns[i].getBoundingClientRect();
       var top = rect.top - boxRect.top;
       var bottom = rect.bottom - boxRect.top;
-      if (bottom < -margin || top > els.thumbs.clientHeight + margin) continue;
+      if (bottom < -margin || top > els.thumbsScroll.clientHeight + margin) continue;
       // Claimed here, not inside the render, so a second pass over the same button while
       // the first is still queued cannot enqueue it twice.
       state.thumbDrawn[num] = true;
@@ -992,7 +997,7 @@ export function viewerMain() {
   }
 
   function drawThumbnail(num) {
-    var btn = els.thumbs.querySelector('.pdfa-thumb[data-page="' + num + '"]');
+    var btn = els.thumbsScroll.querySelector('.pdfa-thumb[data-page="' + num + '"]');
     var sheet = btn && btn.querySelector(".pdfa-thumb-sheet");
     if (!sheet) return Promise.resolve();
 
@@ -1031,7 +1036,7 @@ export function viewerMain() {
    */
   function updateThumbnailCurrent() {
     if (
-      !els.thumbs.childNodes.length &&
+      !els.thumbsScroll.childNodes.length &&
       els.thumbs.classList.contains("pdfa-open") &&
       state.doc &&
       state.pageCount
@@ -1039,8 +1044,8 @@ export function viewerMain() {
       buildThumbnails();
       ensureVisibleThumbnails();
     }
-    if (!els.thumbs.childNodes.length) return;
-    var btns = els.thumbs.querySelectorAll(".pdfa-thumb");
+    if (!els.thumbsScroll.childNodes.length) return;
+    var btns = els.thumbsScroll.querySelectorAll(".pdfa-thumb");
     for (var i = 0; i < btns.length; i++) {
       btns[i].setAttribute(
         "aria-current",
@@ -1069,7 +1074,7 @@ export function viewerMain() {
       // Built on first open, not at boot: a reader who never opens the panel should never
       // pay for it, and until collectViewports has run there are no proportions to build
       // the boxes from.
-      if (!els.thumbs.childNodes.length) buildThumbnails();
+      if (!els.thumbsScroll.childNodes.length) buildThumbnails();
       updateThumbnailCurrent();
       scrollCurrentThumbnailIntoView();
       ensureVisibleThumbnails();
@@ -1087,12 +1092,12 @@ export function viewerMain() {
    * compositing.
    */
   function scrollCurrentThumbnailIntoView() {
-    var btn = els.thumbs.querySelector('.pdfa-thumb[data-page="' + state.current + '"]');
+    var btn = els.thumbsScroll.querySelector('.pdfa-thumb[data-page="' + state.current + '"]');
     if (!btn) return;
-    var offset = btn.getBoundingClientRect().top - els.thumbs.getBoundingClientRect().top;
+    var offset = btn.getBoundingClientRect().top - els.thumbsScroll.getBoundingClientRect().top;
     // Centred rather than flush to the top, so the pages either side are visible too -
     // the neighbours are most of why you opened it.
-    els.thumbs.scrollTop += offset - els.thumbs.clientHeight / 2 + btn.offsetHeight / 2;
+    els.thumbsScroll.scrollTop += offset - els.thumbsScroll.clientHeight / 2 + btn.offsetHeight / 2;
   }
 
   function togglePanel(open) {
@@ -1493,6 +1498,22 @@ export function viewerMain() {
   // ---- the popover ---------------------------------------------------------
 
   /**
+   * Where a menu belonging to a toolbar button should hang.
+   *
+   * Horizontally from the BUTTON (right edges aligned, so the menu reads as belonging to
+   * it), vertically from the TOOLBAR (so the gap matches the 8px both panels leave below
+   * the same edge). Measured at open time rather than cached: the bar wraps to two rows on
+   * a narrow embed, which moves both.
+   */
+  function toolbarAnchor(btn) {
+    var bar = els.root.querySelector(".pdfa-toolbar");
+    return {
+      right: btn.getBoundingClientRect().right,
+      bottom: (bar || btn).getBoundingClientRect().bottom,
+    };
+  }
+
+  /**
    * Show the popover at a point, in fixed client coordinates.
    *
    * Fixed positioning works because the embed is its own iframe: a click's client
@@ -1503,8 +1524,11 @@ export function viewerMain() {
    *   the remove-viewer confirm, which reuses its column layout), or "menu" (the toolbar
    *   overflow menu) switch the popover into a column layout with its own width; omit
    *   for the default single-row layout every other context uses.
+   * @param anchor {right, bottom} to hang below instead of following the cursor - see
+   *   toolbarAnchor. Anything opened from a fixed control wants this; anything opened at
+   *   a highlight or a selection wants the cursor.
    */
-  function showPopover(children, clientX, clientY, mode) {
+  function showPopover(children, clientX, clientY, mode, anchor) {
     els.popover.innerHTML = "";
     els.popover.classList.toggle("pdfa-editing", mode === "editing");
     els.popover.classList.toggle("pdfa-exporting", mode === "exporting");
@@ -1518,10 +1542,31 @@ export function viewerMain() {
     els.popover.classList.add("pdfa-open");
     var width = els.popover.offsetWidth;
     var height = els.popover.offsetHeight;
-    var left = Math.max(4, Math.min(clientX - width / 2, window.innerWidth - width - 4));
-    var top = clientY + 12;
-    // Flip above the cursor rather than off the bottom of a short embed.
-    if (top + height > window.innerHeight - 4) top = Math.max(4, clientY - height - 12);
+    var left, top;
+
+    if (anchor) {
+      // HUNG FROM THE CONTROL, not from the click. Reported live: the overflow menu landed
+      // in a different place depending on WHICH OF THE THREE DOTS was clicked - over the
+      // color swatches, half over them, or below the toolbar's border - because the only
+      // thing deciding its height was the cursor's y, and the glyph is ~18px tall. A menu
+      // belonging to a button that never moves must not move either.
+      //
+      // Right-aligned to the button, hanging from the TOOLBAR's bottom edge rather than
+      // the button's: that is what makes the gap the same one the panels leave (both are
+      // inset 8px from the top of the body, which starts at that same edge), instead of a
+      // gap measured from inside the toolbar's own padding.
+      left = anchor.right - width;
+      top = anchor.bottom + 8;
+    } else {
+      left = clientX - width / 2;
+      top = clientY + 12;
+      // Flip above the cursor rather than off the bottom of a short embed. Only for the
+      // cursor case - flipping an anchored menu would put it on top of the control that
+      // opened it, and the clamp below already keeps it inside the embed.
+      if (top + height > window.innerHeight - 4) top = Math.max(4, clientY - height - 12);
+    }
+
+    left = Math.max(4, Math.min(left, window.innerWidth - width - 4));
     // Flipping is not enough on its own: with a menu taller than the space above the
     // cursor, the flip lands at 4 and the bottom still runs off the embed - and an iframe
     // cannot spill into the host note, so those rows are simply unreachable rather than
@@ -1663,7 +1708,7 @@ export function viewerMain() {
    * toolbar's four would hide a color the document really contains - so a highlight made
    * before the setting changed could not be filtered for at all.
    */
-  function openExportPopover(clientX, clientY) {
+  function openExportPopover(anchor) {
     var list = usedColors();
     var active = {};
     for (var i = 0; i < list.length; i++) active[list[i].id] = true;
@@ -1698,7 +1743,7 @@ export function viewerMain() {
       })
     );
 
-    showPopover([hint, swatchRow, actions], clientX, clientY, "exporting");
+    showPopover([hint, swatchRow, actions], 0, 0, "exporting", anchor);
   }
 
   /**
@@ -1720,7 +1765,7 @@ export function viewerMain() {
    * Fewer than four is allowed on purpose. Someone who only uses two colors gets a
    * shorter bar rather than an error; the parser has always accepted a short list.
    */
-  function openPalettePopover(clientX, clientY) {
+  function openPalettePopover(anchor) {
     // The DRAFT - nothing changes until Save. Bailing out of this popover has to leave
     // the toolbar exactly as it was, and an apply-as-you-click design cannot offer that
     // for a preference that syncs to every device the moment it is written.
@@ -1814,9 +1859,10 @@ export function viewerMain() {
 
     showPopover(
       [slotHint, slotRow, catalogHint, catalogRow, scopeHint, actions],
-      clientX,
-      clientY,
-      "palette"
+      0,
+      0,
+      "palette",
+      anchor
     );
   }
 
@@ -1995,11 +2041,11 @@ export function viewerMain() {
    * at" is one idea to learn instead of two.
    */
   function activeScroller() {
-    if (els.panel && els.panel.classList.contains("pdfa-open")) return els.panel;
+    if (els.panel && els.panel.classList.contains("pdfa-open")) return els.panelScroll;
     // The thumbnails panel has exactly the same problem and needs the same answer: on
     // touch a drag is claimed by the host note, so page 40's thumbnail would be as
     // unreachable as the highlight below the fold that put these buttons here.
-    if (els.thumbs && els.thumbs.classList.contains("pdfa-open")) return els.thumbs;
+    if (els.thumbs && els.thumbs.classList.contains("pdfa-open")) return els.thumbsScroll;
     return scroller();
   }
 
@@ -2680,7 +2726,15 @@ export function viewerMain() {
    * button used to call directly; this menu is purely a different entry point, not a
    * different implementation.
    */
-  function openMoreMenu(clientX, clientY) {
+  /**
+   * The overflow menu, and everything it opens.
+   *
+   * `anchor` rather than a click point, and it is PASSED DOWN to the three sub-popovers:
+   * Export, Highlight colors and Remove viewer all replace this menu in the same element,
+   * so hanging them anywhere else would make the card jump to a different place as you
+   * moved through what is meant to read as one menu.
+   */
+  function openMoreMenu(anchor) {
     // No filename heading. It lived here after being dropped from its own toolbar row for
     // duplicating Amplenote's attachment chip - but the chip sits immediately above the
     // embed, so the menu copy was the same duplication, and truncated to an ellipsis by
@@ -2698,16 +2752,16 @@ export function viewerMain() {
         downloadAnnotatedPdf();
       }, "download"),
       button("Export...", "", function () {
-        openExportPopover(clientX, clientY);
+        openExportPopover(anchor);
       }, "postAdd"),
       button("Highlight colors...", "", function () {
-        openPalettePopover(clientX, clientY);
+        openPalettePopover(anchor);
       }, "palette"),
       button("Remove viewer...", "pdfa-remove", function () {
-        openRemoveViewerPopover(clientX, clientY);
+        openRemoveViewerPopover(anchor);
       }, "remove")
     );
-    showPopover(children, clientX, clientY, "menu");
+    showPopover(children, 0, 0, "menu", anchor);
   }
 
   /**
@@ -2723,7 +2777,7 @@ export function viewerMain() {
    * on a browser-native modal from inside this iframe at all. A plain DOM popover has no
    * such dependency.
    */
-  function openRemoveViewerPopover(clientX, clientY) {
+  function openRemoveViewerPopover(anchor) {
     var hint = document.createElement("div");
     hint.className = "pdfa-export-hint";
     hint.textContent =
@@ -2737,7 +2791,7 @@ export function viewerMain() {
     actions.appendChild(spacer);
     actions.appendChild(button("Remove", "pdfa-remove", removeThisViewer));
 
-    showPopover([hint, actions], clientX, clientY, "exporting");
+    showPopover([hint, actions], 0, 0, "exporting", anchor);
   }
 
   /**
@@ -3105,17 +3159,19 @@ export function viewerMain() {
     bindHoldToScroll(els.scrollDown, 1);
     els.listToggle.onclick = function () { togglePanel(); };
     els.thumbsToggle.onclick = function () { toggleThumbnails(); };
-    els.more.onclick = function (event) {
-      openMoreMenu(event.clientX, event.clientY);
+    els.more.onclick = function () {
+      // The button, not the event: see showPopover's anchor branch for what clicking a
+      // different dot of the same glyph used to do.
+      openMoreMenu(toolbarAnchor(els.more));
     };
     scroller().addEventListener("scroll", trackScroll);
     // The panel scrolls independently - with a wheel on desktop, or by the buttons on
     // touch - so its own position has to keep them in sync too.
-    els.panel.addEventListener("scroll", syncScrollNav);
+    els.panelScroll.addEventListener("scroll", syncScrollNav);
     // Same for the thumbnails, plus the reason the panel does not have: scrolling it is
     // what brings the next pictures into range, so this is the loop that actually
     // delivers the rest of a long document's thumbnails.
-    els.thumbs.addEventListener("scroll", function () {
+    els.thumbsScroll.addEventListener("scroll", function () {
       syncScrollNav();
       ensureVisibleThumbnails();
     });

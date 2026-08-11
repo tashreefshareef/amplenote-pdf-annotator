@@ -281,8 +281,15 @@ export function buildEmbedHtml({
          highlights panel arrived at for the same reason - see .pdfa-panel in styles.js.
          It takes turns with that panel rather than sharing the box with it; two cards on
          a 700px embed leave a sliver of page between them. -->
-    <div class="pdfa-thumbs" id="pdfa-thumbs"></div>
-    <div class="pdfa-panel" id="pdfa-panel"></div>
+    <!-- The card CLIPS, the child inside it SCROLLS. Two elements rather than one because
+         a classic scrollbar is not clipped to its own container's border-radius - see
+         .pdfa-panel in styles.js for the whole reason. -->
+    <div class="pdfa-thumbs" id="pdfa-thumbs">
+      <div class="pdfa-thumbs-scroll" id="pdfa-thumbs-scroll"></div>
+    </div>
+    <div class="pdfa-panel" id="pdfa-panel">
+      <div class="pdfa-panel-scroll" id="pdfa-panel-scroll"></div>
+    </div>
     <!-- Touch-only scroll controls. Deliberately AFTER the panel so the sibling
          selector that hides them behind it works - see the CSS. -->
     <div class="pdfa-scrollnav">

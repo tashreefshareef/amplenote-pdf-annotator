@@ -127,6 +127,7 @@ describe("buildEmbedHtml", () => {
       "pdfa-colors", "pdfa-styles", "pdfa-hint", "pdfa-popover",
       "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
       "pdfa-thumbs", "pdfa-thumbs-toggle",
+      "pdfa-panel-scroll", "pdfa-thumbs-scroll",
       "pdfa-more", "pdfa-open", "pdfa-collapsed-count",
       "pdfa-scroll-up", "pdfa-scroll-down",
     ]) {
@@ -716,8 +717,35 @@ describe("buildEmbedHtml", () => {
     expect(zOf(nav)).toBeGreaterThan(zOf(panel));
     // And a gutter so a highlight's text never runs under them - touch only, since a
     // mouse never sees the buttons and must not pay for the space.
+    //
+    // On the SCROLLING child rather than the card. The card clips and has no padding of
+    // its own (it was split in two so a classic scrollbar would stop painting over its
+    // rounded corners), so a rule targeting the card would silently do nothing - which is
+    // exactly the sort of regression this test exists to catch.
     const coarse = out.match(/@media \(pointer: coarse\)[\s\S]*?\n {2}\}/)[0];
-    expect(coarse).toMatch(/\.pdfa-panel\.pdfa-open\s*\{[^}]*padding-right/);
+    expect(coarse).toMatch(/\.pdfa-panel\.pdfa-open \.pdfa-panel-scroll\s*\{[^}]*padding-right/);
+  });
+
+  // Scenario: reported live - the panel's top-right and bottom-right corners were square
+  // while the other two were round. A classic scrollbar is not clipped to its scroll
+  // container's border-radius in Chromium; it is laid out at the padding-box edge and
+  // painted over the curve, so the corners mitre on whichever side the scrollbar is on.
+  // The fix is structural, not a property: the card clips, an inner child scrolls.
+  test("keeps the scrollbar out of the panels' rounded corners", () => {
+    const out = html();
+    for (const [card, inner] of [
+      [".pdfa-panel", ".pdfa-panel-scroll"],
+      [".pdfa-thumbs", ".pdfa-thumbs-scroll"],
+    ]) {
+      const cardRule = out.match(new RegExp(`\\${card}\\s*\\{[^}]*\\}`))[0];
+      const innerRule = out.match(new RegExp(`\\${inner}\\s*\\{[^}]*\\}`))[0];
+      // The rounded one must not be the scrolling one.
+      expect(cardRule).toMatch(/border-radius/);
+      expect(cardRule).toMatch(/overflow:\s*hidden/);
+      expect(cardRule).not.toMatch(/overflow:\s*auto/);
+      expect(innerRule).toMatch(/overflow:\s*auto/);
+      expect(innerRule).not.toMatch(/border-radius/);
+    }
   });
 
   // Scenario: the viewer used to rasterize every page before showing anything, and

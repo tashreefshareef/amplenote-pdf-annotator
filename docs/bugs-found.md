@@ -762,6 +762,61 @@ clearing step at the same moment as the writing step, not when someone reports t
 
 ---
 
+## A menu anchored to the cursor moves when the button it belongs to does not
+
+**Symptom:** the toolbar's overflow menu landed somewhere different every time — over the
+colour swatches, half over them, or below the toolbar's border. Reported as depending on
+"the first dot, second dot, or third dot" of the ⋮ glyph, which is exactly what it was.
+
+**Cause:** `showPopover` positioned everything at `clientY + 12`, from the click. That is
+right for a popover opened on a text selection or a highlight, where the cursor *is* the
+subject. It is wrong for a menu belonging to a button: the glyph is ~18px tall, so the
+same button produced an 18px spread of menu positions depending on where inside it you
+happened to land.
+
+**Fix:** popovers opened from a fixed control hang from the control instead — right edge
+aligned to the button, top measured from the *toolbar's* bottom edge rather than the
+button's, so the gap matches the 8px both panels already leave below that same edge. The
+anchor is passed down to the three sub-popovers the menu opens, so the card does not jump
+as you move through what reads as one menu.
+
+**General lesson:** "where the user clicked" and "what the user clicked" are different
+anchors, and a popover helper that only accepts a point silently forces the first. The
+cursor is the right anchor only when the thing being acted on is *at* the cursor —
+selections, hit-tested objects, right-click menus. Anything hanging off a persistent
+control should be positioned from that control's box, because the user's model is that the
+menu belongs to the button, and a button that does not move should not produce a menu that
+does. The tell is a bug report phrased in terms of *where within a control* someone
+clicked.
+
+---
+
+## A rounded scroll container's scrollbar is not clipped to its own border-radius
+
+**Symptom:** the highlights panel's top-right and bottom-right corners rendered square
+while the left two stayed round. Nothing was wrong with the radius, the border or the
+shadow, and the panel had been correct before it had enough content to scroll.
+
+**Cause:** Chromium does not clip a classic (space-taking) scrollbar to its scroll
+container's `border-radius`. The scrollbar is laid out at the padding-box edge and painted
+straight over the curve, so the corners mitre on whichever side the scrollbar is on — and
+only once there is enough content to produce one, which is why it looks intermittent.
+
+**Fix:** split the two jobs across two elements. The outer card owns the shape and clips
+(`border-radius` + `overflow: hidden`); an inner child owns the scrolling. The scrollbar
+then lives inside a box whose corners are square anyway, and the card clips the result.
+
+**General lesson:** no property fixes this in place — `scrollbar-width: thin` only makes
+the square smaller and `overflow: overlay` is gone — so reaching for one wastes the time
+before you accept the structural answer. More generally: **an element that both clips a
+shape and scrolls is doing two jobs, and browsers do not composite scrollbars into the
+first one.** Any rounded, scrollable, bordered surface wants the split from the start. The
+same reasoning applies to a rounded container with a sticky child or a backdrop filter —
+whenever a decoration and a scroll region share one box, check which one the engine draws
+last.
+
+---
+
 ## A verification harness that bundles at startup will confidently measure the old build
 
 **Symptom:** while placing the underline and strikethrough bands, the harness was reporting
