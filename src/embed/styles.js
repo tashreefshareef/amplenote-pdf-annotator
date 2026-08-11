@@ -232,6 +232,21 @@ export const STYLES = `
      (No backticks anywhere in this comment - STYLES is itself a template literal.) */
   .pdfa-hl-group { position: absolute; inset: 0; }
   .pdfa-hl { position: absolute; border-radius: 2px; }
+  /* UNDERLINE AND STRIKETHROUGH are the same rect, drawn as a band instead of a fill -
+     the geometry is computed in viewer.js (markBandRect) because it depends on the line
+     height at the current zoom, which CSS here cannot see. Only the radius differs: 2px
+     on a ~2px-tall band rounds it into a lozenge with no straight edge left.
+
+     THEY KEEP THE LAYER'S MULTIPLY. That was not the original intent - the plan was to
+     exempt them, on the reasoning that only a fill sits under text. Multiply turns out to
+     be what both actually want. A strikethrough is drawn straight through the x-height, so
+     an opaque bar would hide the very words it is struck through; multiplied, the glyphs
+     stay legible underneath, which is the whole point of striking text rather than
+     deleting it. An underline is mostly over white paper, where multiply is identity, and
+     where a descender dips into it the glyph reads through the band like ink. Exempting
+     them would also have meant a second overlay layer with its own isolation, and the
+     comment above is a record of how carefully that scope had to be chosen. */
+  .pdfa-hl-band { border-radius: 1px; }
   /* The cue for "this is the highlight your link pointed at". Scrolling to it does not
      say WHICH one on a page that holds several, possibly adjacent and the same color.
      An outline, not a color or opacity change: those are what a highlight already uses
@@ -313,6 +328,20 @@ export const STYLES = `
      letting it scroll - which measures as "fits" while looking broken. */
   .pdfa-popover.pdfa-menu > * { flex: 0 0 auto; }
   .pdfa-popover.pdfa-menu .pdfa-btn:hover { background: var(--pdfa-btn-hover); }
+  /* THE SHAPE ROW on an existing mark's popover: highlight / underline / strikethrough,
+     above the eleven swatches. flex-basis 100% forces its own line in a popover that is
+     otherwise a wrapping row of swatches and buttons - without it the three buttons pack
+     in beside the first few colors and the card reads as one undifferentiated grid.
+     The rule under it separates the two questions the card asks (what shape, what color)
+     without spending a whole divider element on it. */
+  .pdfa-shape-row { display: flex; gap: 2px; flex: 0 0 100%; padding-bottom: 5px;
+    margin-bottom: 2px; border-bottom: 1px solid var(--pdfa-border); }
+  /* Icon-only, so it drops .pdfa-btn's text padding and squares up. The pressed state is
+     the same tint the toolbar uses for its own active control, for the same reason: the
+     mark's CURRENT shape has to be readable before you can choose a different one. */
+  .pdfa-shape-btn { padding: 6px; }
+  .pdfa-shape-btn[aria-pressed="true"] { background: var(--pdfa-btn-hover); }
+  .pdfa-shape-btn[aria-pressed="true"] .pdfa-icon { opacity: 1; }
   .pdfa-export-colors { display: flex; gap: 6px; padding: 2px 0 8px; }
   .pdfa-export-hint { font-size: 12px; opacity: .75; padding-bottom: 6px; }
   /* THE PALETTE PICKER (openPalettePopover). Eleven swatches need to wrap; the export
@@ -384,7 +413,20 @@ export const STYLES = `
   .pdfa-hl-row { display: flex; gap: 8px; padding: 7px 6px; border-radius: 6px;
     cursor: pointer; align-items: flex-start; }
   .pdfa-hl-row:hover { background: var(--pdfa-btn-hover); }
-  .pdfa-chip { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; margin-top: 3px; }
+  /* The chip says color AND shape, so it takes its fill from a custom property rather
+     than an inline background - the two band variants below need the same color in a
+     pseudo-element, which an inline style cannot reach. */
+  .pdfa-chip { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; margin-top: 3px;
+    background: var(--pdfa-chip-color); }
+  /* Same three shapes as the page, shrunk: a filled square, a bar at the bottom, a bar
+     through the middle. Small, but it is the only thing in a row of quoted text that can
+     say which kind of mark it came from, and a row that only showed color would make two
+     marks on the same sentence indistinguishable. */
+  .pdfa-chip-band { background: none; border-radius: 0; position: relative; }
+  .pdfa-chip-band::after { content: ""; position: absolute; left: 0; right: 0; height: 3px;
+    border-radius: 1px; background: var(--pdfa-chip-color); }
+  .pdfa-chip-underline::after { bottom: 1px; }
+  .pdfa-chip-strike::after { top: 4px; }
   .pdfa-hl-page { font-size: 11px; opacity: .6; margin-bottom: 2px; }
   .pdfa-hl-quote { font-size: 12px; line-height: 1.35; }
   /* Italic and indented so a note is never mistaken for the quoted text - the spec is
@@ -499,6 +541,11 @@ export const STYLES = `
        in this toolbar that silently changes the document. Spreading them gives each
        one room to be 30px wide without touching its neighbour. */
     #pdfa-colors { display: inline-flex; gap: 10px; vertical-align: middle; }
+    /* The shape group needs no spreading of its own - each button is already a 40px
+       square from the icon-button rule above, so the targets cannot overlap. It is
+       declared here only so the three read as one control rather than three loose
+       buttons once they are that wide. */
+    #pdfa-styles { display: inline-flex; align-items: center; gap: 0; }
     /* The whole collapsed bar becomes the tap target, not just its Expand button.
        The bar's box is sized by data-aspect-ratio as a fraction of the note width
        (see constants.js), so on a phone it is ~22px tall - too short to ever hold a

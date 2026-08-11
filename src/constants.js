@@ -91,6 +91,30 @@ export const COLOR_SETTING_NAME = "Highlight colors";
 
 export const DEFAULT_COLOR_ID = "yellow";
 
+/**
+ * The three shapes a mark can take. A mark is a COLOR PLUS A SHAPE: all three reuse the
+ * same eleven-color catalog above, the same stored rects, and the same export plumbing -
+ * only the paint differs. There is deliberately no separate palette per shape.
+ *
+ * `pdfSubtype` is the PDF annotation subtype each one writes on Download. All three are
+ * native text-markup annotations taking the same /QuadPoints and /C we already build, so
+ * a downloaded PDF opens with real, selectable marks in any reader rather than flattened
+ * drawings. See src/annotations.js for the appearance streams, which are NOT shared:
+ * only the highlight fill sits under text and wants /Multiply.
+ *
+ * `highlight` MUST be first and MUST be the default. Every highlight stored before this
+ * field existed has no `style` at all, and normalizeMarkStyle resolves that to the first
+ * entry - so an old note replays exactly as it was written.
+ */
+export const MARK_STYLES = [
+  ["highlight", "Highlight", "Highlight"],
+  ["underline", "Underline", "Underline"],
+  ["strike", "Strikethrough", "StrikeOut"],
+].map(([id, label, pdfSubtype]) => ({ id, label, pdfSubtype }));
+
+/** What a mark with no recorded shape is. See MARK_STYLES on why it cannot change. */
+export const DEFAULT_MARK_STYLE = MARK_STYLES[0].id;
+
 /** Marker for the managed note section that stores annotation JSON (spec section 7.4). */
 export const STORAGE_SECTION_HEADING = "PDF Annotator data";
 

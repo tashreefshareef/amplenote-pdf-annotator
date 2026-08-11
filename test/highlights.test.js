@@ -10,6 +10,8 @@ import {
   createHighlight,
   withNote,
   withColor,
+  withStyle,
+  normalizeMarkStyle,
   highlightsForPage,
   removeHighlight,
   findHighlight,
@@ -32,6 +34,10 @@ describe("createHighlight", () => {
       id: expect.any(String),
       page: 3,
       color: "yellow",
+      // Written out even when it is the default, so the stored JSON has one shape rather
+      // than two - see createHighlight. The "mark shape" block below covers reading a
+      // record saved before this field existed.
+      style: "highlight",
       rects: [{ x: 10, y: 20, width: 100, height: 12 }],
       quoteText: "hello world",
       note: null,
@@ -179,5 +185,65 @@ describe("collection helpers", () => {
   test("updateHighlight returns the same array reference when the id is not found", () => {
     const result = updateHighlight(all, "missing", (h) => h);
     expect(result).toBe(all);
+  });
+});
+
+/**
+ * MARK SHAPE - highlight, underline or strikethrough.
+ *
+ * The field arrived after the format shipped, so the case these tests exist for is not
+ * "does it store a string" but "does a note written before the field existed still read
+ * back exactly as it was written". Every load goes through createHighlight
+ * (sanitizeHighlights in storage.js), so that upgrade path is this constructor's job and
+ * a regression in it would silently restyle a whole document.
+ */
+describe("mark shape", () => {
+  test("a highlight stored before the field existed reads back as a highlight", () => {
+    const legacy = createHighlight(validArgs());
+    expect(legacy.style).toBe("highlight");
+  });
+
+  test("createHighlight keeps a shape it recognizes", () => {
+    expect(createHighlight({ ...validArgs(), style: "underline" }).style).toBe("underline");
+    expect(createHighlight({ ...validArgs(), style: "strike" }).style).toBe("strike");
+  });
+
+  // Scenario: the storage section is JSON sitting in the user's own note, so it can be
+  // hand-edited. A shape we don't know must paint as a highlight rather than throw -
+  // throwing means sanitizeHighlights drops the entry and the annotation is simply gone.
+  test("an unrecognized shape falls back to highlight instead of dropping the mark", () => {
+    const h = createHighlight({ ...validArgs(), style: "squiggle" });
+    expect(h.style).toBe("highlight");
+    expect(h.rects).toHaveLength(validArgs().rects.length);
+  });
+
+  test("normalizeMarkStyle forgives case, padding and the visible label", () => {
+    expect(normalizeMarkStyle("  UNDERLINE ")).toBe("underline");
+    expect(normalizeMarkStyle("Strikethrough")).toBe("strike");
+    expect(normalizeMarkStyle(null)).toBe("highlight");
+    expect(normalizeMarkStyle("")).toBe("highlight");
+  });
+
+  test("withStyle returns a new object and leaves the original alone", () => {
+    const h = createHighlight(validArgs());
+    const underlined = withStyle(h, "underline");
+    expect(underlined.style).toBe("underline");
+    expect(h.style).toBe("highlight");
+    expect(underlined).not.toBe(h);
+    expect(underlined.color).toBe(h.color);
+  });
+
+  // Scenario: withStyle is a deliberate edit from the viewer, not a read of stored data.
+  // A shape it doesn't know means the two sides disagree about what exists, and silently
+  // resolving to "highlight" would make "make this an underline" look like a dead click.
+  test("withStyle throws on an unknown shape rather than falling back", () => {
+    const h = createHighlight(validArgs());
+    expect(() => withStyle(h, "squiggle")).toThrow(/unknown mark style/i);
+  });
+
+  test("changing shape leaves the color alone, and vice versa", () => {
+    const h = createHighlight({ ...validArgs(), color: "green", style: "strike" });
+    expect(withStyle(h, "underline").color).toBe("green");
+    expect(withColor(h, "blue").style).toBe("strike");
   });
 });

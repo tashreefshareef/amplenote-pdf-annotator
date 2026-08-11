@@ -29,7 +29,13 @@
  *    viewer ran before the library existed. The viewer therefore loads PDF.js itself
  *    and waits for onload - the sequence proven to work in the live app.
  */
-import { CDN, HIGHLIGHT_COLORS, DEFAULT_TOOLBAR_COLOR_IDS } from "../constants.js";
+import {
+  CDN,
+  HIGHLIGHT_COLORS,
+  DEFAULT_TOOLBAR_COLOR_IDS,
+  MARK_STYLES,
+  DEFAULT_MARK_STYLE,
+} from "../constants.js";
 import { defaultColorIdFor } from "../colors.js";
 // Its own module so the build can minify it - see the header there. Jest imports this
 // path and gets the readable original; only the bundle gets the compressed one.
@@ -144,6 +150,12 @@ export function buildEmbedHtml({
     // ...and which of them get circles. Display only - nothing resolves through this.
     toolbarColorIds,
     defaultColorId: defaultColorIdFor(toolbarColorIds),
+    // The three mark shapes, for the toolbar group and the popover's shape row. Whole list
+    // for the same reason the whole color catalog travels: this is what RESOLVES a stored
+    // mark, and a shape missing from it would paint as something the record does not say.
+    // Unlike the colors there is no user-configurable subset - three shapes is the set.
+    markStyles: MARK_STYLES.map((s) => ({ id: s.id, label: s.label })),
+    defaultMarkStyle: DEFAULT_MARK_STYLE,
     // The popovers are built at runtime by viewer.js, which is serialized standalone and
     // can import nothing - so its icons travel as data, the same way the colors do.
     icons: MENU_ICONS,
@@ -201,6 +213,17 @@ export function buildEmbedHtml({
            title="Zoom level - type a percentage and press Enter" value="125%">
     <button id="pdfa-zoom-in" class="pdfa-icon-btn" title="Zoom in"
             aria-label="Zoom in">${icon(ICONS.add)}</button>
+    <span class="pdfa-sep"></span>
+    <!-- WHICH SHAPE the swatches paint: highlight, underline or strikethrough. A group of
+         pressed-state buttons holding one active shape, the way Amplenote's own H2 button
+         holds "the cursor is in a heading" - not a dropdown. The alternative designs were
+         a single button opening a three-item menu (cheaper in bar width, but it hides the
+         state that decides what your next click does behind a glyph you have to open a
+         menu to read) and two extra verb buttons with no mode at all (which cannot work
+         here: a swatch APPLIES on click when there is a selection, so by the time you
+         reached the underline button the phrase would already be highlighted).
+         Deliberately BEFORE the colors, reading left to right as "underline, in green". -->
+    <span id="pdfa-styles"></span>
     <span class="pdfa-sep"></span>
     <!-- The four single-click highlight color buttons, mounted by the viewer from
          config.toolbarColorIds (which four) resolved against config.colors (the whole

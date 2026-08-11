@@ -50,6 +50,7 @@ export function viewerMain() {
     pageLabel: document.getElementById("pdfa-page-label"),
     zoomLabel: document.getElementById("pdfa-zoom-label"),
     colors: document.getElementById("pdfa-colors"),
+    styles: document.getElementById("pdfa-styles"),
     hint: document.getElementById("pdfa-hint"),
     popover: document.getElementById("pdfa-popover"),
     panel: document.getElementById("pdfa-panel"),
@@ -110,6 +111,11 @@ export function viewerMain() {
     // it could only be filled in by the runtime lookup that was silently failing.
     attachmentName: cfg.attachmentName || "",
     activeColorId: cfg.defaultColorId || ((cfg.colors || [{}])[0] || {}).id,
+    // Which shape the swatches paint. STICKY, deliberately: underlining three things in a
+    // row should be three clicks, not six. It resets to nothing - the one cost of the
+    // choice is that a shape left selected is a shape you can forget you are in, which the
+    // pressed button in the bar is there to answer.
+    activeStyle: cfg.defaultMarkStyle || ((cfg.markStyles || [{}])[0] || {}).id || "highlight",
     // The last text selection made inside a text layer, already converted to PDF space.
     // Held because clicking a toolbar button collapses the DOM selection before the
     // click handler runs - by then window.getSelection() is empty.
@@ -221,6 +227,90 @@ export function viewerMain() {
     return list.length ? list[0].hex : "#F4DE6C";
   }
 
+  // ---- mark shapes ---------------------------------------------------------
+
+  /**
+   * The three shapes, from config. The fallback keeps a hand-built config from leaving the
+   * bar with no shape group at all, the same guard toolbarColors applies to the swatches -
+   * except that here the group vanishing would ALSO strand every underline in the document
+   * with no way to convert it back.
+   */
+  function styleList() {
+    var list = cfg.markStyles || [];
+    return list.length ? list : [{ id: "highlight", label: "Highlight" }];
+  }
+
+  /**
+   * A stored mark's shape, resolved for painting.
+   *
+   * Mirrors normalizeMarkStyle on the plugin side, and must keep mirroring it: a mark saved
+   * before the field existed has no `style`, and a note the user hand-edited can carry a
+   * shape neither side knows. Both paint as a highlight rather than not painting at all.
+   */
+  function styleOf(highlight) {
+    var id = highlight && highlight.style;
+    if (!id) return "highlight";
+    var list = styleList();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return id;
+    return "highlight";
+  }
+
+  function styleLabel(id) {
+    var list = styleList();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].label;
+    return "Highlight";
+  }
+
+  /**
+   * Where a shape actually paints inside one line's rect.
+   *
+   * A highlight is the whole rect; the other two are a band across it. Everything here is
+   * a FRACTION of the rect's height rather than a fixed pixel count, because the rect
+   * arrives already scaled to the current zoom - a hard 2px band is a hairline at 250% and
+   * a slab at 50% - and because the same page mixes body text with headings twice the size.
+   *
+   * THE NUMBERS ARE MEASURED, NOT CHOSEN. They come from reading the actual rendered ink
+   * off the PDF.js canvas in the harness: for each line, the count of dark pixels per row,
+   * which gives the ascender top, the x-height band, the baseline and the descender depth
+   * directly. Two findings out of that, both stable across 15px body text and a 22.5px
+   * bold heading:
+   *
+   *   1. THE RECT ENDS AT ROUGHLY THE BASELINE - just above it, in fact: the ink profile
+   *      puts the baseline about 1.08 of the way down, and the descenders keep going to
+   *      about 1.23. The rect is an ascender-to-baseline box and excludes descenders
+   *      entirely, which is not something its name or its shape tells you, and it is why
+   *      an underline has to be drawn BELOW the rect rather than inside it.
+   *   2. The x-height starts about 0.46 of the way down. So the middle of the lowercase
+   *      letters - the only place a strikethrough belongs - is (0.46 + 1.08) / 2 of the
+   *      way down, which is where STRIKE_CENTRE comes from.
+   *
+   * A first attempt guessed 0.45 for the strike and put it at the TOP of the x-height,
+   * reading as a crooked overline, and drew the underline inside the rect where it crossed
+   * the bottoms of the letters instead of sitting under them. Both looked plausible in the
+   * source and were wrong on the page; if these numbers ever need revisiting, measure the
+   * ink again rather than nudging them by eye.
+   */
+  var STRIKE_CENTRE = 0.77;
+  /**
+   * How far BELOW the rect the underline starts - clear of the baseline, in the descender
+   * space the rect excludes. The band then overlaps the descenders slightly, which is what
+   * an underline is supposed to do; sitting clear of them entirely would read as a rule
+   * under the paragraph rather than an underline on the words.
+   */
+  var UNDERLINE_GAP = 0.15;
+  var BAND_THICKNESS = 0.12;
+
+  function markBandRect(vr, styleId) {
+    if (styleId !== "underline" && styleId !== "strike") return vr;
+    // The floor keeps the band from vanishing on a very small zoom, where a fraction of a
+    // short rect rounds to less than a device pixel.
+    var thickness = Math.max(1.5, vr.height * BAND_THICKNESS);
+    var top = styleId === "underline"
+      ? vr.y + vr.height + Math.max(1, vr.height * UNDERLINE_GAP)
+      : vr.y + vr.height * STRIKE_CENTRE - thickness / 2;
+    return { x: vr.x, y: top, width: vr.width, height: thickness };
+  }
+
   function findHighlight(id) {
     for (var i = 0; i < state.highlights.length; i++) {
       if (state.highlights[i].id === id) return state.highlights[i];
@@ -312,15 +402,76 @@ export function viewerMain() {
           state.activeColorId = colorId;
           updateColorButtons();
           if (state.pendingSelection) applyHighlight(state.pendingSelection, colorId);
-        }, "Highlight")
+        }, styleLabel(state.activeStyle))
       );
     }
   }
 
+  /**
+   * Also RELABELS the swatches, not just the pressed ring.
+   *
+   * A swatch's name is the whole sentence it will carry out - "Underline Yellow" - so it
+   * has to change when the shape does. Leaving it at "Highlight Yellow" would make the
+   * tooltip and the screen-reader name state the wrong action for a control that is one
+   * click from editing the document, which is worse than no name at all.
+   */
   function updateColorButtons() {
+    var prefix = styleLabel(state.activeStyle);
     var btns = els.colors.querySelectorAll(".pdfa-color");
     for (var i = 0; i < btns.length; i++) {
-      btns[i].setAttribute("aria-pressed", String(btns[i].dataset.color === state.activeColorId));
+      var id = btns[i].dataset.color;
+      btns[i].setAttribute("aria-pressed", String(id === state.activeColorId));
+      var name = prefix + " " + colorLabel(id);
+      btns[i].title = name;
+      btns[i].setAttribute("aria-label", name);
+    }
+  }
+
+  function colorLabel(id) {
+    var list = colorList();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].label;
+    return id;
+  }
+
+  // ---- toolbar shapes ------------------------------------------------------
+
+  /**
+   * Mount the three shape buttons.
+   *
+   * Unlike a swatch, this does NOT apply to a live selection - it only chooses what the
+   * next color click will paint. Applying here would make the group a fourth way to create
+   * a mark and, worse, would create one in the active color the moment you touched it,
+   * which is the opposite of "pick the shape, then pick the color". The selection survives
+   * the click (no setPending(null)) precisely so that order works.
+   */
+  function mountStyleButtons() {
+    var list = styleList();
+    for (var i = 0; i < list.length; i++) {
+      (function (entry) {
+        var btn = document.createElement("button");
+        btn.className = "pdfa-icon-btn";
+        btn.dataset.style = entry.id;
+        btn.title = entry.label;
+        btn.setAttribute("aria-label", entry.label);
+        var glyph = iconEl(entry.id);
+        if (glyph) btn.appendChild(glyph);
+        else btn.textContent = entry.label;
+        btn.onclick = function (event) {
+          event.stopPropagation();
+          state.activeStyle = entry.id;
+          updateStyleButtons();
+          updateColorButtons();
+        };
+        els.styles.appendChild(btn);
+      })(list[i]);
+    }
+    updateStyleButtons();
+  }
+
+  function updateStyleButtons() {
+    var btns = els.styles.querySelectorAll("button");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute("aria-pressed", String(btns[i].dataset.style === state.activeStyle));
     }
   }
 
@@ -601,10 +752,15 @@ export function viewerMain() {
         group.className = "pdfa-hl-group";
         group.dataset.id = h.id || "";
 
+        // The shape changes only what is PAINTED. The stored rects, and so the hit test
+        // that finds this mark under a click (geometry.js), stay the full line box - an
+        // underline is clickable across the whole line it underlines, not just on the 2px
+        // band, which is the difference between a control and a target practice.
+        var styleId = styleOf(h);
         for (var k = 0; k < h.rects.length; k++) {
-          var vr = geom.pdfRectToViewportRect(h.rects[k], convert);
+          var vr = markBandRect(geom.pdfRectToViewportRect(h.rects[k], convert), styleId);
           var el = document.createElement("div");
-          el.className = "pdfa-hl";
+          el.className = "pdfa-hl" + (styleId === "highlight" ? "" : " pdfa-hl-band");
           el.style.left = vr.x + "px";
           el.style.top = vr.y + "px";
           el.style.width = vr.width + "px";
@@ -671,9 +827,15 @@ export function viewerMain() {
     row.dataset.id = highlight.id || "";
     row.title = "Jump to this highlight";
 
+    // Color AND shape. Two marks on the same sentence in the same color are otherwise
+    // identical rows. The fill goes on a custom property because the band variants paint
+    // through a pseudo-element, which an inline background cannot reach.
+    var chipStyle = styleOf(highlight);
     var chip = document.createElement("span");
-    chip.className = "pdfa-chip";
-    chip.style.background = colorHex(highlight.color);
+    chip.className =
+      "pdfa-chip" + (chipStyle === "highlight" ? "" : " pdfa-chip-band pdfa-chip-" + chipStyle);
+    chip.style.setProperty("--pdfa-chip-color", colorHex(highlight.color));
+    chip.title = styleLabel(chipStyle);
     row.appendChild(chip);
 
     var body = document.createElement("div");
@@ -1003,6 +1165,10 @@ export function viewerMain() {
       id: null,
       page: selection.page,
       color: colorId,
+      // Read at APPLY time, not captured when the selection was made: the shape group and
+      // the swatches are separate clicks, so the shape can legitimately change between
+      // selecting text and choosing the color that commits it.
+      style: state.activeStyle,
       rects: selection.rects,
       quoteText: selection.quoteText,
       note: null,
@@ -1046,6 +1212,35 @@ export function viewerMain() {
       pluginUUID: cfg.pluginUUID,
       id: id,
       color: colorId,
+      exportBlock: updated ? exportBlockFor(updated) : null,
+    });
+  }
+
+  /**
+   * Change an existing mark's shape. recolorHighlight's twin, and deliberately shaped the
+   * same way down to the rebuilt export block.
+   *
+   * The block matters here for the same reason it does for color, and slightly more: a
+   * block already sent to a note quotes the text and links back, and if the mark it came
+   * from is now a strikethrough while the block still reads as a plain highlight, the note
+   * is asserting something about the document that is no longer true. Rebuilt client-side
+   * from the already-restyled record, like every other export (src/export.js).
+   */
+  function restyleHighlight(id, styleId) {
+    closePopover(true);
+    var restyled = state.highlights.map(function (h) {
+      return h.id === id ? Object.assign({}, h, { style: styleId }) : h;
+    });
+    var updated = null;
+    for (var i = 0; i < restyled.length; i++) {
+      if (restyled[i].id === id) updated = restyled[i];
+    }
+    applyChange(restyled, {
+      action: "restyleHighlight",
+      attachmentUUID: cfg.attachmentUUID,
+      pluginUUID: cfg.pluginUUID,
+      id: id,
+      style: styleId,
       exportBlock: updated ? exportBlockFor(updated) : null,
     });
   }
@@ -1156,9 +1351,13 @@ export function viewerMain() {
           state.activeColorId = colorId;
           updateColorButtons();
           applyHighlight(selection, colorId);
-        }, "Highlight")
+        }, styleLabel(state.activeStyle))
       );
     }
+    // Colors only, still - no shape row here. This popover exists to be the ONE click
+    // between selecting text and having marked it, and the toolbar group is right above
+    // it holding the shape. Adding three more buttons to the fast path would cost that
+    // click for every ordinary highlight to save one for the occasional underline.
     showPopover(children, selection.anchorX, selection.anchorY);
   }
 
@@ -1172,8 +1371,42 @@ export function viewerMain() {
    * already wearing a non-toolbar color can show its own swatch as the pressed one.
    */
   function openHighlightPopover(highlight, clientX, clientY, justCreated) {
-    var list = colorList();
     var children = [];
+
+    // SHAPE FIRST, on its own row above the colors. Without it a mark could only be
+    // changed by removing it and drawing it again - which loses its note, and on a mark
+    // already sent to a note also destroys the exported block. Free to put here in a way
+    // it is not in the toolbar: this card wraps at 320px and already carries eleven
+    // swatches, so a row of three costs layout nothing.
+    var shapes = styleList();
+    var currentStyle = styleOf(highlight);
+    if (shapes.length > 1) {
+      var shapeRow = document.createElement("span");
+      shapeRow.className = "pdfa-shape-row";
+      for (var s = 0; s < shapes.length; s++) {
+        (function (entry) {
+          var btn = document.createElement("button");
+          btn.className = "pdfa-btn pdfa-shape-btn";
+          btn.dataset.style = entry.id;
+          btn.title = "Change to " + entry.label.toLowerCase();
+          btn.setAttribute("aria-label", btn.title);
+          btn.setAttribute("aria-pressed", String(entry.id === currentStyle));
+          var glyph = iconEl(entry.id);
+          if (glyph) btn.appendChild(glyph);
+          else btn.textContent = entry.label;
+          btn.onclick = function (event) {
+            event.stopPropagation();
+            // A no-op click still closes, like picking the color a mark already has.
+            if (entry.id === currentStyle) return closePopover(true);
+            restyleHighlight(highlight.id, entry.id);
+          };
+          shapeRow.appendChild(btn);
+        })(shapes[s]);
+      }
+      children.push(shapeRow);
+    }
+
+    var list = colorList();
     for (var i = 0; i < list.length; i++) {
       children.push(
         makeSwatch(list[i], list[i].id === highlight.color, function (colorId) {
@@ -2699,6 +2932,10 @@ export function viewerMain() {
       closePopover();
     });
 
+    // Shapes before colors, matching the bar's own left-to-right reading: pick a shape,
+    // then a color. mountStyleButtons also seeds the pressed state, and the swatches take
+    // their names from whichever shape it leaves active - so this must come first.
+    mountStyleButtons();
     mountColorButtons();
     renderPanel();
     // Bound to the whole bar, not just its Expand button - a click on the button bubbles

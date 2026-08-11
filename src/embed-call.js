@@ -27,6 +27,7 @@ import {
   updateHighlight,
   withColor,
   withNote,
+  withStyle,
 } from "./highlights.js";
 
 /**
@@ -204,6 +205,40 @@ export async function handleEmbedCall(app, payload) {
         return result;
       } catch (err) {
         return { error: `Could not change the highlight color: ${err.message}` };
+      }
+    }
+
+    /**
+     * recolorHighlight's twin, for the shape - highlight, underline or strikethrough.
+     *
+     * Kept as its OWN action rather than folded into recolorHighlight with an optional
+     * field. The two carry different failure text, and a combined handler would have to
+     * decide what "change nothing" means when a caller sends neither; more to the point,
+     * the export block is rebuilt for a different reason in each case, and collapsing them
+     * would put both reasons behind one name.
+     *
+     * withStyle THROWS on a shape it does not know, which is deliberate - see its comment
+     * in highlights.js. That lands in the catch below as a message the viewer shows,
+     * rather than silently turning "make this an underline" into a no-op.
+     */
+    case "restyleHighlight": {
+      if (!request.attachmentUUID) return { error: "No attachment specified for this viewer." };
+      try {
+        const noteUUID = resolveNoteUUID(app, request);
+        const result = await mutateHighlights(app, noteUUID, request.attachmentUUID, (list) =>
+          updateHighlight(list, request.id, (h) => withStyle(h, request.style))
+        );
+        // A block already sent to the note still describes the OLD shape - it quotes the
+        // text and links back, so leaving it is the note asserting something about the
+        // document that stopped being true. Same treatment recolor gives the colour.
+        if (request.exportBlock) {
+          await editNoteBody(app, noteUUID, request, (content) =>
+            replaceExportBlock(content, request.pluginUUID, request.attachmentUUID, request.id, request.exportBlock)
+          );
+        }
+        return result;
+      } catch (err) {
+        return { error: `Could not change the mark: ${err.message}` };
       }
     }
 

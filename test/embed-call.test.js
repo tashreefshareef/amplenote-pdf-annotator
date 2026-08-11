@@ -310,6 +310,94 @@ describe("recolorHighlight", () => {
   });
 });
 
+/**
+ * Changing a mark's SHAPE - highlight, underline, strikethrough.
+ *
+ * Mirrors recolorHighlight above deliberately, because the two are the same operation on
+ * a different field and the ways they can go wrong are the same ways.
+ */
+describe("restyleHighlight", () => {
+  test("changes only the targeted mark's shape", async () => {
+    const app = appWithNote();
+    const a = await call(app, { action: "addHighlight", attachmentUUID: ATT, highlight: draft() });
+    await call(app, {
+      action: "addHighlight",
+      attachmentUUID: ATT,
+      highlight: draft({ quoteText: "untouched" }),
+    });
+    const targetId = a.highlights[0].id;
+
+    const result = await call(app, {
+      action: "restyleHighlight",
+      attachmentUUID: ATT,
+      id: targetId,
+      style: "underline",
+    });
+
+    expect(result.highlights.find((h) => h.id === targetId).style).toBe("underline");
+    expect(result.highlights.find((h) => h.id !== targetId).style).toBe("highlight");
+    // And it survived the write, not just the in-memory copy.
+    expect((await loadHighlights(app, NOTE, ATT)).find((h) => h.id === targetId).style).toBe(
+      "underline"
+    );
+  });
+
+  // Scenario: converting a mark must not cost the note attached to it. Remove-and-redraw
+  // is the alternative this action exists to replace, and that loses the note - so if the
+  // supported path lost it too there would be no way to change a mark's shape and keep it.
+  test("preserves rects, quote text, note and color when restyling", async () => {
+    const app = appWithNote();
+    const added = await call(app, {
+      action: "addHighlight",
+      attachmentUUID: ATT,
+      highlight: draft({ note: "worth remembering", color: "green" }),
+    });
+    const original = added.highlights[0];
+
+    const result = await call(app, {
+      action: "restyleHighlight",
+      attachmentUUID: ATT,
+      id: original.id,
+      style: "strike",
+    });
+
+    expect(result.highlights[0]).toEqual({ ...original, style: "strike" });
+  });
+
+  // Scenario: the viewer and the plugin disagreeing about which shapes exist. Falling back
+  // to "highlight" would make the click look dead; refusing says so out loud.
+  test("refuses an unknown shape and leaves the stored mark alone", async () => {
+    const app = appWithNote();
+    const added = await call(app, { action: "addHighlight", attachmentUUID: ATT, highlight: draft() });
+
+    const result = await call(app, {
+      action: "restyleHighlight",
+      attachmentUUID: ATT,
+      id: added.highlights[0].id,
+      style: "squiggle",
+    });
+
+    expect(result.error).toMatch(/could not change the mark/i);
+    expect((await loadHighlights(app, NOTE, ATT))[0].style).toBe("highlight");
+  });
+
+  test("is a no-op for an unknown id and does not rewrite the note", async () => {
+    const app = appWithNote();
+    await call(app, { action: "addHighlight", attachmentUUID: ATT, highlight: draft() });
+    const writesBefore = app.replaceNoteContent.mock.calls.length;
+
+    const result = await call(app, {
+      action: "restyleHighlight",
+      attachmentUUID: ATT,
+      id: "hl-does-not-exist",
+      style: "underline",
+    });
+
+    expect(result.highlights).toHaveLength(1);
+    expect(app.replaceNoteContent.mock.calls.length).toBe(writesBefore);
+  });
+});
+
 describe("setHighlightNote", () => {
   /** Create one highlight and hand back its id. */
   const seed = async (app, overrides) => {
@@ -926,6 +1014,7 @@ describe("unknown and failing requests", () => {
       "loadHighlights",
       "addHighlight",
       "recolorHighlight",
+      "restyleHighlight",
       "removeHighlight",
       "setHighlightNote",
     ];
