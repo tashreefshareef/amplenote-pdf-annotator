@@ -16,6 +16,49 @@ import * as esbuild from "esbuild";
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 
 const OUT_DIR = "dist";
+
+/**
+ * Compress the embed stylesheet on its way into the bundle.
+ *
+ * WHY A PLUGIN AND NOT JUST TIDIER CSS. src/embed/styles.js exports the stylesheet as a
+ * template literal, and esbuild has no idea that string is CSS - `minify: true` compresses
+ * the JS around it and ships the string byte for byte. That put 33.5k characters into a
+ * note capped at 100k, 22k of them comments, at a point where the whole bundle had about
+ * 1k of headroom left. Minifying here recovers roughly a quarter of the note.
+ *
+ * The transform is esbuild's own CSS minifier rather than a regex: a regex that strips
+ * "comments" also eats the "//" inside a url(), and one that collapses whitespace joins
+ * selectors across a newline. This parses the CSS properly or fails loudly.
+ *
+ * JSON.stringify, not a re-emitted template literal, so a backtick or a "${" that someone
+ * later writes into the CSS cannot escape the string and silently corrupt the bundle.
+ *
+ * THE MATCH IS ASSERTED. If styles.js is ever reshaped - renamed export, a second
+ * declaration, a helper alongside it - this must fail the build rather than quietly pass
+ * the file through unminified and let the note creep back over its cap months later.
+ */
+const minifyStylesheet = {
+  name: "minify-embed-stylesheet",
+  setup(build) {
+    build.onLoad({ filter: /[\\/]embed[\\/]styles\.js$/ }, async (args) => {
+      const source = readFileSync(args.path, "utf8");
+      const match = source.match(/export const STYLES = `([\s\S]*?)\n`;\s*$/);
+      if (!match) {
+        throw new Error(
+          "minify-embed-stylesheet: src/embed/styles.js no longer ends in a single " +
+            "`export const STYLES = \\`...\\`;`. Fix this plugin's pattern rather than " +
+            "removing it, or the stylesheet ships unminified and the note creeps over 100k."
+        );
+      }
+      const { code } = await esbuild.transform(match[1], { loader: "css", minify: true });
+      cssSaving = match[1].length - code.length;
+      return { contents: `export const STYLES = ${JSON.stringify(code)};`, loader: "js" };
+    });
+  },
+};
+
+/** Reported at the end of the build, so a regression in the above is visible. */
+let cssSaving = 0;
 /** Sync target for Amplenote Plugin Builder - see the format contract below. */
 const SYNC_FILE = `${OUT_DIR}/plugin.js`;
 /** Manual clipboard-paste fallback. */
@@ -43,6 +86,7 @@ const result = await esbuild.build({
   // travels through clipboards and note storage of uncertain encoding; a stray em-dash
   // in a user-facing message once arrived in Amplenote as mojibake.
   charset: "ascii",
+  plugins: [minifyStylesheet],
   write: false,
 });
 
@@ -118,3 +162,4 @@ writeFileSync(PASTE_FILE, pasteOutput, "utf8");
 const kb = (Buffer.byteLength(pasteOutput, "utf8") / 1024).toFixed(1);
 const headroom = Math.round((1 - pasteOutput.length / MAX_NOTE_CHARS) * 100);
 console.log(`Built ${SYNC_FILE} + ${PASTE_FILE} (${kb} kB, ${headroom}% under the note limit)`);
+console.log(`  stylesheet minified: ${cssSaving.toLocaleString("en-US")} characters saved`);

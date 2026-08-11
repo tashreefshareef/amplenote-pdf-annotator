@@ -19,18 +19,37 @@ import { fileURLToPath } from "node:url";
  */
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url).href), "utf8");
 
-describe("template-literal hazards in src/embed/html.js", () => {
+describe("template-literal hazards in src/embed/styles.js", () => {
+  /**
+   * The same pattern the build's minify-embed-stylesheet plugin uses to find the
+   * stylesheet. Asserted from both sides on purpose: here it fails as a named test, and in
+   * esbuild.js it fails the build - which matters because a silent non-match there means
+   * the stylesheet ships unminified and the note creeps back toward its 100k cap with
+   * nothing pointing at the cause.
+   */
+  const STYLES_LITERAL = /export const STYLES = `([\s\S]*?)\n`;\s*$/;
+
   // Scenario: the stylesheet is a template literal, so a single backtick anywhere inside
   // it - most easily in a CSS comment quoting a property name, which is exactly how
   // comments elsewhere in this codebase are written - ends the string early and stops the
   // module parsing. Done twice in one session before this test existed.
   test("the STYLES stylesheet contains no backtick", () => {
-    const source = read("../src/embed/html.js");
-    const styles = source.match(/const STYLES = `([\s\S]*?)\n`;/);
+    const styles = read("../src/embed/styles.js").match(STYLES_LITERAL);
     // If this fails, STYLES was renamed or reshaped - fix the pattern rather than
     // deleting the test, or the guard silently stops guarding.
     expect(styles).not.toBeNull();
     expect(styles[1]).not.toContain("`");
+  });
+
+  // The build extracts the stylesheet by pattern and hands the captured text to esbuild's
+  // CSS minifier, so an interpolation would arrive as the literal characters "${theme}" in
+  // the middle of a rule rather than as a value. Nothing needs one today; this is here so
+  // that adding one is a failing test rather than a stylesheet that silently stops parsing
+  // in the browser.
+  test("the STYLES stylesheet interpolates nothing", () => {
+    const styles = read("../src/embed/styles.js").match(STYLES_LITERAL);
+    expect(styles).not.toBeNull();
+    expect(styles[1]).not.toContain("${");
   });
 
   // The file's other parse-time hazard, a literal closing script tag inside injected
