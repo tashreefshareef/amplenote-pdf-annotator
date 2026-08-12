@@ -526,4 +526,55 @@ describe("the heading a viewer sits under", () => {
   test("returns null when the embed is not in the note at all", () => {
     expect(headingAboveEmbed("# Title\n\nprose", "plug-1", "att-1")).toBeNull();
   });
+
+  // Scenario: THE ONE THAT SENDS A DEEP LINK TO THE WRONG PLACE. An exported highlight's
+  // heading is a link to this same plugin with this same att= - so a line-level test for
+  // "the plugin and this PDF" matches it, and the first match wins. With a block above the
+  // viewer, the anchor came from the heading above the BLOCK, so the reader was navigated
+  // to wherever their sent blocks live rather than to the PDF.
+  const exportBlockLine =
+    '[<mark style="background-color:#F3DE6C;">Doc.pdf</mark>]' +
+    "(plugin://plug-1?att=att-1&page=1&hl=h1&note=n1)";
+
+  test("ignores an exported highlight's link when it sits above the viewer", () => {
+    const content = [
+      "# Sent highlights",
+      "",
+      exportBlockLine,
+      "> the highlighted text",
+      "",
+      "## Where the PDF is",
+      "",
+      tag("att-1"),
+    ].join("\n");
+
+    expect(headingAboveEmbed(content, "plug-1", "att-1")).toEqual({
+      text: "Where the PDF is",
+      level: 2,
+    });
+  });
+
+  // Scenario: same cause, worse effect. updateEmbedArgs found the block's line, looked for
+  // the `data="..."` it has no reason to carry, and returned null - so the page and
+  // highlight a clicked link carries never reached the viewer at all.
+  test("still rewrites the viewer's own tag when a block precedes it", () => {
+    const content = `${exportBlockLine}\n\n${tag("att-1")}`;
+    const updated = updateEmbedArgs(content, "plug-1", "att-1", { page: 7, highlightId: "h9" });
+
+    expect(updated).not.toBeNull();
+    const lines = updated.split("\n");
+    // The tag took the new args...
+    expect(lines[lines.length - 1]).toContain("page=7");
+    expect(lines[lines.length - 1]).toContain("hl=h9");
+    // ...and the exported block's link is untouched, still pointing at its own highlight.
+    expect(lines[0]).toBe(exportBlockLine);
+  });
+
+  // Scenario: a note holding only SENT BLOCKS for a PDF has no viewer in it. Counting a
+  // block as one made "Annotate PDF" refuse to add the viewer it was asked for.
+  test("does not count an exported block as a viewer already present", () => {
+    expect(hasEmbedFor(`# Notes\n\n${exportBlockLine}`, "plug-1", "att-1")).toBe(false);
+    expect(hasEmbedFor(`# Notes\n\n${exportBlockLine}`, "plug-1")).toBe(false);
+    expect(hasEmbedFor(`# Notes\n\n${tag("att-1")}`, "plug-1", "att-1")).toBe(true);
+  });
 });

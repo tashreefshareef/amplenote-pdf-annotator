@@ -222,7 +222,21 @@ export function insertEmbedAfterChip(noteContent, attachmentUUID, markup) {
 function embedLineIndex(lines, pluginUUID, attachmentUUID) {
   const marker = `plugin://${pluginUUID}`;
   return lines.findIndex(
-    (line) => line.includes(marker) && line.includes(`att=${attachmentUUID}`)
+    (line) =>
+      // THE OBJECT TAG, not merely a line mentioning this plugin and this PDF. An exported
+      // highlight's heading is `[name](plugin://UUID?att=...&page=...&hl=...)` - the same
+      // scheme, the same uuid, the same att= - so without this it matched export blocks
+      // too, and the FIRST match won:
+      //   - headingAboveEmbed answered with the heading above a BLOCK, so a deep link
+      //     navigated to wherever that block sits rather than to the PDF;
+      //   - updateEmbedArgs found a line with no `data="..."` on it, gave up, and returned
+      //     null - so the page/highlight the link carries never reached the viewer at all.
+      // Both only bite in a note where a block precedes the viewer, which is exactly what
+      // "Send to note" produces once a reader moves a block, or exports into a note that
+      // holds the viewer further down.
+      line.includes("<object") &&
+      line.includes(marker) &&
+      line.includes(`att=${attachmentUUID}`)
   );
 }
 
@@ -257,12 +271,26 @@ export function headingAboveEmbed(noteContent, pluginUUID, attachmentUUID) {
   return null;
 }
 
-/** True if note content already embeds this plugin, to avoid inserting duplicates. */
+/**
+ * True if note content already embeds this plugin, to avoid inserting duplicates.
+ *
+ * THE TAG, not a mention - same trap as embedLineIndex above. Tested as a substring over
+ * the whole note, an EXPORTED HIGHLIGHT's link counted as a viewer: its href carries this
+ * plugin's uuid and the same `att=`. So a note holding only sent blocks for a PDF - no
+ * viewer at all, the ordinary result of exporting into a fresh note - answered "already
+ * has one", and "Annotate PDF" refused to add the viewer it was asked for.
+ */
 export function hasEmbedFor(noteContent, pluginUUID, attachmentUUID = null) {
   if (!noteContent || !pluginUUID) return false;
-  if (!noteContent.includes(`plugin://${pluginUUID}`)) return false;
-  if (!attachmentUUID) return true;
-  return noteContent.includes(`att=${attachmentUUID}`);
+  const marker = `plugin://${pluginUUID}`;
+  return String(noteContent)
+    .split("\n")
+    .some(
+      (line) =>
+        line.includes("<object") &&
+        line.includes(marker) &&
+        (!attachmentUUID || line.includes(`att=${attachmentUUID}`))
+    );
 }
 
 /**
