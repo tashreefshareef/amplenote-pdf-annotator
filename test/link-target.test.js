@@ -44,7 +44,8 @@ describe("linkTarget", () => {
 
     const content = app._notes.get(NOTE).content;
     expect(content).toContain(`att=${ATT}&page=3&hl=hl-9`);
-    expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}`]);
+    // Aimed at the section the PDF sits in - see the section-anchor tests below.
+    expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}#Notes`]);
   });
 
   // Scenario: an embed tag that already carries a different page/highlight (from an
@@ -102,6 +103,113 @@ describe("linkTarget", () => {
     await call(app, `att=${ATT}&page=3&hl=hl-9&note=${NOTE}`);
 
     expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}`]);
+  });
+});
+
+/**
+ * `app.navigate` is the only scroll lever that lives outside the embed iframe, and the
+ * app interface reference documents `.../notes/UUID#Section_name` as a target. It matters
+ * on mobile specifically: nothing inside the iframe can move the mobile app's note (focus,
+ * scrollIntoView and a non-passive touchmove all lost - docs/api-notes.md #13), so a deep
+ * link there opens the right note and leaves the reader to find the PDF by hand. Aiming at
+ * the heading above the embed is the closest addressable landmark.
+ */
+describe("aiming the navigation at the PDF's own section", () => {
+  // Scenario: the note's heading above the embed becomes the navigation anchor, so the
+  // reader lands at the PDF's section rather than at the top of a long note.
+  test("navigates to the heading immediately above the embed", async () => {
+    const app = createMockApp({
+      notes: [
+        {
+          uuid: NOTE,
+          name: "Research",
+          content: `# Top\n\nprose\n\n## Reading list\n\n${embedTag(`att=${ATT}`)}\n\nmore`,
+          attachments: [mockAttachment({ uuid: ATT })],
+        },
+      ],
+    });
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    // The NEAREST heading above, not the first one in the note.
+    expect(app._calls.navigations).toEqual([
+      `https://www.amplenote.com/notes/${NOTE}#Reading_list`,
+    ]);
+  });
+
+  // Scenario: a heading BELOW the embed is not the section the PDF is in - aiming at it
+  // would scroll the reader past the very thing they clicked to see.
+  test("ignores headings that come after the embed", async () => {
+    const app = createMockApp({
+      notes: [
+        {
+          uuid: NOTE,
+          name: "Research",
+          content: `${embedTag(`att=${ATT}`)}\n\n## Highlights\n\n> quote`,
+          attachments: [mockAttachment({ uuid: ATT })],
+        },
+      ],
+    });
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}`]);
+  });
+
+  // Scenario: the anchor encoding is NOT documented beyond "spaces become underscores,
+  // along with some other URL-safety transformations". Whatever getNoteSections reports
+  // has to win over anything derived here, and be treated as opaque.
+  test("prefers the href reported by getNoteSections over a derived anchor", async () => {
+    const app = appWithEmbed();
+    app.getNoteSections = async () => [
+      { heading: { text: "Notes", level: 1, href: "#section-42-opaque" } },
+    ];
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.navigations).toEqual([
+      `https://www.amplenote.com/notes/${NOTE}#section-42-opaque`,
+    ]);
+  });
+
+  // Scenario: the shape of a section object is undocumented, so a host that returns
+  // sections without an href - or no getNoteSections at all - must still navigate.
+  test("derives an anchor when the host offers no section href", async () => {
+    const app = appWithEmbed();
+    delete app.getNoteSections;
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}#Notes`]);
+  });
+
+  // Scenario: landing on the right note is the promise this action makes. An anchor the
+  // app rejects (navigate is documented to return false on failure) must cost the scroll,
+  // never the navigation.
+  test("retries without the anchor when the app rejects it", async () => {
+    const app = appWithEmbed();
+    const anchored = `https://www.amplenote.com/notes/${NOTE}#Notes`;
+    app.navigate.mockImplementation(async (url) => {
+      app._calls.navigations.push(url);
+      return url !== anchored;
+    });
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.navigations).toEqual([anchored, `https://www.amplenote.com/notes/${NOTE}`]);
+  });
+
+  // Scenario: a section lookup that throws is not a reason to strand the reader.
+  test("navigates to the note when the section lookup throws", async () => {
+    const app = appWithEmbed();
+    app.getNoteSections = async () => {
+      throw new Error("sections unavailable");
+    };
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    // The derived fallback still applies - the throw only costs the reported href.
+    expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}#Notes`]);
   });
 });
 

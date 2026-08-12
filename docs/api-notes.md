@@ -265,6 +265,18 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    only work "already operating within that embed's context" per Amplenote's own docs -
    there's no cross-note equivalent.
 
+   **`app.navigate` also accepts a SECTION anchor - `.../notes/NOTE_UUID#Section_name` -
+   and that is the only scroll lever a plugin has that lives outside the embed iframe.**
+   Documented in source 2, alongside `.../notes/jots`, `?tag=`, and
+   `?highlightTaskUUID=TASK_UUID`. It can only name a HEADING, never an embed, so the
+   closest a deep link can aim is the heading above the viewer. The anchor format is
+   specified only as "spaces are replaced with underscores, along with some other
+   URL-safety transformations" - the transformations are never enumerated, so read the
+   real anchor off `app.getNoteSections` (its `heading.href`, added Dec 2023) and treat it
+   as opaque rather than deriving one. The section-object shape itself is undocumented, so
+   feature-detect. **Status: implemented in `linkTarget`, being tested on Android - see
+   finding 13's "an embed cannot scroll the mobile app's note to itself".**
+
 9b. **Amplenote's full color palette is 55 values, declared as `--palette-color-N` CSS
     variables, and it is IDENTICAL in every theme.** They live in
     `assets.amplenote.com/packs/css/note_editor_app-*.css` (hashed filename; read the
@@ -446,6 +458,18 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       link opens the right note and the embed lands on the right highlight, but the reader
       scrolls down to the viewer themselves.** Don't design a mobile flow that depends on
       an embed pulling the note's attention to it.
+
+      **One lever remains untried from OUTSIDE the iframe, and it is now in the build:**
+      `app.navigate` accepts a section anchor (`.../notes/UUID#Section_name`, finding 9),
+      so `linkTarget` aims at the nearest heading ABOVE the embed instead of at the note.
+      The host app performs that scroll, not the embed, which is the whole reason it might
+      work where focus doesn't. Two caveats regardless of the result: it can only reach a
+      heading, so the best case is "the section holding the PDF", and a note with no
+      heading above its viewer has nothing to aim at. **Unconfirmed on Android as of
+      2026-08-12 - if it turns out the mobile app ignores the fragment, revert to treating
+      this as settled.** The control experiment that separates "fragment ignored" from
+      "wrong anchor string": tap an ordinary in-note heading link (`[[#Heading`) on the
+      phone. If Amplenote's own section link doesn't scroll there, no anchor will.
 
 14. **Rewriting a note's content does NOT re-mount an embed already on screen — so a
     plugin cannot "send" anything to a live embed by editing the note.** `renderEmbed`

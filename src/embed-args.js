@@ -213,6 +213,50 @@ export function insertEmbedAfterChip(noteContent, attachmentUUID, markup) {
   return next.join("\n");
 }
 
+/**
+ * Where this exact embed's `<object>` line sits in `lines`, or -1.
+ *
+ * Matched on the `att=` marker as well as the plugin uuid, which is what keeps every
+ * caller below from touching a different PDF's viewer on the same note.
+ */
+function embedLineIndex(lines, pluginUUID, attachmentUUID) {
+  const marker = `plugin://${pluginUUID}`;
+  return lines.findIndex(
+    (line) => line.includes(marker) && line.includes(`att=${attachmentUUID}`)
+  );
+}
+
+/**
+ * The nearest markdown heading ABOVE this embed - i.e. the note section the PDF sits in.
+ *
+ * Exists for one purpose: `app.navigate` accepts a section anchor
+ * (`.../notes/UUID#Section_name`, documented in the app interface reference), and a
+ * heading is the only thing in a note that anchor can name. An embed cannot scroll the
+ * mobile app's note to itself (docs/api-notes.md #13), so the heading above it is the
+ * closest addressable landmark - navigation aimed at it lands the reader at the section
+ * containing the PDF rather than at the top of the note.
+ *
+ * Scans upward rather than looking for a specific heading because the heading is the
+ * user's, not ours: whatever they happened to write above the PDF is the answer, and a
+ * note with no heading above the embed simply has no landmark to offer (null).
+ *
+ * @returns {{text: string, level: number}|null}
+ */
+export function headingAboveEmbed(noteContent, pluginUUID, attachmentUUID) {
+  if (!noteContent || !pluginUUID || !attachmentUUID) return null;
+
+  const lines = noteContent.split("\n");
+  const idx = embedLineIndex(lines, pluginUUID, attachmentUUID);
+  if (idx === -1) return null;
+
+  for (let i = idx - 1; i >= 0; i--) {
+    // Up to three leading spaces is still a heading in markdown; four makes it code.
+    const match = lines[i].match(/^ {0,3}(#{1,6})\s+(.*\S)\s*$/);
+    if (match) return { text: match[2].trim(), level: match[1].length };
+  }
+  return null;
+}
+
 /** True if note content already embeds this plugin, to avoid inserting duplicates. */
 export function hasEmbedFor(noteContent, pluginUUID, attachmentUUID = null) {
   if (!noteContent || !pluginUUID) return false;
@@ -239,10 +283,7 @@ export function removeEmbedMarkup(noteContent, pluginUUID, attachmentUUID) {
   if (!noteContent || !pluginUUID || !attachmentUUID) return null;
 
   const lines = noteContent.split("\n");
-  const marker = `plugin://${pluginUUID}`;
-  const idx = lines.findIndex(
-    (line) => line.includes(marker) && line.includes(`att=${attachmentUUID}`)
-  );
+  const idx = embedLineIndex(lines, pluginUUID, attachmentUUID);
   if (idx === -1) return null;
 
   const next = lines.slice();
@@ -283,10 +324,7 @@ export function updateEmbedArgs(noteContent, pluginUUID, attachmentUUID, updates
   if (!noteContent || !pluginUUID || !attachmentUUID) return null;
 
   const lines = noteContent.split("\n");
-  const marker = `plugin://${pluginUUID}`;
-  const idx = lines.findIndex(
-    (line) => line.includes(marker) && line.includes(`att=${attachmentUUID}`)
-  );
+  const idx = embedLineIndex(lines, pluginUUID, attachmentUUID);
   if (idx === -1) return null;
 
   const line = lines[idx];

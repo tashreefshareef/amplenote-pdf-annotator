@@ -7,6 +7,7 @@
  * wrong place — a visible acceptance failure. Pinned in Phase 1 per spec §7.3.
  */
 import {
+  headingAboveEmbed,
   parseEmbedArgs,
   buildEmbedArgs,
   buildEmbedMarkup,
@@ -483,5 +484,46 @@ describe("the PDF name carried in the embed tag", () => {
   test("preserves the name through an unrelated tag update", () => {
     const content = `<object data="plugin://plug-1?att=att-1&n=paper.pdf" data-aspect-ratio="1.2" />`;
     expect(updateEmbedArgs(content, "plug-1", "att-1", { page: 9 })).toContain("n=paper.pdf");
+  });
+});
+
+/**
+ * The heading above an embed is the note's only addressable landmark near a PDF -
+ * `app.navigate` can aim at a section (`.../notes/UUID#Section_name`) but has no way to
+ * name an embed. See src/actions/link-target.js for what depends on this.
+ */
+describe("the heading a viewer sits under", () => {
+  const tag = (att) => `<object data="plugin://plug-1?att=${att}" data-aspect-ratio="1.2" />`;
+
+  // Scenario: the section the PDF is actually in is the nearest heading ABOVE it, not the
+  // note's title - aiming at the title would land the reader at the top of a long note.
+  test("finds the nearest heading above, not the first in the note", () => {
+    const content = `# Title\n\nprose\n\n### Sources\n\n${tag("att-1")}\n\nmore`;
+    expect(headingAboveEmbed(content, "plug-1", "att-1")).toEqual({ text: "Sources", level: 3 });
+  });
+
+  // Scenario: a note whose viewer has nothing above it has no landmark to offer, and the
+  // caller has to fall back to navigating to the note itself.
+  test("returns null when no heading precedes the embed", () => {
+    expect(headingAboveEmbed(`${tag("att-1")}\n\n## After`, "plug-1", "att-1")).toBeNull();
+  });
+
+  // Scenario: two PDFs on one note sit in different sections - the heading returned must
+  // be the one above THIS attachment's viewer.
+  test("answers per attachment when a note holds several viewers", () => {
+    const content = `## First\n\n${tag("att-1")}\n\n## Second\n\n${tag("att-2")}`;
+    expect(headingAboveEmbed(content, "plug-1", "att-2").text).toBe("Second");
+  });
+
+  // Scenario: four spaces makes a line code, not a heading. A "#" inside a code block is
+  // not a section and cannot be navigated to.
+  test("does not mistake an indented code line for a heading", () => {
+    const content = `    # not a heading\n\n${tag("att-1")}`;
+    expect(headingAboveEmbed(content, "plug-1", "att-1")).toBeNull();
+  });
+
+  // Scenario: an embed this plugin never wrote, or a note that lost its tag.
+  test("returns null when the embed is not in the note at all", () => {
+    expect(headingAboveEmbed("# Title\n\nprose", "plug-1", "att-1")).toBeNull();
   });
 });

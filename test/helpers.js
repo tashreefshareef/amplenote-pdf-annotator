@@ -110,6 +110,31 @@ export function createMockApp({ notes = [], promptQueue = [], lightDarkMode = "l
     }),
 
     /**
+     * Sections of a note, each identified by the heading that opens it.
+     *
+     * The `href` on a heading is real (Amplenote's own changelog, Dec 2023) but its exact
+     * anchor encoding is NOT documented, so the value produced here is a plausible
+     * stand-in and nothing may depend on the precise string. Code under test must treat
+     * an href as opaque - which is exactly the property the linkTarget tests assert.
+     */
+    getNoteSections: jest.fn(async (noteHandle) => {
+      const uuid = handleUUID(noteHandle);
+      const note = noteMap.get(uuid);
+      if (!note) return null;
+      return note.content
+        .split("\n")
+        .map((line) => line.match(/^ {0,3}(#{1,6})\s+(.*\S)\s*$/))
+        .filter(Boolean)
+        .map((match) => ({
+          heading: {
+            text: match[2].trim(),
+            level: match[1].length,
+            href: `https://www.amplenote.com/notes/${uuid}#${match[2].trim().replace(/\s+/g, "_")}`,
+          },
+        }));
+    }),
+
+    /**
      * Supports the `{ section: { heading: { text } } }` option, which replaces only
      * the content under that heading and leaves the heading itself in place. That is
      * how the managed annotation section gets updated without rewriting — and
