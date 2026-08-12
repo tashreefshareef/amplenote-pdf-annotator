@@ -953,6 +953,42 @@ Full detail: `docs/api-notes.md` findings 9 and 13.
 
 ---
 
+## The same block, emitted in two syntaxes, rendered as three different shapes
+
+**Symptom:** reported live from one note holding three exported highlight blocks. The first
+(no note) drew its quote with **one** bar. The second (with a note) drew **two** bars for
+the quote and one for the note, as designed. The third, pasted rather than exported, drew
+two bars *and* a visible **gap in the outer bar** just above the note. Same builder, same
+requirement, three shapes.
+
+**Cause:** two independent defects that only show up in a renderer.
+
+1. The markdown always emitted `> >` for the quote. With a note there is also a `>` line,
+   so the outer quote has two children and both levels survive; with no note the outer
+   quote's only child is the inner quote, and Amplenote **collapses** that to a single
+   blockquote. The emitted markdown said depth 2 and the app drew depth 1 — so the depth
+   silently depended on whether a note existed.
+2. The clipboard HTML emitted `<blockquote><blockquote>quote</blockquote></blockquote>`
+   followed by a *sibling* `<blockquote>note</blockquote>`. That is two adjacent quote
+   blocks, not one quote containing two children — so the outer bar was drawn, stopped, and
+   started again. The markdown never had this, because its `>` note line is inside the same
+   quote the `> >` line opened. The two syntaxes were not expressing the same tree.
+
+**Fix:** nest the quote a second level only when there IS a note to distinguish it from
+(which also matches the requirement's own diagram), and put the note inside the same outer
+blockquote in the HTML rather than beside it. Both flavours now produce one shape per case.
+
+**General lesson:** when the same content is emitted in two syntaxes for the same renderer,
+the thing to compare is not the two strings but the two **trees**, and the only place to
+compare them is the renderer. Adjacent containers are not one container with two children,
+and a container with a single child of its own type is exactly the shape a normalizer is
+most likely to flatten - so an "extra level" that carries meaning cannot be trusted to
+survive on its own. Both defects were invisible in unit tests that asserted the emitted
+string, and both were obvious in one screenshot of three blocks side by side. If a format
+has two writers, write a fixture that renders every case through both of them.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:

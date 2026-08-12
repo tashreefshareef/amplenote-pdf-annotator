@@ -211,14 +211,25 @@ describe("buildHighlightHtml", () => {
       `<a href="plugin://${PLUGIN_UUID}?att=${ATT_UUID}&amp;page=3&amp;hl=hl-abc123&amp;note=note-42">`
     );
     expect(html).not.toContain("&#9679;"); // the dot workaround is gone
-    expect(html).toContain("<blockquote><blockquote><p>the highlighted text</p></blockquote></blockquote>");
-    expect(html).toContain("<blockquote><p>a plain remark</p></blockquote>");
+    // ONE outer quote holding both children, not a nested quote plus a sibling quote.
+    // Reported live: the sibling form made Amplenote draw the outer bar, stop, and start
+    // it again, leaving a gap beside the line above the note.
+    expect(html).toContain(
+      "<blockquote><blockquote><p>the highlighted text</p></blockquote>" +
+        "<p>a plain remark</p></blockquote>"
+    );
+    // The note must not be its own block. This is the assertion that fails if the sibling
+    // form ever comes back, since the string above would still be "contained" by it.
+    expect(html).not.toContain("</blockquote><blockquote>");
   });
 
-  // Scenario: no note means no empty blockquote left dangling after the quote.
-  test("omits the note blockquote entirely when there is no note", () => {
+  // Scenario: no note, no second level. The extra nesting exists only to separate the
+  // quote from a note - and a pasted block used to keep it regardless, so the same
+  // highlight arrived at one depth by export and another by paste. Reported live.
+  test("uses a single quote level when there is no note", () => {
     const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight({ note: null }), "#F4DE6C");
-    expect(html.match(/<blockquote>/g)).toHaveLength(2); // the nested quote only
+    expect(html).toContain("<blockquote><p>the highlighted text</p></blockquote>");
+    expect(html.match(/<blockquote>/g)).toHaveLength(1);
   });
 
   // Scenario: PDF text routinely contains characters that are markup in HTML. Unescaped,
@@ -368,12 +379,27 @@ describe("multi-line quote and note text", () => {
       "paper.pdf",
       PLUGIN_UUID,
       ATT_UUID,
+      highlight({ quoteText: "first line\nsecond line\nthird line", note: "a remark" }),
+      14
+    );
+
+    const quoteLines = block.split("\n").slice(1, 4);
+    expect(quoteLines).toEqual(["> > first line", "> > second line", "> > third line"]);
+  });
+
+  // Scenario: the same quote with no note. Every line still has to be prefixed - the
+  // hazard above is about the lines, not the depth - but the depth is now one level,
+  // because the second exists only to separate the quote from a note.
+  test("prefixes every line at a single level when there is no note", () => {
+    const block = buildHighlightBlock(
+      "paper.pdf",
+      PLUGIN_UUID,
+      ATT_UUID,
       highlight({ quoteText: "first line\nsecond line\nthird line", note: null }),
       14
     );
 
-    const quoteLines = block.split("\n").slice(1);
-    expect(quoteLines).toEqual(["> > first line", "> > second line", "> > third line"]);
+    expect(block.split("\n").slice(1)).toEqual(["> first line", "> second line", "> third line"]);
   });
 
   // Scenario: a user note with a line break in it — same hazard, one level out.
@@ -406,6 +432,6 @@ describe("multi-line quote and note text", () => {
       14
     );
 
-    expect(block.split("\n")[2]).toBe("> >");
+    expect(block.split("\n")[2]).toBe(">");
   });
 });

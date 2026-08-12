@@ -175,7 +175,16 @@ export function createExportBuilder() {
     var linkText = colorizeLinkText(escapeLinkText(pdfName || "PDF"), hex);
     var heading = "[" + linkText + "](" + url + ")";
 
-    var lines = [heading].concat(prefixLines(highlight.quoteText, "> >"));
+    // THE EXTRA LEVEL EXISTS TO SEPARATE THE QUOTE FROM THE NOTE, so a highlight with no
+    // note does not get it. This used to emit "> >" either way, and Amplenote rendered
+    // those two blocks at DIFFERENT depths - a note-less block came back as a single bar,
+    // because the app collapses an outer quote whose only child is another quote, while a
+    // block with a note kept both. Reported live from a note holding one of each: same
+    // export, two different shapes, and nothing in the note explaining why.
+    //
+    // Single-level is also what spec section 4's own diagram draws ("> the highlighted
+    // text"), so this is the app and the requirement agreeing.
+    var lines = [heading].concat(prefixLines(highlight.quoteText, highlight.note ? "> >" : ">"));
     if (highlight.note) {
       lines.push(">");
       lines = lines.concat(prefixLines(highlight.note, ">"));
@@ -230,9 +239,27 @@ export function createExportBuilder() {
     var linkText = hex ? '<mark style="background-color: ' + escapeHtml(hex) + ';">' + name + "</mark>" : name;
     var heading = '<p><a href="' + escapeHtml(url) + '">' + linkText + "</a></p>";
 
-    var quote = "<blockquote><blockquote>" + htmlParagraph(highlight.quoteText) + "</blockquote></blockquote>";
-    var note = highlight.note ? "<blockquote>" + htmlParagraph(highlight.note) + "</blockquote>" : "";
-    return heading + quote + note;
+    // ONE OUTER BLOCKQUOTE HOLDING BOTH, not a nested quote followed by a sibling one.
+    // The old shape emitted <blockquote><blockquote>quote</blockquote></blockquote> and
+    // then a separate <blockquote>note</blockquote>, which is two adjacent quote blocks
+    // rather than one containing two children - so Amplenote drew the outer bar, stopped,
+    // and started it again for the note. Reported live as a gap in the bar beside the line
+    // before the note. The markdown flavor never had this: its ">" note line is INSIDE the
+    // same quote the "> >" line opened, and this now says the same thing in HTML.
+    //
+    // And the quote is only nested twice when there IS a note to be distinguished from -
+    // matching buildHighlightBlock, where the same highlight pasted and exported used to
+    // arrive at two different depths.
+    var quoteHtml = htmlParagraph(highlight.quoteText);
+    if (!highlight.note) return heading + "<blockquote>" + quoteHtml + "</blockquote>";
+    return (
+      heading +
+      "<blockquote><blockquote>" +
+      quoteHtml +
+      "</blockquote>" +
+      htmlParagraph(highlight.note) +
+      "</blockquote>"
+    );
   }
 
   /**
