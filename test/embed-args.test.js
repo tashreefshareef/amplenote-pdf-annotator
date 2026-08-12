@@ -7,7 +7,6 @@
  * wrong place — a visible acceptance failure. Pinned in Phase 1 per spec §7.3.
  */
 import {
-  headingAboveEmbed,
   parseEmbedArgs,
   buildEmbedArgs,
   buildEmbedMarkup,
@@ -488,71 +487,17 @@ describe("the PDF name carried in the embed tag", () => {
 });
 
 /**
- * The heading above an embed is the note's only addressable landmark near a PDF -
- * `app.navigate` can aim at a section (`.../notes/UUID#Section_name`) but has no way to
- * name an embed. See src/actions/link-target.js for what depends on this.
+ * An exported highlight's link uses the SAME plugin://UUID scheme and the SAME att= as the
+ * viewer's own `<object>` tag - so a line-level test for "the plugin and this PDF" matches
+ * both, and a naive first-match lookup can find the export block instead of the real
+ * embed. See embedLineIndex in embed-args.js.
  */
-describe("the heading a viewer sits under", () => {
+describe("locating a viewer among lines that merely mention it", () => {
   const tag = (att) => `<object data="plugin://plug-1?att=${att}" data-aspect-ratio="1.2" />`;
 
-  // Scenario: the section the PDF is actually in is the nearest heading ABOVE it, not the
-  // note's title - aiming at the title would land the reader at the top of a long note.
-  test("finds the nearest heading above, not the first in the note", () => {
-    const content = `# Title\n\nprose\n\n### Sources\n\n${tag("att-1")}\n\nmore`;
-    expect(headingAboveEmbed(content, "plug-1", "att-1")).toEqual({ text: "Sources", level: 3 });
-  });
-
-  // Scenario: a note whose viewer has nothing above it has no landmark to offer, and the
-  // caller has to fall back to navigating to the note itself.
-  test("returns null when no heading precedes the embed", () => {
-    expect(headingAboveEmbed(`${tag("att-1")}\n\n## After`, "plug-1", "att-1")).toBeNull();
-  });
-
-  // Scenario: two PDFs on one note sit in different sections - the heading returned must
-  // be the one above THIS attachment's viewer.
-  test("answers per attachment when a note holds several viewers", () => {
-    const content = `## First\n\n${tag("att-1")}\n\n## Second\n\n${tag("att-2")}`;
-    expect(headingAboveEmbed(content, "plug-1", "att-2").text).toBe("Second");
-  });
-
-  // Scenario: four spaces makes a line code, not a heading. A "#" inside a code block is
-  // not a section and cannot be navigated to.
-  test("does not mistake an indented code line for a heading", () => {
-    const content = `    # not a heading\n\n${tag("att-1")}`;
-    expect(headingAboveEmbed(content, "plug-1", "att-1")).toBeNull();
-  });
-
-  // Scenario: an embed this plugin never wrote, or a note that lost its tag.
-  test("returns null when the embed is not in the note at all", () => {
-    expect(headingAboveEmbed("# Title\n\nprose", "plug-1", "att-1")).toBeNull();
-  });
-
-  // Scenario: THE ONE THAT SENDS A DEEP LINK TO THE WRONG PLACE. An exported highlight's
-  // heading is a link to this same plugin with this same att= - so a line-level test for
-  // "the plugin and this PDF" matches it, and the first match wins. With a block above the
-  // viewer, the anchor came from the heading above the BLOCK, so the reader was navigated
-  // to wherever their sent blocks live rather than to the PDF.
   const exportBlockLine =
     '[<mark style="background-color:#F3DE6C;">Doc.pdf</mark>]' +
     "(plugin://plug-1?att=att-1&page=1&hl=h1&note=n1)";
-
-  test("ignores an exported highlight's link when it sits above the viewer", () => {
-    const content = [
-      "# Sent highlights",
-      "",
-      exportBlockLine,
-      "> the highlighted text",
-      "",
-      "## Where the PDF is",
-      "",
-      tag("att-1"),
-    ].join("\n");
-
-    expect(headingAboveEmbed(content, "plug-1", "att-1")).toEqual({
-      text: "Where the PDF is",
-      level: 2,
-    });
-  });
 
   // Scenario: same cause, worse effect. updateEmbedArgs found the block's line, looked for
   // the `data="..."` it has no reason to carry, and returned null - so the page and

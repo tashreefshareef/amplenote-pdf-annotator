@@ -89,18 +89,6 @@ export const TOOLBAR_COLOR_SLOTS = 4;
  */
 export const COLOR_SETTING_NAME = "Highlight colors";
 
-/**
- * `setting | Debug deep links` - set it to anything truthy and a clicked deep link reports
- * what it decided before it navigates, instead of just navigating.
- *
- * WHY A SETTING AND NOT A CONSOLE LOG: a plugin action has no console anyone can reach on
- * a phone, and the deep-link path is one whose failures are only reproducible on the
- * device - a link that lands in the wrong place three different ways (top of the note, the
- * bottom of the note, the right spot) with no way to see which URL was used is what turned
- * one bug into three rounds of inference. Off by default, so no ordinary user ever sees it.
- */
-export const DEBUG_LINKS_SETTING_NAME = "Debug deep links";
-
 export const DEFAULT_COLOR_ID = "yellow";
 
 /**

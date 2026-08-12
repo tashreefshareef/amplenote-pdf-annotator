@@ -266,17 +266,20 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    there's no cross-note equivalent.
 
    **`app.navigate` also accepts a SECTION anchor - `.../notes/NOTE_UUID#Section_name` -
-   and that is the only scroll lever a plugin has that lives outside the embed iframe.**
-   Documented in source 2, alongside `.../notes/jots`, `?tag=`, and
-   `?highlightTaskUUID=TASK_UUID`. It can only name a HEADING, never an embed, so the
-   closest a deep link can aim is the heading above the viewer. **CONFIRMED ON ANDROID,
-   2026-08-12: this is what finally scrolls the mobile app's note to an embed - see
-   finding 13, where it overturns a limitation three in-iframe mechanisms had failed to
-   beat.**
+   and that IS the only scroll lever a plugin has that lives outside the embed iframe, but
+   it turned out not to be a usable one on mobile.** Documented in source 2, alongside
+   `.../notes/jots`, `?tag=`, and `?highlightTaskUUID=TASK_UUID`. It can only name a
+   HEADING, never an embed. **TRIED, in depth, and ABANDONED - see finding 13.** It works
+   precisely on the desktop web client and, independent of how correct the anchor string
+   is, does not resolve reliably on the Android app - confirmed by reapplying the exact
+   commit that once appeared to work and retesting it fresh, which reproduced the same
+   failure. Kept here as a record of what was tried and measured, not as something to
+   reach for again without new evidence that the mobile client's behavior has changed.
 
 9a. **The section-object shape and the real anchor format, MEASURED off a live note -
-    both are undocumented and both were guessed wrong first.** `app.getNoteSections`
-    returns `[{ heading: { anchor, href, level, text } }]`, and:
+    both are undocumented, and this remains accurate even though the feature built on it
+    (9, above) was reverted.** `app.getNoteSections` returns
+    `[{ heading: { anchor, href, level, text } }]`, and:
 
     - **`href` is `null`.** Amplenote's changelog announcing an href on section headings
       (Dec 2023) does not describe what this call returns today. Code that prefers `href`
@@ -301,6 +304,14 @@ several of these cost real debugging time (or a live, reported bug) on this one.
     does not. Two renderers on one platform disagreed, and only the one you are calling
     counts. **An unresolvable fragment is not ignored** - the app drops the reader at the
     END of the note, so a wrong anchor is materially worse than no anchor.
+
+    **None of this made the anchor usable on mobile.** Two anchors independently confirmed
+    correct against this exact rule - one heavy with punctuation, one plain ASCII words
+    with nothing to encode either way - both still failed on Android, landing at the end
+    of the note. The anchor STRING was never the problem; see finding 13's closing update.
+    This entry stays because `getNoteSections` and its anchor field are real, verified,
+    and may matter to something else a future plugin builds - just not to mobile
+    section-scrolling.
 
 9b. **Amplenote's full color palette is 55 values, declared as `--palette-color-N` CSS
     variables, and it is IDENTICAL in every theme.** They live in
@@ -473,48 +484,56 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       thing that costs them the gesture. It is a trade, not an oversight — but it does
       cap how native an embed can feel on mobile, and that is worth saying out loud to
       anyone scoping an embed-heavy plugin.
-    - **NOTHING INSIDE the embed can scroll the mobile app's note to it - but
-      `app.navigate` with a section anchor can, from outside. Solved, 2026-08-12.**
+    - **An embed cannot scroll the mobile app's note to itself. Accepted limitation,
+      after a genuinely thorough attempt to beat it - see the correction at the end of
+      this entry before reusing anything below.**
 
-      The failing half first, because it is still true: focusing an element inside the
-      frame scrolls the host document on the desktop web app, but does nothing in the
-      Android app; `scrollIntoView`, a separate engine path that also crosses the frame
-      boundary, was tried alongside it and also does nothing. The likely explanation is
-      that the mobile note is not a scrollable DOM document at all, in which case no
-      in-iframe mechanism can move it. The symptom was precise and misleading: a deep link
-      opened the right note, the viewer was already sitting on the right highlight, and
-      the reader was left at the bottom of the note to find the PDF by hand.
+      Focusing an element inside the frame scrolls the host document on the desktop web
+      app, but does nothing in the Android app; `scrollIntoView`, a separate engine path
+      that also crosses the frame boundary, was tried alongside it and also does nothing.
+      The likely explanation is that the mobile note is not a scrollable DOM document at
+      all, in which case no in-iframe mechanism can move it. The symptom is precise and
+      misleading: a deep link opens the right note, the viewer is already sitting on the
+      right highlight, and the reader is left to find the PDF by hand.
 
-      **What works is `app.navigate("…/notes/UUID#Section_name")` (finding 9), aimed at
-      the nearest heading ABOVE the embed - so `linkTarget` computes that heading and
-      navigates to the section rather than to the note.** Confirmed on Android on the
-      first try. The reason it beats three in-iframe mechanisms is not that it is a better
-      scroll: it is that the HOST APP performs it. The iframe only asks for a destination,
-      via the one host API that takes one.
+      **What was tried next: `app.navigate("…/notes/UUID#Section_name")` (finding 9),
+      aimed at the nearest heading ABOVE the embed.** The theory was sound - a URL
+      fragment is the one scroll lever a plugin has that lives OUTSIDE the iframe, acted
+      on by the host app rather than the sandboxed embed - and it is CONFIRMED WORKING on
+      the desktop web client, composing cleanly with the embed's own `focus()` reveal
+      (Amplenote flashes the heading yellow, its own section-link cue, then focus corrects
+      to the exact highlight - same final position as before the anchor existed).
 
-      Caveats that survive the fix: an anchor can only name a **heading**, never an embed,
-      so a note with no heading above its viewer has nothing to aim at and falls back to
-      today's behaviour; and how close you land depends on how far the PDF sits below that
-      heading.
+      **It does NOT work on mobile, and this was checked thoroughly before giving up on
+      it.** First report: it appeared to work once. Second report, a different note: it
+      landed at the very BOTTOM of the note instead. That was chased as an anchor-encoding
+      bug for two rounds - `encodeURIComponent` was wrong (percent-encoded punctuation
+      that Amplenote's real anchors leave raw, confirmed by dumping `getNoteSections` on a
+      live note: `"The ISP's plain DNS..."` -> `The_ISP's_plain_DNS...`, apostrophe
+      intact) - and fixing that also failed, on a note whose heading was plain ASCII words
+      with nothing to encode either way. At that point the anchor STRING was ruled out as
+      the variable: two independently-correct anchors, one heavy with punctuation and one
+      with none, both failed identically. The last, decisive check was a controlled
+      retest - reapply the EXACT commit that had once been reported working, resync it to
+      the live plugin, and click the same kind of link fresh. It reproduced the identical
+      failure. That rules out every commit in between and points at the mechanism itself:
+      **`app.navigate`'s `#Section_name` fragment does not reliably resolve on the Android
+      client**, independent of anchor correctness, independent of code version. The
+      original "it worked" report was most likely a coincidence of note structure - a
+      short note where the embed sat near the top, so a plain, anchor-free open would have
+      looked identical to a precise scroll.
 
-      **On desktop the two mechanisms compose rather than fight**, which was the live
-      worry when this shipped (a host-driven scroll to the heading and an embed-driven
-      focus to the highlight are aimed at different places). Observed on the web app: the
-      note jumps to the heading - Amplenote briefly flashes it yellow, its own cue for
-      arriving via a section link - and then focus takes over and lands on the highlight.
-      Final position is unchanged from before the anchor existed, so the anchor costs an
-      intermediate scroll and a flash, not precision. Useful to know in general: a host
-      scroll that happens at NAVIGATION time and an in-page scroll that happens at MOUNT
-      time are naturally ordered by the page's own lifecycle, so the later one wins without
-      any coordination between them.
-
-      **Generalize this before assuming your own embed is stuck**: "the sandbox cannot
-      reach the host" is about the DOM, and it does not imply "the host cannot be asked".
-      Enumerate the host's own navigation/routing API for an addressable landmark - a
-      section, an anchor, a task id, a query parameter - before recording a limitation as
-      accepted. The three failed attempts here all shared one assumption (that the scroll
-      had to originate inside the frame) and it was the assumption, not the attempts, that
-      was wrong.
+      **CORRECTION to the lesson this entry used to close on:** it said "the sandbox
+      cannot reach the host does not imply the host cannot be asked" - true as far as it
+      goes, but incomplete on its own. The refinement: proving a host API works on ONE
+      client (here, the web app) is not proof it works on a DIFFERENT client of the same
+      platform (here, the native Android app) - they can be genuinely separate
+      implementations of "the same" documented behavior. A mechanism confirmed only on
+      desktop is unconfirmed on mobile until it is tested there, however sound the theory.
+      See docs/bugs-found.md for the full account, including the near-miss where checking
+      the anchor format against Amplenote's own published API notes looked like
+      independent confirmation and was not (a published note is a third renderer, not the
+      app being called).
 
 14. **Rewriting a note's content does NOT re-mount an embed already on screen — so a
     plugin cannot "send" anything to a live embed by editing the note.** `renderEmbed`

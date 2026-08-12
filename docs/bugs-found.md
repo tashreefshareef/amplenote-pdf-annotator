@@ -912,7 +912,7 @@ a measured size disagrees with the stylesheet, suspect the cascade before the ar
 
 ---
 
-## Three ways to scroll the page failed, because all three started in the wrong document
+## Four ways to scroll the page failed - the fourth from outside the frame that should have worked
 
 **Symptom:** clicking a deep link to a highlight worked on desktop and half-worked on the
 phone. Both landed on the right note with the viewer already scrolled to the right
@@ -932,12 +932,12 @@ attempt at the related gesture problem (a non-passive `touchmove` listener calli
 host too. Three attempts, one shared assumption: that the scroll had to *originate inside
 the frame*.
 
-**Fix:** ask the host to navigate instead of trying to scroll it. The platform's own API
-(`app.navigate`) accepts a URL with a section anchor, and the plugin already knew which
-note it was targeting - so the deep link now resolves the nearest heading above the embed
-and navigates to `…/notes/UUID#Section_name`. The host app performs the scroll; the iframe
-only supplies a destination. Worked on the first try on Android, on the same build where
-all three in-frame mechanisms had failed.
+**The fourth attempt:** ask the host to navigate instead of trying to scroll it. The
+platform's own API (`app.navigate`) accepts a URL with a section anchor, and the plugin
+already knew which note it was targeting - so the deep link resolved the nearest heading
+above the embed and navigated to `…/notes/UUID#Section_name`. The host app performs the
+scroll; the iframe only supplies a destination. It worked on the first try on Android, on
+the build it first shipped in.
 
 **Sequel, the next day:** the same feature then sent readers to the BOTTOM of the note.
 The anchor was derived by a rule inferred from the docs' phrase "spaces are replaced with
@@ -948,29 +948,50 @@ wrong: a *published* note is a different renderer that percent-encodes when writ
 href, while the API call being used returns the anchor with punctuation raw
 (`The_ISP's_plain_DNS...`). An apostrophe became `%27`, named no section, and an
 unresolvable fragment turned out to scroll to the end of the document rather than do
-nothing - so the guess was worse than the feature's absence. What settled it was dumping
-the API's own output for a real note, at which point the format was one line of data
-instead of three rounds of inference.
+nothing - so the guess was worse than the feature's absence. What settled the encoding
+question was dumping the API's own output for a real note - one line of data instead of
+another round of inference.
 
-**General lesson:** when a format is undocumented, "I found a source that agrees with my
-guess" is not verification if that source is a *different implementation* of the same
-platform. Two renderers can disagree; only the one you are calling is authoritative. Get
-the real value out of the exact API you depend on - a single diagnostic that dumps it
-costs less than one wrong release. And weigh failure modes before shipping a guess: a
-wrong answer that the system acts on confidently (scrolling somewhere worse) is not the
-same risk as a missing answer, so the safe fallback is doing nothing, not guessing.
+**Second sequel, after the encoding was fixed with a value read straight from the live
+app: still broken.** A brand-new note, brand-new PDF, brand-new highlight, freshly
+exported - heading text was plain ASCII words, nothing for any encoding scheme to even
+disagree about - and it landed at the end of the note again. That ruled out the anchor
+string as the variable outright. The decisive test was a controlled one: reapply the
+EXACT commit that had been reported working, resync it to the live plugin note, and click
+a fresh link on a real device. Same failure, on code that was - by definition - identical
+to what had once worked. **That is what finally closed the question: `app.navigate`'s
+section-anchor fragment does not reliably resolve on the Android client, independent of
+the anchor's correctness and independent of the plugin's own code.** The feature was
+reverted. The original "it worked" report is now believed to have been a coincidence of
+note structure - a short note with the embed near the top, where a plain open with no
+anchor at all would already look identical to a precise scroll.
 
-**General lesson:** "the sandbox cannot reach the host" is a statement about the DOM, and
-it does not imply "the host cannot be asked". When a frame, extension, plugin, or embedded
-view can't move the page it lives in, stop iterating on cross-boundary DOM tricks and go
-read the host's navigation/routing surface for something *addressable* - an anchor, a
-section, a record id, a query parameter. The catch is that such an API can only aim at
-landmarks the host already names, so expect to settle for the nearest one (here: a
-heading, since no URL can name an embed) and design for the case where there isn't one.
-Worth checking early: a limitation recorded as "accepted" after several failed attempts is
-most suspicious when all the attempts were variations on a single idea.
+**General lesson, still true:** when a format is undocumented, "I found a source that
+agrees with my guess" is not verification if that source is a *different implementation*
+of the same platform. Two renderers can disagree; only the one you are calling is
+authoritative. Get the real value out of the exact API you depend on - a single
+diagnostic that dumps it costs less than one wrong release. And weigh failure modes
+before shipping a guess: a wrong answer that the system acts on confidently (scrolling
+somewhere worse) is not the same risk as a missing answer, so the safe fallback is doing
+nothing, not guessing.
 
-Full detail: `docs/api-notes.md` findings 9 and 13.
+**General lesson, corrected after the fact:** the earlier version of this entry closed on
+"the sandbox cannot reach the host does not imply the host cannot be asked" - true, and
+worth keeping, but it stopped one step short. The missing half: **a host API confirmed
+working on one client is not confirmed on a different client of the same platform.** The
+web app and the Android app are separate implementations behind one documented interface,
+and they diverged on exactly this feature - not on a technicality, but completely, in a
+way three rounds of "the anchor must be slightly wrong" made look like a string-format
+bug instead of a platform-support gap. The tell, in hindsight: every failure landed on
+the SAME wrong place (the end of the note) regardless of what the anchor actually said,
+which is the signature of a fragment being ignored outright, not one being mismatched.
+If a host-level mechanism only gets verified on the surface that's easiest to drive (here,
+a desktop browser under automation) and the actual target is a different client (a native
+mobile app), that's not verification of the target - it's verification of convenience.
+Test on the real device before declaring a cross-boundary trick solved, and stop 2 wrong
+guesses in - not 4 - if every failure keeps landing in the identical wrong spot.
+
+Full detail: `docs/api-notes.md` findings 9, 9a and 13.
 
 ---
 

@@ -26,100 +26,24 @@
  * you test both cases separately: the above only holds when the link leads to a DIFFERENT
  * note. On the note the PDF already lives on there is no navigation, and a rewrite alone
  * does not re-mount a mounted embed, so nothing re-reads the args. See remountEmbed.
+ *
+ * DELIBERATELY NOT AIMED AT A SECTION ANCHOR. That was tried
+ * (`.../notes/UUID#Section_name`, aimed at the heading above the embed) specifically to
+ * chip at the mobile limitation below - the desktop web app already lands on the exact
+ * highlight via the embed's own `focus()` call, so the anchor's whole reason to exist was
+ * mobile, where `focus()` does nothing. It was reverted: two independently-confirmed-
+ * correct anchors, one heavy with punctuation and one plain ASCII words with nothing to
+ * encode, both resolved correctly against `getNoteSections` and both still failed on
+ * Android the same way - landing at the LAST section of the note rather than the one
+ * named. Reapplying the exact commit that was once reported working and retesting it
+ * fresh reproduced the identical failure, which rules out every later commit as the
+ * cause: the mechanism itself does not reliably work on the mobile client, independent of
+ * how correct the anchor string is. Full writeup: docs/api-notes.md finding 13,
+ * docs/bugs-found.md.
  */
-import {
-  parseEmbedArgs,
-  updateEmbedArgs,
-  removeEmbedMarkup,
-  headingAboveEmbed,
-} from "../embed-args.js";
+import { parseEmbedArgs, updateEmbedArgs, removeEmbedMarkup } from "../embed-args.js";
 
 const noteUrl = (noteUUID) => `https://www.amplenote.com/notes/${noteUUID}`;
-
-/**
- * Guess at the anchor Amplenote gives a heading, for when it won't tell us.
- *
- * The app interface reference documents the format only as "the anchor name of the
- * heading (per `app.getNoteSections` handling, spaces are replaced with underscores,
- * along with some other URL-safety transformations)" - and it never says what those
- * other transformations are. So this is a fallback, used only when `getNoteSections`
- * gives us nothing better; a heading of plain words (the overwhelmingly common case) is
- * where it is safe, and anything more exotic is exactly where the real anchor should be
- * read off the section instead.
- */
-function anchorForHeading(text) {
-  const trimmed = String(text || "").trim();
-  if (!trimmed) return null;
-  return encodeURIComponent(trimmed.replace(/\s+/g, "_"));
-}
-
-/**
- * The URL that lands on the section a heading opens, or null.
- *
- * Prefers whatever `getNoteSections` reports over anything derived here. Amplenote's
- * section objects carry an `href` for the heading (added Dec 2023 per its own changelog),
- * and treating that as an opaque string is the only way to be right about an encoding
- * the docs decline to specify. Feature-detected, because the shape of a section object
- * is NOT documented - a build where `href` isn't there falls back rather than breaking.
- */
-async function sectionUrl(app, noteUUID, headingText) {
-  let sections = null;
-  if (typeof app.getNoteSections === "function") {
-    try {
-      sections = await app.getNoteSections({ uuid: noteUUID });
-    } catch {
-      // A note whose sections can't be read still navigates - just to its top.
-    }
-  }
-
-  const match = Array.isArray(sections)
-    ? sections.find((section) => (section?.heading?.text || "").trim() === headingText)
-    : null;
-  const href = match?.heading?.href || match?.href;
-  if (typeof href === "string" && href) {
-    // Either a whole URL or a bare fragment, depending on what the app hands back.
-    if (/^https?:\/\//.test(href)) return href;
-    if (href.startsWith("#")) return `${noteUrl(noteUUID)}${href}`;
-  }
-
-  const anchor = anchorForHeading(headingText);
-  return anchor ? `${noteUrl(noteUUID)}#${anchor}` : null;
-}
-
-/**
- * Navigate to the note, aimed at the PDF's own section rather than the top of the note.
- *
- * WHY, and the limitation it is chipping at: on the desktop web app the embed scrolls the
- * note to itself by taking focus, and a deep link lands on the exact highlight. In the
- * mobile app nothing inside the iframe can move the note at all - focus, `scrollIntoView`
- * and a non-passive `touchmove` were all tried and all lost (docs/api-notes.md #13) - so
- * the reported symptom is: the link opens the right note, the viewer is already sitting on
- * the right highlight, and the reader has to find the PDF by hand.
- *
- * `app.navigate` is the one scroll lever that lives OUTSIDE the iframe, which is what
- * makes this worth trying at all: the app interface reference documents
- * `.../notes/UUID#Section_name` as a navigation target, and the host app - not the embed -
- * is the thing that acts on it. It cannot aim at the embed itself, only at the nearest
- * heading above it, so the best case is "lands on the section holding the PDF" rather than
- * "lands on the PDF". A note with no heading above its viewer gets today's behaviour.
- *
- * Best-effort throughout, and it must be: landing on the right note is the promise, and a
- * wrong or unrecognised anchor must never cost that. `navigate` is documented to return
- * false when it fails, so a rejected anchor is retried bare.
- */
-async function navigateToEmbed(app, noteUUID, content, attachmentUUID) {
-  const plain = noteUrl(noteUUID);
-  let url = plain;
-
-  try {
-    const heading = headingAboveEmbed(content, app.context.pluginUUID, attachmentUUID);
-    if (heading) url = (await sectionUrl(app, noteUUID, heading.text)) || plain;
-  } catch {
-    // Any surprise in the section lookup just means navigating to the note's top.
-  }
-
-  if ((await app.navigate(url)) === false && url !== plain) await app.navigate(plain);
-}
 
 /**
  * Make the embed mount again from scratch, for a link clicked on the note it already
@@ -180,12 +104,12 @@ export async function linkTarget(app, queryString) {
     return;
   }
 
-  // Kept outside the try so the navigation below can still find the heading above the
-  // embed even if the rewrite half of this fails.
-  let content = null;
+  // Whether the reader is already looking at the note being linked to - decides which
+  // write path below applies (see remountEmbed).
+  const sameNote = !!(app.context && app.context.noteUUID === noteUUID);
 
   try {
-    content = await app.getNoteContent({ uuid: noteUUID });
+    const content = await app.getNoteContent({ uuid: noteUUID });
     const updated = updateEmbedArgs(content, app.context.pluginUUID, attachmentUUID, {
       page,
       highlightId,
@@ -201,7 +125,7 @@ export async function linkTarget(app, queryString) {
       // answer here is not dangerous in either direction: guessing "same" when it isn't
       // costs one extra write and a reload, and guessing "different" when it isn't just
       // leaves the behaviour exactly as it is today.
-      if (app.context && app.context.noteUUID === noteUUID) {
+      if (sameNote) {
         await remountEmbed(app, noteUUID, updated, attachmentUUID);
       } else {
         await app.replaceNoteContent({ uuid: noteUUID }, updated);
@@ -211,5 +135,5 @@ export async function linkTarget(app, queryString) {
     // Best-effort only - landing on the right note beats landing nowhere at all.
   }
 
-  await navigateToEmbed(app, noteUUID, content, attachmentUUID);
+  await app.navigate(noteUrl(noteUUID));
 }

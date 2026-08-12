@@ -222,47 +222,44 @@ export function insertEmbedAfterChip(noteContent, attachmentUUID, markup) {
 function embedLineIndex(lines, pluginUUID, attachmentUUID) {
   const marker = `plugin://${pluginUUID}`;
   return lines.findIndex(
-    (line) => line.includes(marker) && line.includes(`att=${attachmentUUID}`)
+    (line) =>
+      // THE OBJECT TAG, not merely a line mentioning this plugin and this PDF. An exported
+      // highlight's heading is `[name](plugin://UUID?att=...&page=...&hl=...)` - the same
+      // scheme, the same uuid, the same att= - so without this it matched export blocks
+      // too, and the FIRST match won:
+      //   - headingAboveEmbed answered with the heading above a BLOCK, so a deep link
+      //     navigated to wherever that block sits rather than to the PDF;
+      //   - updateEmbedArgs found a line with no `data="..."` on it, gave up, and returned
+      //     null - so the page/highlight the link carries never reached the viewer at all.
+      // Both only bite in a note where a block precedes the viewer, which is exactly what
+      // "Send to note" produces once a reader moves a block, or exports into a note that
+      // holds the viewer further down.
+      line.includes("<object") &&
+      line.includes(marker) &&
+      line.includes(`att=${attachmentUUID}`)
   );
 }
 
 /**
- * The nearest markdown heading ABOVE this embed - i.e. the note section the PDF sits in.
+ * True if note content already embeds this plugin, to avoid inserting duplicates.
  *
- * Exists for one purpose: `app.navigate` accepts a section anchor
- * (`.../notes/UUID#Section_name`, documented in the app interface reference), and a
- * heading is the only thing in a note that anchor can name. An embed cannot scroll the
- * mobile app's note to itself (docs/api-notes.md #13), so the heading above it is the
- * closest addressable landmark - navigation aimed at it lands the reader at the section
- * containing the PDF rather than at the top of the note.
- *
- * Scans upward rather than looking for a specific heading because the heading is the
- * user's, not ours: whatever they happened to write above the PDF is the answer, and a
- * note with no heading above the embed simply has no landmark to offer (null).
- *
- * @returns {{text: string, level: number}|null}
+ * THE TAG, not a mention - same trap as embedLineIndex above. Tested as a substring over
+ * the whole note, an EXPORTED HIGHLIGHT's link counted as a viewer: its href carries this
+ * plugin's uuid and the same `att=`. So a note holding only sent blocks for a PDF - no
+ * viewer at all, the ordinary result of exporting into a fresh note - answered "already
+ * has one", and "Annotate PDF" refused to add the viewer it was asked for.
  */
-export function headingAboveEmbed(noteContent, pluginUUID, attachmentUUID) {
-  if (!noteContent || !pluginUUID || !attachmentUUID) return null;
-
-  const lines = noteContent.split("\n");
-  const idx = embedLineIndex(lines, pluginUUID, attachmentUUID);
-  if (idx === -1) return null;
-
-  for (let i = idx - 1; i >= 0; i--) {
-    // Up to three leading spaces is still a heading in markdown; four makes it code.
-    const match = lines[i].match(/^ {0,3}(#{1,6})\s+(.*\S)\s*$/);
-    if (match) return { text: match[2].trim(), level: match[1].length };
-  }
-  return null;
-}
-
-/** True if note content already embeds this plugin, to avoid inserting duplicates. */
 export function hasEmbedFor(noteContent, pluginUUID, attachmentUUID = null) {
   if (!noteContent || !pluginUUID) return false;
-  if (!noteContent.includes(`plugin://${pluginUUID}`)) return false;
-  if (!attachmentUUID) return true;
-  return noteContent.includes(`att=${attachmentUUID}`);
+  const marker = `plugin://${pluginUUID}`;
+  return String(noteContent)
+    .split("\n")
+    .some(
+      (line) =>
+        line.includes("<object") &&
+        line.includes(marker) &&
+        (!attachmentUUID || line.includes(`att=${attachmentUUID}`))
+    );
 }
 
 /**

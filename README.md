@@ -24,7 +24,8 @@ Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty
 > "\<PDF name\> - Highlights" note from every highlight (optionally filtered by color),
 > each block carrying a `plugin://` deep-link back to its exact page and position
 > (Phase 5). Clicking one scrolls the note to the right PDF and flashes the highlight it
-> meant, whether the link is on this note or another, and on a phone as well as a desktop.
+> meant, whether the link is on this note or another — on desktop; see the mobile
+> limitations below.
 >
 > Phase 6 is done bar the plugin note's own instructions cell: the viewer is usable on a
 > phone (touch selection, fit-to-width, 40px targets, on-screen scroll controls — the
@@ -54,20 +55,23 @@ embed; `overscroll-behavior`, a non-passive `touchmove` calling `preventDefault(
 focus were each tried against it on a real device and none of them moved it. Use the ▲/▼
 controls on the right edge of the viewer instead — hold one to keep scrolling.
 
-Both are recorded in [`docs/api-notes.md`](docs/api-notes.md) with what was tried, so they
-aren't re-litigated as bugs. Worth knowing why a first-party viewer can do these things
-and a plugin can't: it renders in the note's own document, with no boundary to arbitrate.
-The sandbox that makes third-party plugins safe to install is the same thing that costs
-them the gesture and the file.
+**A deep link opens the right note and the viewer lands on the right highlight — you
+scroll down to it yourself.** Nothing inside the embed can move the mobile app's note, and
+after a genuinely thorough attempt at a fix from outside the iframe — navigating with a
+`…/notes/UUID#Section_name` fragment aimed at the heading above the embed, the platform's
+own documented way to scroll a note to a section — it turned out not to be usable on
+Android either: confirmed correct anchors, verified against Amplenote's own
+`getNoteSections`, still failed to resolve, landing at the bottom of the note instead of
+the top. Reapplying the exact code that once appeared to work and retesting it fresh
+reproduced the same failure, which rules out a code regression — the mechanism itself
+doesn't reliably work on the mobile client. See docs/api-notes.md finding 13 and
+docs/bugs-found.md for the full account.
 
-**A deep link used to leave you scrolling to the PDF by hand on mobile — that one is
-fixed.** Nothing inside the embed can move the mobile app's note, but the plugin doesn't
-have to: it navigates to the section anchor of the heading above the viewer
-(`…/notes/UUID#Section_name`), and the host app performs that scroll. Clicking an exported
-highlight now lands on the PDF and the highlight on a phone as it does on the desktop. The
-one requirement is a **heading somewhere above the PDF in the note** — an anchor can name
-a heading, never an embed — so a note with no heading above its viewer still opens at the
-top.
+Both mobile limitations are recorded in [`docs/api-notes.md`](docs/api-notes.md) with
+what was tried, so they aren't re-litigated as bugs. Worth knowing why a first-party
+viewer can do these things and a plugin can't: it renders in the note's own document,
+with no boundary to arbitrate. The sandbox that makes third-party plugins safe to install
+is the same thing that costs them the gesture, the file, and the auto-scroll.
 
 ## Why there's a build step
 
