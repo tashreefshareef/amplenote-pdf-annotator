@@ -939,6 +939,27 @@ and navigates to `…/notes/UUID#Section_name`. The host app performs the scroll
 only supplies a destination. Worked on the first try on Android, on the same build where
 all three in-frame mechanisms had failed.
 
+**Sequel, the next day:** the same feature then sent readers to the BOTTOM of the note.
+The anchor was derived by a rule inferred from the docs' phrase "spaces are replaced with
+underscores, along with some other URL-safety transformations" - implemented as
+`encodeURIComponent`, which was checked against 88 headings on the platform's own
+published notes and matched every one, colons encoded and dots preserved. It was still
+wrong: a *published* note is a different renderer that percent-encodes when writing an
+href, while the API call being used returns the anchor with punctuation raw
+(`The_ISP's_plain_DNS...`). An apostrophe became `%27`, named no section, and an
+unresolvable fragment turned out to scroll to the end of the document rather than do
+nothing - so the guess was worse than the feature's absence. What settled it was dumping
+the API's own output for a real note, at which point the format was one line of data
+instead of three rounds of inference.
+
+**General lesson:** when a format is undocumented, "I found a source that agrees with my
+guess" is not verification if that source is a *different implementation* of the same
+platform. Two renderers can disagree; only the one you are calling is authoritative. Get
+the real value out of the exact API you depend on - a single diagnostic that dumps it
+costs less than one wrong release. And weigh failure modes before shipping a guess: a
+wrong answer that the system acts on confidently (scrolling somewhere worse) is not the
+same risk as a missing answer, so the safe fallback is doing nothing, not guessing.
+
 **General lesson:** "the sandbox cannot reach the host" is a statement about the DOM, and
 it does not imply "the host cannot be asked". When a frame, extension, plugin, or embedded
 view can't move the page it lives in, stop iterating on cross-boundary DOM tricks and go

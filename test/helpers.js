@@ -112,10 +112,15 @@ export function createMockApp({ notes = [], promptQueue = [], lightDarkMode = "l
     /**
      * Sections of a note, each identified by the heading that opens it.
      *
-     * The `href` on a heading is real (Amplenote's own changelog, Dec 2023) but its exact
-     * anchor encoding is NOT documented, so the value produced here is a plausible
-     * stand-in and nothing may depend on the precise string. Code under test must treat
-     * an href as opaque - which is exactly the property the linkTarget tests assert.
+     * SHAPE AND ANCHOR FORMAT CONFIRMED against the live app (2026-08-12), from a real
+     * note's dump: `{ heading: { anchor, href, level, text } }`, `href` **null**, and the
+     * anchor is the heading text with spaces replaced by underscores and NOTHING ELSE
+     * touched - `"The ISP's plain DNS beat every encrypted resolver"` comes back as
+     * `"The_ISP's_plain_DNS_beat_every_encrypted_resolver"`, apostrophe intact.
+     *
+     * This mock previously produced a percent-encoded href, modelling a guess. That made
+     * a wrong implementation pass, which is the exact failure mode this file's header
+     * warns about - so it now models what was measured, null href included.
      */
     getNoteSections: jest.fn(async (noteHandle) => {
       const uuid = handleUUID(noteHandle);
@@ -127,9 +132,10 @@ export function createMockApp({ notes = [], promptQueue = [], lightDarkMode = "l
         .filter(Boolean)
         .map((match) => ({
           heading: {
-            text: match[2].trim(),
+            anchor: match[2].trim().replace(/\s+/g, "_"),
+            href: null,
             level: match[1].length,
-            href: `https://www.amplenote.com/notes/${uuid}#${match[2].trim().replace(/\s+/g, "_")}`,
+            text: match[2].trim(),
           },
         }));
     }),

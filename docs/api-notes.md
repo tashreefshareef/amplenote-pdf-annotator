@@ -269,14 +269,38 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    and that is the only scroll lever a plugin has that lives outside the embed iframe.**
    Documented in source 2, alongside `.../notes/jots`, `?tag=`, and
    `?highlightTaskUUID=TASK_UUID`. It can only name a HEADING, never an embed, so the
-   closest a deep link can aim is the heading above the viewer. The anchor format is
-   specified only as "spaces are replaced with underscores, along with some other
-   URL-safety transformations" - the transformations are never enumerated, so read the
-   real anchor off `app.getNoteSections` (its `heading.href`, added Dec 2023) and treat it
-   as opaque rather than deriving one. The section-object shape itself is undocumented, so
-   feature-detect. **CONFIRMED ON ANDROID, 2026-08-12: this is what finally scrolls the
-   mobile app's note to an embed - see finding 13, where it overturns a limitation three
-   in-iframe mechanisms had failed to beat.**
+   closest a deep link can aim is the heading above the viewer. **CONFIRMED ON ANDROID,
+   2026-08-12: this is what finally scrolls the mobile app's note to an embed - see
+   finding 13, where it overturns a limitation three in-iframe mechanisms had failed to
+   beat.**
+
+9a. **The section-object shape and the real anchor format, MEASURED off a live note -
+    both are undocumented and both were guessed wrong first.** `app.getNoteSections`
+    returns `[{ heading: { anchor, href, level, text } }]`, and:
+
+    - **`href` is `null`.** Amplenote's changelog announcing an href on section headings
+      (Dec 2023) does not describe what this call returns today. Code that prefers `href`
+      silently never reads the reported value at all.
+    - **`anchor` is the heading text with spaces replaced by underscores and NOTHING else
+      changed.** Real values: `"The ISP's plain DNS beat every encrypted resolver"` ->
+      `The_ISP's_plain_DNS_beat_every_encrypted_resolver`;
+      `"Encryption is what costs the time, not the provider"` ->
+      `Encryption_is_what_costs_the_time,_not_the_provider`;
+      `"My result isn't a fluke; it's geography"` ->
+      `My_result_isn't_a_fluke;_it's_geography`. Apostrophes, commas, semicolons and
+      hyphens all survive verbatim. **Do not percent-encode it**, whatever the docs' "some
+      other URL-safety transformations" suggests.
+    - **`text` is the RENDERED heading**, so matching it against a heading read out of raw
+      markdown needs the markup stripped first, or a formatted heading never matches its
+      own section.
+
+    **The near-miss worth knowing about:** `encodeURIComponent(text.replace(/\s+/g,"_"))`
+    matches all 88 headings on Amplenote's own published API notes - colons encoded as
+    `%3A`, dots left alone - which is compelling and wrong. A PUBLISHED note is a
+    different renderer and percent-encodes when it writes an href; the app being called
+    does not. Two renderers on one platform disagreed, and only the one you are calling
+    counts. **An unresolvable fragment is not ignored** - the app drops the reader at the
+    END of the note, so a wrong anchor is materially worse than no anchor.
 
 9b. **Amplenote's full color palette is 55 values, declared as `--palette-color-N` CSS
     variables, and it is IDENTICAL in every theme.** They live in

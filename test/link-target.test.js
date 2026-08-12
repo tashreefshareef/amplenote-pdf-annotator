@@ -156,13 +156,13 @@ describe("aiming the navigation at the PDF's own section", () => {
     expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}`]);
   });
 
-  // Scenario: the anchor encoding is NOT documented beyond "spaces become underscores,
-  // along with some other URL-safety transformations". Whatever getNoteSections reports
-  // has to win over anything derived here, and be treated as opaque.
-  test("prefers the href reported by getNoteSections over a derived anchor", async () => {
+  // Scenario: what getNoteSections reports wins over anything derived here, and is used
+  // verbatim. Confirmed live that the field carrying it is `anchor` and that `href` comes
+  // back null - preferring href meant the reported value was never read at all.
+  test("uses the anchor reported by getNoteSections, verbatim", async () => {
     const app = appWithEmbed();
     app.getNoteSections = async () => [
-      { heading: { text: "Notes", level: 1, href: "#section-42-opaque" } },
+      { heading: { anchor: "section-42-opaque", href: null, level: 1, text: "Notes" } },
     ];
 
     await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
@@ -172,9 +172,61 @@ describe("aiming the navigation at the PDF's own section", () => {
     ]);
   });
 
-  // Scenario: the shape of a section object is undocumented, so a host that returns
-  // sections without an href - or no getNoteSections at all - must still navigate.
-  test("derives an anchor when the host offers no section href", async () => {
+  // Scenario: THE REPORTED BUG, as ground truth from a live note. A heading with an
+  // apostrophe or a comma anchors with that punctuation INTACT; percent-encoding it names
+  // no section, and the app answers an unresolvable fragment by dropping the reader at the
+  // bottom of the note - past the PDF they clicked to reach.
+  test("keeps punctuation raw in the anchor, never percent-encoded", async () => {
+    const heading = "The ISP's plain DNS beat every encrypted resolver, tested";
+    const app = createMockApp({
+      notes: [
+        {
+          uuid: NOTE,
+          name: "Research",
+          content: `## ${heading}\n\n${embedTag(`att=${ATT}`)}`,
+          attachments: [mockAttachment({ uuid: ATT })],
+        },
+      ],
+    });
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.navigations).toEqual([
+      `https://www.amplenote.com/notes/${NOTE}` +
+        "#The_ISP's_plain_DNS_beat_every_encrypted_resolver,_tested",
+    ]);
+  });
+
+  // Scenario: the heading is read out of RAW MARKDOWN while getNoteSections reports the
+  // RENDERED text, so a formatted heading would never match its own section - and would
+  // fall through to a derived anchor carrying literal ** characters.
+  test("matches a formatted heading to its section by rendered text", async () => {
+    const app = createMockApp({
+      notes: [
+        {
+          uuid: NOTE,
+          name: "Research",
+          content: `## **Paper** and [Smith](https://x.test)\n\n${embedTag(`att=${ATT}`)}`,
+          attachments: [mockAttachment({ uuid: ATT })],
+        },
+      ],
+    });
+    app.getNoteSections = async () => [
+      {
+        heading: { anchor: "Paper_and_Smith", href: null, level: 2, text: "Paper and Smith" },
+      },
+    ];
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.navigations).toEqual([
+      `https://www.amplenote.com/notes/${NOTE}#Paper_and_Smith`,
+    ]);
+  });
+
+  // Scenario: a host that reports no sections at all still gets an anchor, derived by the
+  // measured rule - spaces to underscores, nothing else touched.
+  test("derives an anchor by the measured rule when the host reports no sections", async () => {
     const app = appWithEmbed();
     delete app.getNoteSections;
 
@@ -199,16 +251,19 @@ describe("aiming the navigation at the PDF's own section", () => {
     expect(app._calls.navigations).toEqual([anchored, `https://www.amplenote.com/notes/${NOTE}`]);
   });
 
-  // Scenario: REPORTED LIVE - a deep link started landing at the very bottom of the note
-  // (the managed data section, or the last exported block) instead of at the PDF. That is
-  // what an anchor naming no section does: the app falls back to the end of the document,
-  // which is further from the target than not scrolling at all. The derived form only
-  // knows one rule - spaces become underscores - so any heading whose real anchor needs
-  // the app's unspecified "other URL-safety transformations" must not be guessed at.
-  test("refuses to guess an anchor for a heading it cannot derive safely", async () => {
-    const punctuated = ["Chapter 3: Results", "Q&A", "Notes — draft", "📄 Paper"];
+  // Scenario: every punctuated heading anchors with its punctuation intact - the rule
+  // measured off the live app, applied to the characters most likely to appear in a real
+  // heading. An earlier build percent-encoded these and landed the reader at the bottom
+  // of the note.
+  test("anchors punctuated headings without transforming the punctuation", async () => {
+    const cases = [
+      ["Chapter 3: Results", "Chapter_3:_Results"],
+      ["Q&A", "Q&A"],
+      ["Notes - draft", "Notes_-_draft"],
+      ["Why I'm still using it; briefly", "Why_I'm_still_using_it;_briefly"],
+    ];
 
-    for (const text of punctuated) {
+    for (const [text, anchor] of cases) {
       const app = createMockApp({
         notes: [
           {
@@ -219,18 +274,17 @@ describe("aiming the navigation at the PDF's own section", () => {
           },
         ],
       });
-      delete app.getNoteSections; // no host answer, so the guess is all there would be
 
       await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
 
-      // The note itself - the reader lands at the top, not past the PDF at the bottom.
-      expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}`]);
+      expect(app._calls.navigations).toEqual([
+        `https://www.amplenote.com/notes/${NOTE}#${anchor}`,
+      ]);
     }
   });
 
-  // Scenario: the guard above must not cost the feature on those same headings when the
-  // host DOES report an anchor - that value is authoritative however exotic the heading.
-  test("still anchors an exotic heading when the host reports its href", async () => {
+  // Scenario: the host's reported anchor is authoritative however exotic the heading.
+  test("anchors an exotic heading from what the host reports", async () => {
     const app = createMockApp({
       notes: [
         {

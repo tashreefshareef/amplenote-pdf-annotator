@@ -37,42 +37,65 @@ import {
 const noteUrl = (noteUUID) => `https://www.amplenote.com/notes/${noteUUID}`;
 
 /**
- * Headings whose anchor can be derived without guessing: ASCII words and digits only.
+ * The anchor Amplenote gives a heading: spaces become underscores, and NOTHING ELSE
+ * CHANGES.
  *
- * REPORTED LIVE, and the reason this gate exists at all: a deep link started landing at
- * the very BOTTOM of the note - on the managed data section, or on the last exported
- * block, whichever came last. That is what an unresolvable fragment looks like. Amplenote
- * documents its anchor format only as "spaces are replaced with underscores, along with
- * some other URL-safety transformations" and never enumerates the others, so a heading
- * carrying a colon, an ampersand, a dash or an emoji derives an anchor that names no
- * section, and the app appears to fall back to the end of the document.
+ * Read off the live app (`getNoteSections`) rather than inferred, after inference got it
+ * wrong twice. Real values from a real note:
  *
- * A wrong anchor is therefore WORSE than no anchor: no anchor leaves the reader at the
- * top of the note, and a wrong one throws them to the bottom, past the very thing they
- * clicked. So the derived form is now confined to the case where "spaces become
- * underscores" is demonstrably the whole transformation - nothing else in the string can
- * need URL-safety treatment. Everything else waits for a real anchor from the host.
- */
-const PLAINLY_ANCHORABLE = /^[A-Za-z0-9][A-Za-z0-9 ]*$/;
-
-/**
- * Guess at the anchor Amplenote gives a heading, for when it won't tell us - or null when
- * guessing would be reckless. See PLAINLY_ANCHORABLE.
+ *   "The ISP's plain DNS beat every encrypted resolver"
+ *     -> "The_ISP's_plain_DNS_beat_every_encrypted_resolver"
+ *   "Encryption is what costs the time, not the provider"
+ *     -> "Encryption_is_what_costs_the_time,_not_the_provider"
+ *   "My result isn't a fluke; it's geography"
+ *     -> "My_result_isn't_a_fluke;_it's_geography"
+ *
+ * Apostrophes, commas, semicolons and hyphens all survive verbatim. The docs' "some other
+ * URL-safety transformations" turns out to describe nothing that applies here.
+ *
+ * THE TRAP THIS REPLACES, because it was convincing: `encodeURIComponent` matched every
+ * one of 88 headings on Amplenote's own published API notes, colons percent-encoded and
+ * dots left alone. But a PUBLISHED note is a different renderer, and it encodes when it
+ * writes an href. The app being called does not - so `'` became `%27`, named no section,
+ * and the deep link landed at the bottom of the note. Two renderers on one platform
+ * disagreed, and only the one actually being called is authoritative.
+ *
+ * Escapes just the two characters that would otherwise break the URL itself. Anything
+ * else is left exactly as the app reports it.
  */
 function anchorForHeading(text) {
   const trimmed = String(text || "").trim();
-  if (!trimmed || !PLAINLY_ANCHORABLE.test(trimmed)) return null;
-  return trimmed.replace(/ +/g, "_");
+  if (!trimmed) return null;
+  return trimmed.replace(/\s+/g, "_").replace(/%/g, "%25").replace(/#/g, "%23");
+}
+
+/**
+ * A heading line's text as Amplenote would RENDER it - the form its anchor is built from.
+ *
+ * `headingAboveEmbed` reads raw markdown, so `## **Paper** - [Smith](http://x)` arrives
+ * with its markup attached, while `getNoteSections` reports the rendered "Paper - Smith".
+ * Comparing the two directly means a formatted heading never matches its own section.
+ */
+function renderedHeadingText(text) {
+  return String(text || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*\*|\*\*|\*|___|__|_|~~|`)/g, "")
+    .trim();
 }
 
 /**
  * The URL that lands on the section a heading opens, or null.
  *
- * Prefers whatever `getNoteSections` reports over anything derived here. Amplenote's
- * section objects carry an `href` for the heading (added Dec 2023 per its own changelog),
- * and treating that as an opaque string is the only way to be right about an encoding
- * the docs decline to specify. Feature-detected, because the shape of a section object
- * is NOT documented - a build where `href` isn't there falls back rather than breaking.
+ * `getNoteSections` is the authority and its `anchor` field is what to read. Confirmed
+ * against a live note: every section came back as
+ * `{ heading: { anchor, href, level, text } }` with **`href` null** - so the href path
+ * this used to prefer never fired, and the derived value was doing all the work while
+ * looking like a fallback. Reading `anchor` is what makes a heading with punctuation work
+ * at all; deriving is now only for a host that reports no sections.
+ *
+ * Matched on RENDERED text, because that is the form `heading.text` comes back in while
+ * the heading itself was read out of raw markdown.
  */
 async function sectionUrl(app, noteUUID, headingText) {
   let sections = null;
@@ -84,17 +107,25 @@ async function sectionUrl(app, noteUUID, headingText) {
     }
   }
 
+  const wanted = renderedHeadingText(headingText);
   const match = Array.isArray(sections)
-    ? sections.find((section) => (section?.heading?.text || "").trim() === headingText)
+    ? sections.find((section) => renderedHeadingText(section?.heading?.text) === wanted)
     : null;
+
+  const reported = match?.heading?.anchor || match?.anchor;
+  if (typeof reported === "string" && reported) {
+    return `${noteUrl(noteUUID)}#${reported.replace(/%/g, "%25").replace(/#/g, "%23")}`;
+  }
+
+  // Some builds may carry a whole href instead - kept because it costs two lines and the
+  // section object's shape is documented nowhere.
   const href = match?.heading?.href || match?.href;
   if (typeof href === "string" && href) {
-    // Either a whole URL or a bare fragment, depending on what the app hands back.
     if (/^https?:\/\//.test(href)) return href;
     if (href.startsWith("#")) return `${noteUrl(noteUUID)}${href}`;
   }
 
-  const anchor = anchorForHeading(headingText);
+  const anchor = anchorForHeading(wanted);
   return anchor ? `${noteUrl(noteUUID)}#${anchor}` : null;
 }
 
