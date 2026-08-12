@@ -4,7 +4,12 @@
  * It creates and writes a note, so it falls under the same T&C coverage requirement as
  * every other note-modifying action (spec §5.2) even though it is throwaway.
  */
-import { dumpMarkdown, fenceFor, DUMP_HEADING } from "../src/actions/dump-markdown.js";
+import {
+  dumpMarkdown,
+  fenceFor,
+  DUMP_HEADING,
+  SECTIONS_HEADING,
+} from "../src/actions/dump-markdown.js";
 import { PDF_MIME } from "../src/attachments.js";
 import { createMockApp, mockAttachment } from "./helpers.js";
 
@@ -88,5 +93,44 @@ describe("dumpMarkdown", () => {
     const dump = app._notes.get(await dumpMarkdown(app, "note-1")).content;
 
     expect(dump).toContain("(none)");
+  });
+});
+
+/**
+ * Added for a live bug: linkTarget navigates to a section anchor so the mobile app scrolls
+ * the note to the PDF, and a deep link was landing at the bottom of the note - the
+ * signature of an anchor naming no section. Neither the anchor format nor the section
+ * object's shape is documented, so this dump is how the real values get read.
+ */
+describe("the section dump", () => {
+  // Scenario: the raw getNoteSections output has to reach the dump note verbatim, since
+  // the unknown is precisely which fields exist and what an anchor really looks like.
+  test("includes the note's sections as JSON", async () => {
+    const app = createMockApp({
+      notes: [{ uuid: "note-1", name: "Research", content: "# Reading list\n\nprose" }],
+    });
+
+    await dumpMarkdown(app, "note-1");
+
+    const dumped = app._calls.insertedContent[0].content;
+    expect(dumped).toContain(SECTIONS_HEADING);
+    expect(dumped).toContain('"text": "Reading list"');
+  });
+
+  // Scenario: a host with no getNoteSections, or one that throws, must still produce the
+  // markdown half of the dump - a diagnostic that fails whole is no diagnostic.
+  test("says so rather than failing when sections cannot be read", async () => {
+    const app = createMockApp({
+      notes: [{ uuid: "note-1", name: "Research", content: "# Title\n\nprose" }],
+    });
+    app.getNoteSections = async () => {
+      throw new Error("nope");
+    };
+
+    await dumpMarkdown(app, "note-1");
+
+    const dumped = app._calls.insertedContent[0].content;
+    expect(dumped).toContain("getNoteSections threw: nope");
+    expect(dumped).toContain("# Title");
   });
 });

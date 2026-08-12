@@ -37,20 +37,32 @@ import {
 const noteUrl = (noteUUID) => `https://www.amplenote.com/notes/${noteUUID}`;
 
 /**
- * Guess at the anchor Amplenote gives a heading, for when it won't tell us.
+ * Headings whose anchor can be derived without guessing: ASCII words and digits only.
  *
- * The app interface reference documents the format only as "the anchor name of the
- * heading (per `app.getNoteSections` handling, spaces are replaced with underscores,
- * along with some other URL-safety transformations)" - and it never says what those
- * other transformations are. So this is a fallback, used only when `getNoteSections`
- * gives us nothing better; a heading of plain words (the overwhelmingly common case) is
- * where it is safe, and anything more exotic is exactly where the real anchor should be
- * read off the section instead.
+ * REPORTED LIVE, and the reason this gate exists at all: a deep link started landing at
+ * the very BOTTOM of the note - on the managed data section, or on the last exported
+ * block, whichever came last. That is what an unresolvable fragment looks like. Amplenote
+ * documents its anchor format only as "spaces are replaced with underscores, along with
+ * some other URL-safety transformations" and never enumerates the others, so a heading
+ * carrying a colon, an ampersand, a dash or an emoji derives an anchor that names no
+ * section, and the app appears to fall back to the end of the document.
+ *
+ * A wrong anchor is therefore WORSE than no anchor: no anchor leaves the reader at the
+ * top of the note, and a wrong one throws them to the bottom, past the very thing they
+ * clicked. So the derived form is now confined to the case where "spaces become
+ * underscores" is demonstrably the whole transformation - nothing else in the string can
+ * need URL-safety treatment. Everything else waits for a real anchor from the host.
+ */
+const PLAINLY_ANCHORABLE = /^[A-Za-z0-9][A-Za-z0-9 ]*$/;
+
+/**
+ * Guess at the anchor Amplenote gives a heading, for when it won't tell us - or null when
+ * guessing would be reckless. See PLAINLY_ANCHORABLE.
  */
 function anchorForHeading(text) {
   const trimmed = String(text || "").trim();
-  if (!trimmed) return null;
-  return encodeURIComponent(trimmed.replace(/\s+/g, "_"));
+  if (!trimmed || !PLAINLY_ANCHORABLE.test(trimmed)) return null;
+  return trimmed.replace(/ +/g, "_");
 }
 
 /**
@@ -109,9 +121,18 @@ async function sectionUrl(app, noteUUID, headingText) {
  * all assumed the scroll had to originate inside the frame, and it was that assumption
  * that was wrong, not the mechanisms.
  *
+ * THEN REPORTED BROKEN on a different note, which is the failure mode to keep in mind:
+ * the link landed at the BOTTOM of the note - the managed data section, or the last
+ * exported block - rather than at the PDF. An anchor naming no section does not fail
+ * quietly; the app appears to fall back to the end of the document, which is further from
+ * the target than doing nothing at all. Hence PLAINLY_ANCHORABLE: a derived anchor is now
+ * only used where deriving it cannot be wrong, and everything else waits for the host to
+ * report a real one.
+ *
  * Best-effort throughout, and it must be: landing on the right note is the promise, and a
  * wrong or unrecognised anchor must never cost that. `navigate` is documented to return
- * false when it fails, so a rejected anchor is retried bare.
+ * false when it fails, so a rejected anchor is retried bare - though note that a fragment
+ * the app RESOLVES WRONGLY still returns true, so that retry is not a safety net for this.
  */
 async function navigateToEmbed(app, noteUUID, content, attachmentUUID) {
   const plain = noteUrl(noteUUID);

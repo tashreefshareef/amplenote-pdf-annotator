@@ -199,6 +199,56 @@ describe("aiming the navigation at the PDF's own section", () => {
     expect(app._calls.navigations).toEqual([anchored, `https://www.amplenote.com/notes/${NOTE}`]);
   });
 
+  // Scenario: REPORTED LIVE - a deep link started landing at the very bottom of the note
+  // (the managed data section, or the last exported block) instead of at the PDF. That is
+  // what an anchor naming no section does: the app falls back to the end of the document,
+  // which is further from the target than not scrolling at all. The derived form only
+  // knows one rule - spaces become underscores - so any heading whose real anchor needs
+  // the app's unspecified "other URL-safety transformations" must not be guessed at.
+  test("refuses to guess an anchor for a heading it cannot derive safely", async () => {
+    const punctuated = ["Chapter 3: Results", "Q&A", "Notes — draft", "📄 Paper"];
+
+    for (const text of punctuated) {
+      const app = createMockApp({
+        notes: [
+          {
+            uuid: NOTE,
+            name: "Research",
+            content: `## ${text}\n\n${embedTag(`att=${ATT}`)}`,
+            attachments: [mockAttachment({ uuid: ATT })],
+          },
+        ],
+      });
+      delete app.getNoteSections; // no host answer, so the guess is all there would be
+
+      await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+      // The note itself - the reader lands at the top, not past the PDF at the bottom.
+      expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}`]);
+    }
+  });
+
+  // Scenario: the guard above must not cost the feature on those same headings when the
+  // host DOES report an anchor - that value is authoritative however exotic the heading.
+  test("still anchors an exotic heading when the host reports its href", async () => {
+    const app = createMockApp({
+      notes: [
+        {
+          uuid: NOTE,
+          name: "Research",
+          content: `## Chapter 3: Results\n\n${embedTag(`att=${ATT}`)}`,
+          attachments: [mockAttachment({ uuid: ATT })],
+        },
+      ],
+    });
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.navigations).toEqual([
+      `https://www.amplenote.com/notes/${NOTE}#Chapter_3:_Results`,
+    ]);
+  });
+
   // Scenario: a section lookup that throws is not a reason to strand the reader.
   test("navigates to the note when the section lookup throws", async () => {
     const app = appWithEmbed();

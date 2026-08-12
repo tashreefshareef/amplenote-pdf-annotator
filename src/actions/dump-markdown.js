@@ -37,6 +37,34 @@ export function fenceFor(content) {
   return "`".repeat(Math.max(3, longest + 1));
 }
 
+/** Heading for the section dump - the second question this action now answers. */
+export const SECTIONS_HEADING = "Sections (getNoteSections)";
+
+/**
+ * The raw `getNoteSections` output, verbatim.
+ *
+ * ADDED FOR A LIVE BUG: `linkTarget` navigates to a section anchor so the mobile app
+ * scrolls the note to the PDF (src/actions/link-target.js), and a deep link was landing at
+ * the bottom of the note instead - the signature of an anchor that names no section. The
+ * anchor format is documented only as "spaces are replaced with underscores, along with
+ * some other URL-safety transformations", and the section object's own shape is not
+ * documented at all, so the only way to stop guessing is to read what the live app
+ * actually returns. Dumped as JSON rather than summarized, because the unknown here is
+ * precisely which fields exist and what an anchor really looks like.
+ */
+async function dumpSections(app, noteUUID) {
+  if (typeof app.getNoteSections !== "function") {
+    return "(this build of Amplenote has no app.getNoteSections)";
+  }
+  try {
+    return JSON.stringify(await app.getNoteSections({ uuid: noteUUID }), null, 2);
+  } catch (error) {
+    // A dump that half-works still answers the markdown question, which is the other
+    // half of this note - so report the failure inline rather than throwing it away.
+    return `(getNoteSections threw: ${(error && error.message) || error})`;
+  }
+}
+
 /**
  * @param {object} app      Amplenote app interface
  * @param {string} noteUUID Note to inspect
@@ -61,6 +89,7 @@ export async function dumpMarkdown(app, noteUUID) {
   await app.insertNoteContent(
     { uuid: dumpUUID },
     `# Attachments\n\n${list || "- (none)"}\n\n` +
+      `# ${SECTIONS_HEADING}\n\n${fence}\n${await dumpSections(app, noteUUID)}\n${fence}\n\n` +
       `# ${DUMP_HEADING}\n\n${fence}\n${content}\n${fence}\n`,
     { atEnd: true }
   );
