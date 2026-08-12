@@ -1031,6 +1031,53 @@ has two writers, write a fixture that renders every case through both of them.
 
 ---
 
+## A box's own border vanished on exactly one edge, at exactly one range of widths
+
+**Symptom:** a collapsed viewer's card looked like it was missing its bottom border - top,
+left and right present, the fourth edge just gone, on an ordinary note at an ordinary
+width. Re-reading the CSS said this was fine: the outer element carries a full four-sided
+border, and an inner bar's own `border-bottom` is explicitly suppressed in collapsed mode
+specifically so it wouldn't draw a second, redundant line under the outer border. That
+CSS-only read was wrong, and stated with more confidence than it had earned - a second
+look, live, was needed before that was clear.
+
+**Cause:** the box's height is `data-aspect-ratio="16"` turned into `padding-bottom:
+6.25%` on its wrapper, which Amplenote must satisfy from OUTSIDE - an embed cannot resize
+its own iframe. At this note's width that resolved to `43.75px`, a fractional value. The
+bar's actual content needs a clean `44px`. An iframe hard-clips to whatever height it is
+given, independent of any CSS inside it, so the shortfall ate exactly the outermost
+pixel - which is precisely where the border lives. Confirmed by adjusting the box's real,
+running height directly in the live app rather than trusting arithmetic on paper:
+`43.875px` renders a complete border, `43.75px` clips it. That is a difference smaller
+than a tenth of a pixel deciding whether a whole line of border is visible - and it is not
+a one-off: the SAME clipping happens for any note width where `width / 16` lands between
+34 and 44px, which is an ordinary ~544-704px range for a desktop note pane, not a rare
+edge case.
+
+**Fix:** lower the ratio (14 in place of 16) so a typical desktop width clears the 44px
+floor with real margin (~50px, not ~44px), while staying far below the 34px height where
+a *different*, phone-tuned compact layout takes over - so nothing about the already-
+verified mobile behavior moves. This narrows the danger band rather than eliminating it
+(the band's width is fixed at `10 × ratio` pixels for as long as a single linear ratio
+feeds two layout regimes with different height needs); a full fix would mean moving the
+34px media-query threshold in step with the ratio, deliberately left alone because that
+threshold is tuned against real phone measurements the project's own notes say to treat as
+settled, not to be nudged sideways as a side effect of a desktop-only fix.
+
+**General lesson:** a border, unlike a font size or a color, is binary - it draws itself
+in full or not at all, so any explanation for "why would part of it be missing" that only
+works in degrees (opacity, rounding, contrast) is the wrong shape of explanation. The
+right shape here was "the box got less than one pixel of height it needed," which no
+amount of reading the CSS rules in isolation was going to surface, because every rule
+involved was individually correct - the bug lived in the ARITHMETIC connecting a CSS ratio
+to a pixel count, not in any single declaration. When a defect is this precise (one edge,
+one range of container sizes) trust a live measurement over a re-read of the source, even
+when the re-read looks airtight - and check that measurement across a size *range*, not
+one snapshot, since a bug tied to a fractional pixel comes and goes as the container
+resizes and a single check can land on either side of it by luck.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:

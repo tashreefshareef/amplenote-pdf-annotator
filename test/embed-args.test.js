@@ -329,11 +329,15 @@ describe("collapsed state in the embed tag", () => {
     const result = setEmbedCollapsed(content, "plug-1", "att-1", true);
 
     expect(result).toContain("c=1");
-    expect(result).toContain('data-aspect-ratio="16"');
+    expect(result).toContain(`data-aspect-ratio="${COLLAPSED_ASPECT_RATIO}"`);
     expect(result).not.toContain('data-aspect-ratio="1.2"');
   });
 
   // Scenario: expanding again must restore the full-height box, not just clear the flag.
+  // The collapsed input here is deliberately an OLD value (16, since corrected to 14 - see
+  // constants.js on the bottom-border clipping this caused) rather than the live constant:
+  // this is the same "fixture written by an older version" pattern as the 1.2 fixtures
+  // elsewhere, and expanding must not care which collapsed ratio it is un-collapsing from.
   test("restores the box when expanding", () => {
     const collapsed = `<object data="plugin://plug-1?att=att-1&c=1" data-aspect-ratio="16" />`;
 
@@ -346,20 +350,21 @@ describe("collapsed state in the embed tag", () => {
   // Scenario: the flag and the box are two representations of one thing. A tag saying
   // "collapsed" inside a full-height box is the original bug wearing a different hat.
   test("keeps the ratio consistent with the flag through an unrelated update", () => {
-    const collapsed = `<object data="plugin://plug-1?att=att-1&c=1" data-aspect-ratio="16" />`;
+    const collapsed = `<object data="plugin://plug-1?att=att-1&c=1" data-aspect-ratio="${COLLAPSED_ASPECT_RATIO}" />`;
 
     const result = updateEmbedArgs(collapsed, "plug-1", "att-1", { page: 4 });
 
     expect(result).toContain("page=4");
     expect(result).toContain("c=1");
-    expect(result).toContain('data-aspect-ratio="16"');
+    expect(result).toContain(`data-aspect-ratio="${COLLAPSED_ASPECT_RATIO}"`);
   });
 
   // Scenario: a hand-edited tag that lost the attribute entirely still has to end up
   // sized, or collapsing it silently does nothing.
   test("adds the attribute when the tag has none", () => {
     const bare = `<object data="plugin://plug-1?att=att-1" />`;
-    expect(setEmbedCollapsed(bare, "plug-1", "att-1", true)).toContain('data-aspect-ratio="16"');
+    expect(setEmbedCollapsed(bare, "plug-1", "att-1", true))
+      .toContain(`data-aspect-ratio="${COLLAPSED_ASPECT_RATIO}"`);
   });
 
   // Scenario: "Fit to this screen" on a phone. The chosen height has to survive in the

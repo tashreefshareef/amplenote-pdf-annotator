@@ -136,8 +136,8 @@ export const ATTACHMENT_SCHEME = "attachment://";
  * Embed box proportions, as `data-aspect-ratio`.
  *
  * The box is `width / ratio`, so a LOWER number is a TALLER box. Two independent
- * measurements agree: COLLAPSED_ASPECT_RATIO 16 renders ~45px at a ~720px desktop note
- * width (720/16), and a 1.2 embed measured ~705x564 in the live app (705/1.2). An earlier
+ * measurements agree: COLLAPSED_ASPECT_RATIO renders ~45-50px at a ~700-720px desktop
+ * note width, and a 1.2 embed measured ~705x564 in the live app (705/1.2). An earlier
  * version of this comment claimed 1.2 was "taller than it is wide", which is the opposite
  * of both measurements - it is about 20% wider than tall. Correcting it because the sign
  * of this relationship is exactly what you need to get right to change the value at all.
@@ -152,7 +152,7 @@ export const ATTACHMENT_SCHEME = "attachment://";
  *
  * COLLAPSED is a compromise, not a computed fit: the box's height is width/ratio, and the
  * embed's width depends on the reader's window, so no single ratio yields exactly the
- * title bar's height everywhere. 16 gives roughly 45px at a typical desktop note width.
+ * title bar's height everywhere.
  */
 /**
  * Reported live, with screenshots, on both desktop and phone: the box was too short and
@@ -171,7 +171,35 @@ export const ATTACHMENT_SCHEME = "attachment://";
  * rewritten - collapsing and re-expanding it is the cheap way to migrate one by hand.
  */
 export const EXPANDED_ASPECT_RATIO = 1.0;
-export const COLLAPSED_ASPECT_RATIO = 16;
+
+/**
+ * REPORTED LIVE, then measured: at 16, the collapsed bar's own BOTTOM BORDER was missing -
+ * three sides present, the fourth just gone, on an ordinary desktop-width note. Confirmed
+ * in the live app rather than guessed from the CSS: at a 700px note width, 700/16 =
+ * 43.75px, a FRACTIONAL height, while the bar's content (10px+10px padding, the "Expand"
+ * button, line-height) needs a full 44px. Verified the exact boundary by adjusting the
+ * live box height in the running app: 43.875px renders a complete border, 43.75px clips
+ * it. The iframe hard-clips to whatever height the ratio produces - nothing inside it can
+ * compensate, per the note above - so the shortfall eats exactly the outermost pixel,
+ * which is where the border lives.
+ *
+ * Not a one-off: for ANY note width where width/16 lands between 34 and 44px, the same
+ * clipping happens - roughly 544px to 704px, an ordinary range for a desktop note pane,
+ * not a rare edge case. (34px is where styles.js's own `@media (max-height: 34px)` switches
+ * the collapsed bar to a shorter, less-padded layout tuned for phones - below that height
+ * this constant is not the thing to change; see that rule instead.)
+ *
+ * 14 in place of 16 gives ~50px at a 700px note width - real margin above the 44px floor,
+ * not just clearing it - while staying far below 34px at phone widths (~358px width /
+ * 14 =~ 25.6px, still solidly in the phone-tuned compact layout, so that measured-and-
+ * verified mobile behavior is unaffected). It narrows but does not eliminate the danger
+ * band (now ~476-616px instead of ~544-704px) - a complete fix would need the 34px
+ * media-height threshold above to move in step with this constant, which was left alone
+ * on purpose: that threshold is tuned against real mobile measurements the docs say to
+ * treat as settled, and changing it deserves its own live phone verification rather than
+ * riding along with a desktop-only fix.
+ */
+export const COLLAPSED_ASPECT_RATIO = 14;
 
 /**
  * The range a viewer may set its own box to, via "Fit to this screen".
