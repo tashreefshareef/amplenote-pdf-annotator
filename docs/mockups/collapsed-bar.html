@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collapsed bar on mobile — options</title>
+<style>
+  :root { --page-bg:#eef0f3; --page-fg:#1c1e21; --page-muted:#5c6169; --page-card:#fff; --page-line:#d8dbe0; }
+  body.dark { --page-bg:#16181c; --page-fg:#e6e8ea; --page-muted:#9aa1a9; --page-card:#1e2126; --page-line:#333840; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--page-bg); color:var(--page-fg); padding:26px 26px 70px;
+    font:14px/1.55 Roboto,-apple-system,"Segoe UI",sans-serif; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:30px 0 2px; }
+  h3 { font-size:13px; margin:20px 0 6px; color:var(--page-muted); text-transform:uppercase; letter-spacing:.04em; }
+  .sub, .note { color:var(--page-muted); max-width:860px; }
+  .sub { margin:0 0 16px; }
+  .note { font-size:13px; margin:4px 0 14px; }
+  .row { display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start; }
+  .stage { background:var(--page-card); border:1px solid var(--page-line); border-radius:12px;
+    padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .cap { font-size:12px; color:var(--page-muted); max-width:380px; }
+  .cap b { color:var(--page-fg); }
+  .measure { font-variant-numeric:tabular-nums; }
+  .win { color:#1a7f43; } body.dark .win { color:#6cd28f; }
+  .cost { color:#a1621a; } body.dark .cost { color:#e0b072; }
+  .bad { color:#b3261e; } body.dark .bad { color:#f2b8b5; }
+  table { border-collapse:collapse; font-size:13px; margin-top:8px; }
+  th,td { border:1px solid var(--page-line); padding:6px 10px; text-align:left; vertical-align:top; }
+  th { background:rgba(127,127,127,.08); font-weight:600; }
+  .toggle { position:fixed; top:14px; right:18px; z-index:99; font:inherit; font-size:12px;
+    padding:6px 12px; border-radius:999px; border:1px solid var(--page-line);
+    background:var(--page-card); color:inherit; cursor:pointer; }
+
+  /* ---- the phone note column, 358px as measured on the device ---- */
+  .phone { width:358px; background:#fff; padding:10px 0 14px; border-radius:10px;
+    border:1px solid var(--page-line); color:#1c1e21; }
+  body.dark .phone { background:#fbfbfa; }
+  .prose { font:15px/1.45 Roboto,sans-serif; padding:0 12px 10px; color:#2a2d31; }
+  /* Amplenote's own attachment chip, which sits directly above every viewer */
+  .chip { font:15px/1.35 Roboto,sans-serif; color:#3f7fbf; padding:0 12px 8px; }
+  .chip .clip { opacity:.55; font-size:13px; }
+
+  /* ---- the viewer's tokens ---- */
+  .pdfa { --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0; --pdfa-btn-hover:#eceef1;
+    --pdfa-accent:#1a6fb5; --pdfa-bg:#f6f7f9;
+    margin:0 8px; border:1px solid var(--pdfa-border); border-radius:8px; overflow:hidden;
+    background:var(--pdfa-toolbar); color:var(--pdfa-fg);
+    font:13px Roboto,-apple-system,"Segoe UI",sans-serif; }
+  body.dark .pdfa { --pdfa-fg:#1c1e21; }   /* the note page stays light in both themes here */
+
+  /* height = width / data-aspect-ratio. 342px of box width: 16 -> 21px, 8 -> 43px. */
+  .h22 { height:22px; }
+  .h44 { height:44px; }
+
+  .bar { display:flex; align-items:center; gap:6px; padding:0 8px; height:100%;
+    font-size:12px; cursor:pointer; }
+  .bar .grow { flex:1 1 auto; }
+  .brand { font-weight:500; font-size:12px; color:var(--pdfa-accent); white-space:nowrap; }
+  .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.85; }
+  .count { opacity:.6; font-size:12px; white-space:nowrap; }
+  .btn { font:inherit; font-size:11px; padding:0 8px; line-height:1.6; white-space:nowrap;
+    border:1px solid var(--pdfa-accent); color:var(--pdfa-accent); background:transparent;
+    border-radius:6px; cursor:pointer; }
+  .btn-quiet { border-color:transparent; }
+  .icon { width:15px; height:15px; fill:currentColor; opacity:.6; flex:0 0 auto; }
+  .icon.accent { fill:var(--pdfa-accent); opacity:1; }
+  .chev { width:16px; height:16px; fill:currentColor; opacity:.45; flex:0 0 auto; }
+  .dot { width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
+  .swatches { display:inline-flex; gap:3px; align-items:center; }
+
+  /* the 44px variants get room to breathe */
+  .h44 .bar { gap:8px; padding:0 10px; font-size:13px; }
+  .h44 .btn { font-size:12px; padding:3px 10px; line-height:1.4; }
+  .h44 .icon { width:17px; height:17px; }
+</style>
+</head>
+<body>
+<button class="toggle" onclick="document.body.classList.toggle('dark')">Toggle dark</button>
+
+<h1>The collapsed viewer on a phone</h1>
+<p class="sub">Drawn at a real <strong>358px note width</strong>, with Amplenote's own attachment chip above
+each one — because the chip is the reason half of this bar is a repeat. The bar's height is
+<code>width / data-aspect-ratio</code> and nothing else: at the collapsed ratio of 16 that is
+<strong>22px</strong> on this phone, against ~45px on a desktop. Everything in the first group is drawn at
+that 22px; the second group asks what changes if the bar gets 44px.</p>
+
+<h2>Today</h2>
+<p class="note">Four things in 22px: the plugin's name, the PDF's name, a count that is hidden at this
+height, and a bordered button. The PDF's name is already the blue link immediately above it, and the two
+blue words compete for the same glance.</p>
+<div class="row">
+  <div class="stage">
+    <div class="phone">
+      <div class="prose">…when you take dozens of screenshots a day.</div>
+      <div class="chip">I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day.pdf <span class="clip">&#128279;</span></div>
+      <div class="pdfa h22" data-mock="now"></div>
+      <div class="prose" style="padding-top:10px">It goes beyond the basics</div>
+    </div>
+    <div class="cap">Today — <span class="measure">358 × 22</span>. The name truncates mid-word, and the
+      count is hidden by the height query, so the one fact the collapsed bar could usefully carry is the
+      one that gets dropped.</div>
+  </div>
+</div>
+
+<h2>Options at the same 22px</h2>
+<p class="note">Same box, different content. None of these needs a note rewrite — they are markup and CSS.</p>
+<div class="row">
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day.pdf <span class="clip">&#128279;</span></div>
+      <div class="pdfa h22" data-mock="a22"></div>
+    </div>
+    <div class="cap"><b>A · Count and a chevron.</b> The filename goes, because the chip above already
+      carries it. What is left is the one thing the chip cannot say — how many marks are in there — and
+      an affordance. The whole bar is the tap target, which it already is on touch.</div>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day.pdf <span class="clip">&#128279;</span></div>
+      <div class="pdfa h22" data-mock="b22"></div>
+    </div>
+    <div class="cap"><b>B · Keep the label, quiet the button.</b> "PDF Annotator" stays so the strip
+      explains itself, the border comes off the button, and the count moves in beside it. Closest to
+      today; least to argue about.</div>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day.pdf <span class="clip">&#128279;</span></div>
+      <div class="pdfa h22" data-mock="c22"></div>
+    </div>
+    <div class="cap"><b>C · Show the colours.</b> The count becomes the marks themselves — one dot per
+      colour used, then the total. It says "there is work in here" at a glance, which is the actual
+      question a collapsed viewer answers.</div>
+  </div>
+</div>
+
+<h2>The same three at 44px <span class="cost">· costs a note rewrite</span></h2>
+<p class="note">22px is the root problem: it is half a tap target, and the height query already strips the
+count to make things fit. A collapsed viewer could size its bar the way "Fit to this screen" sizes the
+open one — the device that collapses writes <code>width / 44</code> into the tag, so the bar is a
+comfortable 44px on whatever screen collapsed it (≈8 on this phone, ≈16 on a desktop, which is today's
+value). <strong>The trade is the one you already know:</strong> that number is shared, so a viewer
+collapsed on the phone opens ~89px tall on the desktop until something rewrites it.</p>
+<div class="row">
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day.pdf <span class="clip">&#128279;</span></div>
+      <div class="pdfa h44" data-mock="a44"></div>
+    </div>
+    <div class="cap"><b>A at 44px</b> — the tap target is now a real one, and the row is legible at 13px.</div>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day.pdf <span class="clip">&#128279;</span></div>
+      <div class="pdfa h44" data-mock="b44"></div>
+    </div>
+    <div class="cap"><b>B at 44px</b> — room for the label, the count and a proper button without any of
+      them crowding.</div>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="chip">I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day.pdf <span class="clip">&#128279;</span></div>
+      <div class="pdfa h44" data-mock="c44"></div>
+    </div>
+    <div class="cap"><b>C at 44px</b> — the dots get big enough to read as colours rather than specks.</div>
+  </div>
+</div>
+
+<h2>Side by side</h2>
+<table>
+  <tr><th>&nbsp;</th><th>Today</th><th>A · count + chevron</th><th>B · label, quiet button</th><th>C · colour dots</th></tr>
+  <tr><td>Repeats the chip's filename</td><td class="bad">yes</td><td>no</td><td>no</td><td>no</td></tr>
+  <tr><td>Says how many marks</td><td class="bad">no (hidden at 22px)</td><td>yes</td><td>yes</td><td>yes, and which colours</td></tr>
+  <tr><td>Says which plugin owns it</td><td>yes</td><td>only by its icon</td><td>yes</td><td>only by its icon</td></tr>
+  <tr><td>Tap target</td><td>the button, or the bar on touch</td><td>the whole bar</td><td>the whole bar</td><td>the whole bar</td></tr>
+  <tr><td>Needs a note rewrite</td><td>—</td><td>no</td><td>no</td><td>no</td></tr>
+  <tr><td>At 44px instead</td><td>—</td><td colspan="3">any of the three, plus a tag rewrite when collapsing — and the same shared-ratio trade as "Fit to this screen"</td></tr>
+</table>
+
+<script>
+var I = {
+  pdf: "M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z",
+  chevron: "M9.29 6.71a.996.996 0 0 0 0 1.41L13.17 12l-3.88 3.88a.996.996 0 1 0 1.41 1.41l4.59-4.59a.996.996 0 0 0 0-1.41L10.7 6.7c-.38-.38-1.02-.38-1.41.01z",
+  marker: "M17.75 7 14 3.25l-10 10V17h3.75l10-10zm2.96-2.96a.996.996 0 0 0 0-1.41L18.37.29a.996.996 0 0 0-1.41 0L15 2.25 18.75 6l1.96-1.96zM2 20h20v3H2z"
+};
+var COLORS = ["#F3DE6C", "#BBE077", "#F2998C"];
+var NAME = "I Finally Mastered Outlook Shortcuts—Here Are the Ones I Use Every Day.pdf";
+var COUNT = 13;
+
+function svg(name, cls) {
+  var s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("class", cls || "icon");
+  var p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", I[name]); s.appendChild(p); return s;
+}
+function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x) n.textContent = x; return n; }
+function bar(host) { var b = el("div", "bar"); host.appendChild(b); return b; }
+function grow(b) { b.appendChild(el("span", "grow")); }
+function dots(b) {
+  var w = el("span", "swatches");
+  COLORS.forEach(function (hex) { var d = el("span", "dot"); d.style.background = hex; w.appendChild(d); });
+  b.appendChild(w);
+}
+
+/* ---------- today, verbatim ---------- */
+function buildNow(host) {
+  var b = bar(host);
+  b.appendChild(el("span", "brand", "PDF Annotator"));
+  b.appendChild(el("span", "name", NAME));
+  grow(b);
+  // .pdfa-collapsed-count is display:none under the 34px height query - drawn here as it
+  // actually renders, which is not at all.
+  b.appendChild(el("button", "btn", "Expand"));
+}
+
+/* ---------- A: count + chevron ---------- */
+function buildA(host) {
+  var b = bar(host);
+  b.appendChild(svg("marker", "icon accent"));
+  b.appendChild(el("span", "count", COUNT + " highlights"));
+  grow(b);
+  b.appendChild(svg("chevron", "chev"));
+}
+
+/* ---------- B: label kept, button quieted ---------- */
+function buildB(host) {
+  var b = bar(host);
+  b.appendChild(el("span", "brand", "PDF Annotator"));
+  b.appendChild(el("span", "count", COUNT + " highlights"));
+  grow(b);
+  b.appendChild(el("button", "btn btn-quiet", "Expand"));
+}
+
+/* ---------- C: the marks themselves ---------- */
+function buildC(host) {
+  var b = bar(host);
+  b.appendChild(svg("marker", "icon accent"));
+  dots(b);
+  b.appendChild(el("span", "count", COUNT));
+  grow(b);
+  b.appendChild(svg("chevron", "chev"));
+}
+
+var B = { now: buildNow, a22: buildA, b22: buildB, c22: buildC, a44: buildA, b44: buildB, c44: buildC };
+document.querySelectorAll("[data-mock]").forEach(function (h) { B[h.dataset.mock](h); });
+</script>
+</body>
+</html>
