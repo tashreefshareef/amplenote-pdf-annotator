@@ -103,6 +103,12 @@ async function sectionUrl(app, noteUUID, headingText) {
  * heading above it, so the best case is "lands on the section holding the PDF" rather than
  * "lands on the PDF". A note with no heading above its viewer gets today's behaviour.
  *
+ * CONFIRMED ON ANDROID (2026-08-12), on the first attempt, on the same build where focus
+ * and `scrollIntoView` from inside the embed both did nothing: the note scrolls to the
+ * PDF and the highlight. The lesson is in docs/bugs-found.md - the three earlier attempts
+ * all assumed the scroll had to originate inside the frame, and it was that assumption
+ * that was wrong, not the mechanisms.
+ *
  * Best-effort throughout, and it must be: landing on the right note is the promise, and a
  * wrong or unrecognised anchor must never cost that. `navigate` is documented to return
  * false when it fails, so a rejected anchor is retried bare.

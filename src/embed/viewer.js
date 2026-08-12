@@ -2439,6 +2439,12 @@ export function viewerMain() {
    * Only ever called when this embed was opened BY a deep link, never on an ordinary
    * load: stealing focus and yanking the page around would be hostile on a note that
    * merely happens to contain a viewer, and worse on one containing several.
+   *
+   * This is the DESKTOP half of the story only. Neither mechanism below moves the mobile
+   * app's note, and nothing inside this iframe does - what scrolls it there is the plugin
+   * side navigating to a section anchor before the embed ever mounts (see
+   * src/actions/link-target.js). Both paths stay: they are complementary, not redundant -
+   * focus lands on the embed itself, an anchor only on the heading above it.
    */
   function revealSelfInHostNote() {
     try {
@@ -2448,8 +2454,9 @@ export function viewerMain() {
       els.root.focus();
       // A SECOND, independent browser-level route to the same place. Confirmed live that
       // focus alone moves the note on the desktop web app but not in the Android app -
-      // plausibly because the note there is not a scrollable DOM document at all, in
-      // which case nothing from inside this iframe can move it. scrollIntoView is worth
+      // the note there is plausibly not a scrollable DOM document at all, and this second
+      // route did not move it either, which is what sent the fix outside the iframe
+      // entirely (see the note above the function). scrollIntoView is worth
       // the two lines anyway because it is a genuinely different mechanism rather than a
       // retry: the spec's "scroll an element into view" walks up through ancestor scroll
       // containers and continues out through the frame's owner element, and the element

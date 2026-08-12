@@ -274,8 +274,9 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    URL-safety transformations" - the transformations are never enumerated, so read the
    real anchor off `app.getNoteSections` (its `heading.href`, added Dec 2023) and treat it
    as opaque rather than deriving one. The section-object shape itself is undocumented, so
-   feature-detect. **Status: implemented in `linkTarget`, being tested on Android - see
-   finding 13's "an embed cannot scroll the mobile app's note to itself".**
+   feature-detect. **CONFIRMED ON ANDROID, 2026-08-12: this is what finally scrolls the
+   mobile app's note to an embed - see finding 13, where it overturns a limitation three
+   in-iframe mechanisms had failed to beat.**
 
 9b. **Amplenote's full color palette is 55 values, declared as `--palette-color-N` CSS
     variables, and it is IDENTICAL in every theme.** They live in
@@ -448,28 +449,37 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       thing that costs them the gesture. It is a trade, not an oversight — but it does
       cap how native an embed can feel on mobile, and that is worth saying out loud to
       anyone scoping an embed-heavy plugin.
-    - **An embed cannot scroll the mobile app's note to itself. Accepted limitation.**
-      Focusing an element inside the frame scrolls the host document on the desktop web
-      app (this is how a deep link lands on the right PDF there), but does nothing in the
-      Android app; `scrollIntoView`, a separate engine path that also crosses the frame
-      boundary, was tried alongside it. The likely explanation is that the mobile note is
-      not a scrollable DOM document at all, in which case nothing inside the iframe can
-      move it and there is no plugin-side scroll API to fall back on. **On mobile, a deep
-      link opens the right note and the embed lands on the right highlight, but the reader
-      scrolls down to the viewer themselves.** Don't design a mobile flow that depends on
-      an embed pulling the note's attention to it.
+    - **NOTHING INSIDE the embed can scroll the mobile app's note to it - but
+      `app.navigate` with a section anchor can, from outside. Solved, 2026-08-12.**
 
-      **One lever remains untried from OUTSIDE the iframe, and it is now in the build:**
-      `app.navigate` accepts a section anchor (`.../notes/UUID#Section_name`, finding 9),
-      so `linkTarget` aims at the nearest heading ABOVE the embed instead of at the note.
-      The host app performs that scroll, not the embed, which is the whole reason it might
-      work where focus doesn't. Two caveats regardless of the result: it can only reach a
-      heading, so the best case is "the section holding the PDF", and a note with no
-      heading above its viewer has nothing to aim at. **Unconfirmed on Android as of
-      2026-08-12 - if it turns out the mobile app ignores the fragment, revert to treating
-      this as settled.** The control experiment that separates "fragment ignored" from
-      "wrong anchor string": tap an ordinary in-note heading link (`[[#Heading`) on the
-      phone. If Amplenote's own section link doesn't scroll there, no anchor will.
+      The failing half first, because it is still true: focusing an element inside the
+      frame scrolls the host document on the desktop web app, but does nothing in the
+      Android app; `scrollIntoView`, a separate engine path that also crosses the frame
+      boundary, was tried alongside it and also does nothing. The likely explanation is
+      that the mobile note is not a scrollable DOM document at all, in which case no
+      in-iframe mechanism can move it. The symptom was precise and misleading: a deep link
+      opened the right note, the viewer was already sitting on the right highlight, and
+      the reader was left at the bottom of the note to find the PDF by hand.
+
+      **What works is `app.navigate("…/notes/UUID#Section_name")` (finding 9), aimed at
+      the nearest heading ABOVE the embed - so `linkTarget` computes that heading and
+      navigates to the section rather than to the note.** Confirmed on Android on the
+      first try. The reason it beats three in-iframe mechanisms is not that it is a better
+      scroll: it is that the HOST APP performs it. The iframe only asks for a destination,
+      via the one host API that takes one.
+
+      Caveats that survive the fix: an anchor can only name a **heading**, never an embed,
+      so a note with no heading above its viewer has nothing to aim at and falls back to
+      today's behaviour; and how close you land depends on how far the PDF sits below that
+      heading.
+
+      **Generalize this before assuming your own embed is stuck**: "the sandbox cannot
+      reach the host" is about the DOM, and it does not imply "the host cannot be asked".
+      Enumerate the host's own navigation/routing API for an addressable landmark - a
+      section, an anchor, a task id, a query parameter - before recording a limitation as
+      accepted. The three failed attempts here all shared one assumption (that the scroll
+      had to originate inside the frame) and it was the assumption, not the attempts, that
+      was wrong.
 
 14. **Rewriting a note's content does NOT re-mount an embed already on screen — so a
     plugin cannot "send" anything to a live embed by editing the note.** `renderEmbed`

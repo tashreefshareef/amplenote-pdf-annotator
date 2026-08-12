@@ -912,6 +912,47 @@ a measured size disagrees with the stylesheet, suspect the cascade before the ar
 
 ---
 
+## Three ways to scroll the page failed, because all three started in the wrong document
+
+**Symptom:** clicking a deep link to a highlight worked on desktop and half-worked on the
+phone. Both landed on the right note with the viewer already scrolled to the right
+highlight - but on mobile the reader was left wherever they had been, typically at the
+bottom of the note, with the PDF somewhere far above. Scroll to it by hand and it was
+already sitting on the correct highlight, which is what made the failure look so narrow:
+everything worked except moving the page.
+
+**Cause:** the viewer runs in a cross-origin iframe, so it cannot touch the host page's
+scroller with script. The workaround was to use the two mechanisms that cross a frame
+boundary without script access - `element.focus()`, which makes every ancestor document
+scroll the frame into view, and `element.scrollIntoView()`, whose spec walks out through
+the frame's owner element. Both work on desktop. Neither does anything in the mobile app,
+most likely because the note there is not a scrollable DOM document at all. A third
+attempt at the related gesture problem (a non-passive `touchmove` listener calling
+`preventDefault()`, the strongest lever a page has over gesture ownership) lost to the
+host too. Three attempts, one shared assumption: that the scroll had to *originate inside
+the frame*.
+
+**Fix:** ask the host to navigate instead of trying to scroll it. The platform's own API
+(`app.navigate`) accepts a URL with a section anchor, and the plugin already knew which
+note it was targeting - so the deep link now resolves the nearest heading above the embed
+and navigates to `…/notes/UUID#Section_name`. The host app performs the scroll; the iframe
+only supplies a destination. Worked on the first try on Android, on the same build where
+all three in-frame mechanisms had failed.
+
+**General lesson:** "the sandbox cannot reach the host" is a statement about the DOM, and
+it does not imply "the host cannot be asked". When a frame, extension, plugin, or embedded
+view can't move the page it lives in, stop iterating on cross-boundary DOM tricks and go
+read the host's navigation/routing surface for something *addressable* - an anchor, a
+section, a record id, a query parameter. The catch is that such an API can only aim at
+landmarks the host already names, so expect to settle for the nearest one (here: a
+heading, since no URL can name an embed) and design for the case where there isn't one.
+Worth checking early: a limitation recorded as "accepted" after several failed attempts is
+most suspicious when all the attempts were variations on a single idea.
+
+Full detail: `docs/api-notes.md` findings 9 and 13.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:
