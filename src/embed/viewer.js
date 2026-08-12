@@ -63,6 +63,7 @@ export function viewerMain() {
     thumbsScroll: document.getElementById("pdfa-thumbs-scroll"),
     count: document.getElementById("pdfa-count"),
     more: document.getElementById("pdfa-more"),
+    fit: document.getElementById("pdfa-fit"),
     open: document.getElementById("pdfa-open"),
     scrollUp: document.getElementById("pdfa-scroll-up"),
     scrollDown: document.getElementById("pdfa-scroll-down"),
@@ -149,6 +150,13 @@ export function viewerMain() {
     // popover refuses to close on scroll or an outside click, so a half-typed note
     // cannot be lost by a stray gesture.
     noteEditing: null,
+    // The height this viewer is wearing (see "Fit to this screen"), or null for the
+    // default. Seeded from the tag at boot and then maintained HERE, because rewriting the
+    // tag resizes the box without re-mounting the embed - confirmed live, and the same
+    // fact clearDeepLinkArgs relies on. So cfg.aspectRatio is only ever true of the moment
+    // this viewer loaded: read it after a resize and the control still offers whichever of
+    // fit/restore was offered before. Reported live as exactly that.
+    aspectRatio: null,
     // The button whose click opened the popover that is currently open, or null for the
     // ones opened at a highlight or a selection. Only its OWN click can be a dismissal;
     // a click on it while something else's popover is open is an ordinary open.
@@ -3073,33 +3081,6 @@ export function viewerMain() {
     return row;
   }
 
-  /** The shape group, likewise - the same three buttons, driving the same state. */
-  function menuStyleRow() {
-    var row = document.createElement("div");
-    row.className = "pdfa-menu-tools";
-    var list = styleList();
-    for (var i = 0; i < list.length; i++) {
-      (function (entry) {
-        var btn = iconMenuButton(entry.id, entry.label, function (event) {
-          event.stopPropagation();
-          state.activeStyle = entry.id;
-          // The bar's own copy is hidden at this width but still the source of truth for
-          // every other path that reads it, so it is updated exactly as a bar click would.
-          updateStyleButtons();
-          updateColorButtons();
-          var btns = row.querySelectorAll("button");
-          for (var j = 0; j < btns.length; j++) {
-            btns[j].setAttribute("aria-pressed", String(btns[j].dataset.style === state.activeStyle));
-          }
-        });
-        btn.dataset.style = entry.id;
-        btn.setAttribute("aria-pressed", String(entry.id === state.activeStyle));
-        row.appendChild(btn);
-      })(list[i]);
-    }
-    return row;
-  }
-
   /** An icon-only button for the menu's control rows. */
   function iconMenuButton(iconKey, label, onClick) {
     var btn = document.createElement("button");
@@ -3143,22 +3124,21 @@ export function viewerMain() {
    * re-renders the embed at the other end. One tap, on the device that minds.
    */
   function heightMenuItem() {
-    var fitted = !!cfg.aspectRatio;
-    if (!isNarrowViewer()) {
-      // Nothing to offer a wide viewer at its default height: its box is already the one
-      // this plugin picked for it, and "fit to screen" on a desktop would only ever make
-      // it taller than the window. Null rather than an empty row - a divider standing in
-      // for a missing item is how a menu grows a line above its first entry.
-      if (!fitted) return null;
-      return button("Restore height", "", function () {
-        closePopover(true);
-        setViewerHeightInNote(null);
-      }, "collapse");
-    }
-    return button(fitted ? "Restore height" : "Fit to this screen", "", function () {
+    // A NARROW VIEWER HAS THE BUTTON, so the menu says nothing - offering the same control
+    // twice, one above the other, is how a menu stops being a list of what is not already
+    // in front of you.
+    //
+    // On a wide one there is nothing to offer at the default height either: its box is
+    // already the one this plugin picked, and fitting a desktop to its own screen would
+    // only ever make the viewer taller than the window. The single case left is a viewer
+    // wearing a height a PHONE chose, which is the one thing a desktop reader cannot
+    // otherwise undo. Null rather than an empty row - a divider standing in for a missing
+    // item is how a menu grows a line above its first entry.
+    if (isNarrowViewer() || !state.aspectRatio) return null;
+    return button("Restore height", "", function () {
       closePopover(true);
-      setViewerHeightInNote(fitted ? null : fittedAspectRatio());
-    }, fitted ? "collapse" : "expand");
+      setViewerHeightInNote(null);
+    }, "restoreHeight");
   }
 
   /**
@@ -3169,12 +3149,45 @@ export function viewerMain() {
    * viewer is exactly as it was. Neither outcome needs an error over the top of it.
    */
   function setViewerHeightInNote(aspectRatio) {
+    // Locally first, so the control flips under the finger that pressed it. The write
+    // resizes the box but does not re-mount the embed, so nothing else will ever tell this
+    // viewer what its own height now is.
+    state.aspectRatio = aspectRatio;
+    updateFitButton();
     callPlugin({
       action: "setViewerHeight",
       aspectRatio: aspectRatio,
       attachmentUUID: cfg.attachmentUUID,
       pluginUUID: cfg.pluginUUID,
-    })["catch"](function () {});
+    })
+      .then(function (reply) {
+        // The plugin validates the ratio and answers with what it actually stored - a
+        // value it rejected comes back as null, which is the default height. Adopting the
+        // answer rather than the request is what keeps the button honest about the box.
+        if (reply && reply.ok) state.aspectRatio = reply.aspectRatio || null;
+        updateFitButton();
+      })
+      ["catch"](function () {});
+  }
+
+  /**
+   * The toolbar's height control: which of the two things it currently offers.
+   *
+   * A button rather than a menu row (asked for live, and right: it is a view control like
+   * the pager, not an occasional action like Download), and icon-only - so its whole state
+   * lives in the glyph and the label, which is why both are rewritten here rather than
+   * being decided once at mount.
+   */
+  function updateFitButton() {
+    if (!els.fit) return;
+    var fitted = !!state.aspectRatio;
+    els.fit.title = fitted ? "Restore height" : "Fit to this screen";
+    els.fit.setAttribute("aria-label", els.fit.title);
+    els.fit.setAttribute("aria-pressed", String(fitted));
+    els.fit.innerHTML = "";
+    var glyph = iconEl(fitted ? "restoreHeight" : "fitScreen");
+    if (glyph) els.fit.appendChild(glyph);
+    else els.fit.textContent = fitted ? "Restore" : "Fit";
   }
 
   function openMoreMenu(anchor) {
@@ -3196,27 +3209,21 @@ export function viewerMain() {
     // state with no chip in view.
     var children = [];
 
-    // THE NARROW BAR'S MISSING CONTROLS. Below NARROW_VIEWER_WIDTH the toolbar keeps only
-    // what has to be one tap away - the pager, the four colors, this button - and hands
-    // the rest here (styles.js has the matching rule, and the breakpoint is repeated
-    // there because CSS cannot read this file). Fourteen controls left-packed at a phone's
-    // ~342px wrapped to three rows and spent 141px of a 342px box on chrome; one row
-    // spends 53px. Measured both ways in docs/mockups/mobile-toolbar.html.
+    // WHAT THE NARROW BAR HANDS OVER. Its two rows keep the thumbnails, the pager, the
+    // shape group, the colours, the height control and this button; the zoom stepper and
+    // the highlights list are what will not fit (styles.js has the matching rule, and the
+    // breakpoint is repeated there because CSS cannot read this file).
     //
-    // As LIVE CONTROLS, not menu rows that read "Zoom in": these are steppers and toggles,
-    // and turning them into one-shot rows would make zooming a matter of reopening the
-    // menu per 25%.
+    // The zoom arrives as LIVE CONTROLS, not a menu row reading "Zoom in": it is a
+    // stepper, and a one-shot row would make zooming a matter of reopening the menu per
+    // 25%.
     if (isNarrowViewer()) {
-      children.push(menuZoomRow(), menuStyleRow(), menuDivider());
+      children.push(menuZoomRow(), menuDivider());
       children.push(
         button("Highlights (" + state.highlights.length + ")", "", function () {
           closePopover(true);
           togglePanel(true);
         }, "list"),
-        button("Page thumbnails", "", function () {
-          closePopover(true);
-          toggleThumbnails(true);
-        }, "thumbs"),
         menuDivider()
       );
     }
@@ -3641,6 +3648,11 @@ export function viewerMain() {
     bindHoldToScroll(els.scrollDown, 1);
     els.listToggle.onclick = function () { togglePanel(); };
     els.thumbsToggle.onclick = function () { toggleThumbnails(); };
+    if (els.fit) {
+      els.fit.onclick = function () {
+        setViewerHeightInNote(state.aspectRatio ? null : fittedAspectRatio());
+      };
+    }
     els.more.onclick = function () {
       // A second click on the button CLOSES the menu it opened, which is what every other
       // menu button in the app the embed sits in does. See the mousedown handler for why
@@ -3744,6 +3756,10 @@ export function viewerMain() {
     // their names from whichever shape it leaves active - so this must come first.
     mountStyleButtons();
     mountColorButtons();
+    // The tag is only right about this viewer's height at the moment it loaded - see
+    // state.aspectRatio. From here on the local copy is the one anything reads.
+    state.aspectRatio = cfg.aspectRatio || null;
+    updateFitButton();
     renderPanel();
     // Bound to the whole bar, not just its Expand button - a click on the button bubbles
     // up to here, so one handler serves both (and keyboard Enter on the focused button

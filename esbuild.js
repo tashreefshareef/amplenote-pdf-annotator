@@ -57,8 +57,56 @@ const minifyStylesheet = {
   },
 };
 
+/**
+ * Strip the embed markup's HTML comments on their way into the bundle.
+ *
+ * SAME BLIND SPOT AS THE STYLESHEET, found the same way - by measuring the note against
+ * its cap. esbuild's minifier removes JS comments, so the long explanations in viewer.js
+ * cost the note nothing; the ones in src/embed/html.js are `<!-- ... -->` INSIDE a
+ * template literal, which is string data to a JS minifier and ships byte for byte. There
+ * were 7,908 characters of them - 8% of a note capped at 100k - at a point where the
+ * bundle had about 1,000 characters of headroom left.
+ *
+ * A regex over the module source, unlike the stylesheet's real CSS parser, so it is
+ * deliberately narrow: only `<!--`/`-->` pairs, nothing about whitespace. Collapsing
+ * indentation would save more and would also change rendering, because whitespace between
+ * inline elements is a text node the browser lays out.
+ *
+ * TWO ASSERTIONS, for the two ways this can silently stop working: no comments found at
+ * all (the file was reshaped, and the note quietly creeps back over its cap), and a `${}`
+ * inside a comment (an interpolation would be deleted with it, which would remove real
+ * markup rather than an explanation).
+ */
+const stripEmbedMarkupComments = {
+  name: "strip-embed-markup-comments",
+  setup(build) {
+    build.onLoad({ filter: /[\\/]embed[\\/]html\.js$/ }, (args) => {
+      const source = readFileSync(args.path, "utf8");
+      const comments = source.match(/<!--[\s\S]*?-->/g) || [];
+      if (!comments.length) {
+        throw new Error(
+          "strip-embed-markup-comments: no HTML comments found in src/embed/html.js. " +
+            "Fix this plugin's pattern rather than removing it, or the markup's comments " +
+            "ship in the note and it creeps over 100k."
+        );
+      }
+      const interpolated = comments.find((c) => c.includes("${"));
+      if (interpolated) {
+        throw new Error(
+          "strip-embed-markup-comments: an HTML comment in src/embed/html.js contains a " +
+            "template interpolation, which stripping it would delete:\n" +
+            interpolated.slice(0, 200)
+        );
+      }
+      htmlSaving = comments.reduce((n, c) => n + c.length, 0);
+      return { contents: source.replace(/<!--[\s\S]*?-->/g, ""), loader: "js" };
+    });
+  },
+};
+
 /** Reported at the end of the build, so a regression in the above is visible. */
 let cssSaving = 0;
+let htmlSaving = 0;
 /** Sync target for Amplenote Plugin Builder - see the format contract below. */
 const SYNC_FILE = `${OUT_DIR}/plugin.js`;
 /** Manual clipboard-paste fallback. */
@@ -86,7 +134,7 @@ const result = await esbuild.build({
   // travels through clipboards and note storage of uncertain encoding; a stray em-dash
   // in a user-facing message once arrived in Amplenote as mojibake.
   charset: "ascii",
-  plugins: [minifyStylesheet],
+  plugins: [minifyStylesheet, stripEmbedMarkupComments],
   write: false,
 });
 
@@ -163,3 +211,4 @@ const kb = (Buffer.byteLength(pasteOutput, "utf8") / 1024).toFixed(1);
 const headroom = Math.round((1 - pasteOutput.length / MAX_NOTE_CHARS) * 100);
 console.log(`Built ${SYNC_FILE} + ${PASTE_FILE} (${kb} kB, ${headroom}% under the note limit)`);
 console.log(`  stylesheet minified: ${cssSaving.toLocaleString("en-US")} characters saved`);
+console.log(`  markup comments stripped: ${htmlSaving.toLocaleString("en-US")} characters saved`);

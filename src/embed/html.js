@@ -230,6 +230,12 @@ export function buildEmbedHtml({
     <button id="pdfa-zoom-in" class="pdfa-icon-btn" title="Zoom in"
             aria-label="Zoom in">${icon(ICONS.add)}</button>
     <span class="pdfa-sep"></span>
+    <!-- A DESIGNED WRAP POINT, shown only on a narrow viewer (styles.js, 420px). The bar
+         wraps there whatever we do - fourteen controls do not fit a phone's ~342px - and
+         the difference between a designed break and an accidental one is which controls
+         end up together. Everything before it is navigation and view; everything after is
+         marking. Zero height, so it costs the wide bar nothing even when it is displayed. -->
+    <span class="pdfa-break"></span>
     <!-- WHICH SHAPE the swatches paint: highlight, underline or strikethrough. A group of
          pressed-state buttons holding one active shape, the way Amplenote's own H2 button
          holds "the cursor is in a heading" - not a dropdown. The alternative designs were
@@ -271,6 +277,15 @@ export function buildEmbedHtml({
          bar wraps and centres its rows, and a growing spacer would eat the free space
          justify-content needs to do that. -->
     <span class="pdfa-spacer"></span>
+    <!-- THE HEIGHT CONTROL, next to the overflow button rather than inside it. Only on a
+         narrow viewer (see the 420px query in styles.js): one data-aspect-ratio serves
+         every device the note opens on, so a phone is the only place the box is the wrong
+         size, and a desktop already has the height this plugin picked for it. Its glyph
+         and label are swapped by updateFitButton - it is one button with two states, not
+         two buttons, because the thing it toggles is one number. -->
+    <button id="pdfa-fit" class="pdfa-icon-btn" title="Fit to this screen"
+            aria-label="Fit to this screen" aria-pressed="false"
+            >${icon(ICONS.fitScreen)}</button>
     <!-- Download, Export and Remove are all occasional, one-off actions - unlike the
          colors (top-level is an explicit spec requirement) or page/zoom/Notes (used
          constantly while reading) - so they live behind one overflow menu instead of

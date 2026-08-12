@@ -143,6 +143,11 @@ export const STYLES = `
   /* Short and centred rather than edge to edge: a full-bleed divider is heavier than
      anything Amplenote's toolbar draws, and it was the loudest thing in a borderless bar. */
   .pdfa-sep { width: 1px; height: 20px; align-self: center; background: var(--pdfa-border); margin: 0 5px; }
+  /* Both hidden until the narrow bar wants them - the break because a wide bar is one row
+     by design, the height control because the box is only ever the wrong size on a phone
+     (one data-aspect-ratio serves every device the note opens on). */
+  .pdfa-break { display: none; }
+  .pdfa-toolbar #pdfa-fit { display: none; }
   /* 500, not 600 - medium is the heaviest weight Amplenote's own UI uses. */
   .pdfa-brand { font-weight: 500; font-size: 12px; letter-spacing: .01em; color: var(--pdfa-accent);
     white-space: nowrap; padding-right: 2px; }
@@ -310,6 +315,20 @@ export const STYLES = `
     border: 1px solid var(--pdfa-border); border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.10); }
   .pdfa-popover.pdfa-open { display: flex; }
+  /* EVERY COLUMN MODE MUST TURN THE WRAP OFF, and this is not tidiness.
+     "flex-wrap: wrap" above is for the selection popover, which is a genuine wrapping row
+     of swatches. Left on in a COLUMN it means something entirely different: a column that
+     runs out of height wraps into a SECOND COLUMN. The popover is capped at the viewport
+     (max-height above), so on a phone - where the whole box is ~342px and the menu wants
+     ~420px - the overflow menu silently laid itself out in two columns, and the second one
+     was clipped by max-width. Reported live with a screenshot: "Highlight colors..." and
+     "Remove viewer..." sitting off to the right of the others, both cut off mid-word.
+     With nowrap the overflow does what the max-height was always meant to make it do -
+     scroll. */
+  .pdfa-popover.pdfa-editing,
+  .pdfa-popover.pdfa-exporting,
+  .pdfa-popover.pdfa-palette,
+  .pdfa-popover.pdfa-menu { flex-wrap: nowrap; }
   /* The note editor turns the popover into a small column form. */
   .pdfa-popover.pdfa-editing { flex-direction: column; align-items: stretch; width: 274px; }
   /* Export all's color filter: independently-toggled swatches, not the single-select
@@ -630,37 +649,58 @@ export const STYLES = `
     .pdfa-zoom-field { width: 46px; padding: 5px 2px; }
   }
 
-  /* ---- ONE DESIGNED ROW ------------------------------------------------------
-     Below this width the bar keeps only what has to be one tap away - the pager, the four
-     colors, and the overflow button - and everything else moves into that menu (see
-     openMoreMenu, which repeats the 420 because CSS and JS cannot share a number).
+  /* ---- TWO DESIGNED ROWS -----------------------------------------------------
+     Below this width the bar wraps whatever we do - fourteen controls do not fit a phone's
+     ~342px - so the only question is whether the grouping is chosen or accidental. It was
+     accidental: measured at 342px, the bar took THREE rows and 141px of a 342px box (41%
+     of the viewer), with the zoom "+" beside the pen and the overflow button stranded
+     alone on the third row.
 
-     MEASURED, on the phone box this exists for: fourteen controls left-packed at ~342px
-     wrapped to THREE rows and spent 141px of a 342px box, 41% of the viewer, on chrome.
-     One row spends 53px and hands 88px back to the page - the page area grows by 44%.
-     The wrap order was never a design either: the zoom "+" landed beside the pen and the
-     overflow button was stranded alone on the third row.
+     Row 1 is navigation and view: thumbnails at the left edge, the pager, then the height
+     control and the overflow button at the right. Row 2 is marking: shape, then colour,
+     which reads left to right as "an underline, in green" exactly as it does on a wide
+     bar. The split is a zero-height .pdfa-break element in the markup, so the wrap point
+     is a decision rather than a consequence of whatever is widest today.
 
-     nowrap is the load-bearing word. Without it this is a set of hiding rules that still
-     wraps the moment something is a pixel wider than expected, which is the failure it is
-     replacing. With it, a row that does not fit clips at the edge and gets noticed. What
-     is left measures 302px at 342px wide: 40 + 44 + 40 (pager) + 110 (four 20px swatches
-     10px apart, the touch spacing) + 40 (overflow) + four 4px gaps + 12px padding. */
+     Two rows cost 104px against the one-row layout's 53px. That is the price of the two
+     controls asked for live - thumbnails and the height toggle - being reachable without
+     opening a menu, plus the shape group coming back to the bar with them. Measured room:
+     row 1 is 244px of controls (40 + 40 + 44 + 40 + 40 + 40) and row 2 is 230px (three
+     40px shape buttons, four 20px swatches 10px apart), both inside 342px with slack.
+
+     What is left in the menu at this width: the zoom stepper (as live buttons) and the
+     highlights list, plus everything the wide bar keeps there anyway. */
   @media (max-width: 420px) {
-    .pdfa-toolbar { flex-wrap: nowrap; }
-    /* The four colors and the pager stay. The shape group goes because a mark's shape can
-       still be changed from its own card afterwards; the zoom, the thumbnails and the
-       highlights list go because they are all things you do between reads, not during
-       one. All four are in the menu, and the first two are still live controls there. */
-    #pdfa-thumbs-toggle, #pdfa-zoom-out, #pdfa-zoom-in, .pdfa-zoom-field { display: none; }
-    /* THESE TWO NEED THE EXTRA SPECIFICITY, and measuring is the only way that shows it:
-       a bare "#pdfa-styles" ties with the coarse block's own "#pdfa-styles" and loses on
-       source order, and ".pdfa-notes-btn" is outranked outright by
-       ".pdfa-toolbar button.pdfa-icon-btn" further up. Both stayed visible and the row
-       overflowed by 53px. Same defect as .pdfa-shape-btn (see its comment): a rule that
-       overrides another must OUTRANK it, and a rule that loses fails silently. */
-    .pdfa-toolbar #pdfa-styles { display: none; }
+    /* The stepper's three controls are the widest thing that can be moved without costing
+       a tap on something used constantly - zoom is set once and read for a while, unlike
+       the pager. In the menu they stay live buttons, not rows that say "Zoom in". */
+    #pdfa-zoom-out, #pdfa-zoom-in, .pdfa-zoom-field { display: none; }
+    /* THIS ONE NEEDS THE EXTRA SPECIFICITY, and measuring is the only way that shows it:
+       ".pdfa-notes-btn" is outranked outright by ".pdfa-toolbar button.pdfa-icon-btn"
+       further up, so it stayed visible and the row overflowed. Same defect as
+       .pdfa-shape-btn (see its comment): a rule that overrides another must OUTRANK it,
+       and a rule that loses fails silently. */
     .pdfa-toolbar button.pdfa-notes-btn { display: none; }
+    /* Forces row 2 to start at the shape group. flex-basis rather than width: a wrapped
+       flex line is what this creates, and a zero-height element with a full-width basis is
+       the only way to name one.
+
+       ORDER, because a break can only split the bar where the MARKUP already put it, and
+       the two controls that belong at the top right - the height toggle and the overflow
+       button - are written after the shape group so that a wide bar reads correctly. Left
+       to source order they landed on row two with the colours. Sorting them ahead of the
+       break puts them on row one without moving anything in the markup, which is where
+       every other layout decision in this bar is made from. */
+    .pdfa-break { display: block; flex: 0 0 100%; height: 0; order: 1; }
+    .pdfa-toolbar #pdfa-styles, .pdfa-toolbar #pdfa-colors { order: 2; }
+    /* The height control is a phone problem: one ratio serves every device, and the
+       desktop already has the box this plugin picked. Shown here, offered in the menu on a
+       wide viewer only when it is already wearing a fitted height. */
+    .pdfa-toolbar #pdfa-fit { display: inline-flex; }
+    /* Back on, against the 520px rule above: with a designed break there is free space on
+       row 1 to push the height and overflow buttons to the right edge, which is where an
+       overflow control is looked for. Row 2 has no spacer and stays centred. */
+    .pdfa-toolbar .pdfa-spacer { display: block; }
     /* Zoom was moved into the overflow menu here for one release, to buy back a 40px
        toolbar row. Reverted after use on a real phone: a stepper reached through a menu
        is worse than a second toolbar row, and the row costs proportionally less now that

@@ -654,42 +654,85 @@ describe("buildEmbedHtml", () => {
   // the grouping (zoom "+" beside the pen, the overflow button alone on row three). Below
   // the breakpoint the bar keeps the pager, the four colours and the overflow button, and
   // everything else moves into that menu.
-  test("drops the narrow toolbar to one designed row rather than letting it wrap", () => {
+  test("splits the narrow toolbar into two designed rows rather than letting it wrap", () => {
     const out = html();
     const narrow = out.match(/@media \(max-width: 420px\)[\s\S]*?\n {2}\}/)[0];
-    // nowrap is the load-bearing half: hiding controls without it still wraps the moment
-    // something is a pixel wider than expected, which is the failure being replaced.
-    expect(narrow).toMatch(/\.pdfa-toolbar\s*\{[^}]*flex-wrap:\s*nowrap/);
-    for (const hidden of [
-      "#pdfa-thumbs-toggle",
-      "#pdfa-zoom-out",
-      "#pdfa-zoom-in",
-      "#pdfa-styles",
-      ".pdfa-zoom-field",
-      ".pdfa-notes-btn",
-    ]) {
+    // The break is what makes the wrap a decision: everything before it is navigation and
+    // view, everything after is marking. Without it the grouping is whatever fits.
+    expect(narrow).toMatch(/\.pdfa-break\s*\{[^}]*flex:\s*0 0 100%/);
+    expect(out).toContain('<span class="pdfa-break"></span>');
+    // The break has to sit between the pager half and the marking half, or it splits the
+    // bar somewhere that means nothing.
+    const toolbar = out.match(/<div class="pdfa-toolbar">[\s\S]*?<\/div>/)[0];
+    expect(toolbar.indexOf('id="pdfa-zoom-in"')).toBeLessThan(toolbar.indexOf("pdfa-break"));
+    expect(toolbar.indexOf("pdfa-break")).toBeLessThan(toolbar.indexOf('id="pdfa-styles"'));
+    // Only the zoom stepper and the highlights count leave the bar at this width.
+    for (const hidden of ["#pdfa-zoom-out", "#pdfa-zoom-in", ".pdfa-zoom-field", ".pdfa-notes-btn"]) {
       expect(narrow).toContain(hidden);
     }
-    // What must NOT be hidden: the pager, the swatches and the way to reach everything
-    // else. A bar that drops any of these has not compacted, it has broken.
-    expect(narrow).not.toContain("#pdfa-colors");
-    expect(narrow).not.toContain("#pdfa-more");
-    expect(narrow).not.toContain("#pdfa-prev");
-    expect(narrow).not.toContain("#pdfa-next");
+    // What must NOT be hidden: thumbnails, the pager, the shape group, the swatches, the
+    // height control and the way to reach everything else. Matched as "not in a rule that
+    // hides it" rather than "absent", since row 2's ordering names two of them.
+    for (const kept of [
+      "#pdfa-colors",
+      "#pdfa-styles",
+      "#pdfa-more",
+      "#pdfa-prev",
+      "#pdfa-next",
+      "#pdfa-thumbs-toggle",
+    ]) {
+      expect(narrow).not.toMatch(new RegExp(`${kept}[^{}]*\\{[^}]*display:\\s*none`));
+    }
+    expect(narrow).toMatch(/#pdfa-fit\s*\{\s*display:\s*inline-flex/);
   });
 
-  // Scenario: the same controls have to remain REACHABLE once the bar drops them, and as
-  // controls rather than as one-shot menu rows - a zoom stepper turned into a row would
-  // mean reopening the menu per 25%.
-  test("gives the menu live rows for what the narrow bar hands it", () => {
+  // Scenario: the height control is a phone problem - one data-aspect-ratio serves every
+  // device the note opens on - so it is a toolbar button there and nothing at all on a
+  // desktop at its default height.
+  test("puts the height control in the narrow bar, not in the menu", () => {
+    const out = html();
+    expect(out).toContain('id="pdfa-fit"');
+    // Hidden by default, shown only by the narrow query above.
+    expect(out).toMatch(/\.pdfa-toolbar #pdfa-fit\s*\{\s*display:\s*none/);
+    // Its two states are distinct glyphs, and neither may be the one Collapse wears -
+    // reported live: two different controls drawn identically, one above the other.
+    expect(out).toContain("fitScreen");
+    expect(out).toContain("restoreHeight");
+    // The icon set reaches the viewer as JSON in the config, so the keys are quoted.
+    const collapseIcon = out.match(/"collapse":"([^"]+)"/)[1];
+    const fitIcon = out.match(/"fitScreen":"([^"]+)"/)[1];
+    const restoreIcon = out.match(/"restoreHeight":"([^"]+)"/)[1];
+    expect(fitIcon).not.toBe(collapseIcon);
+    expect(restoreIcon).not.toBe(collapseIcon);
+    expect(fitIcon).not.toBe(restoreIcon);
+  });
+
+  // Scenario: the zoom stepper has to remain REACHABLE once the bar drops it, and as a
+  // control rather than a one-shot menu row - a row would mean reopening the menu per 25%.
+  test("gives the menu a live zoom row for what the narrow bar hands it", () => {
     const out = html();
     expect(out).toMatch(/\.pdfa-menu-tools\s*\{[^}]*display:\s*flex/);
     expect(out).toContain("pdfa-menu-rule");
-    // The viewer only builds those rows below the same breakpoint the CSS uses. The
-    // number is repeated in the two languages, so a change to one has to find the other.
+    // The viewer only builds that row below the same breakpoint the CSS uses. The number
+    // is repeated in the two languages, so a change to one has to find the other.
     expect(out).toContain("NARROW_VIEWER_WIDTH = 420");
-    expect(out).toContain("Fit to this screen");
-    expect(out).toContain("Restore height");
+  });
+
+  // Scenario: a column that runs out of height WRAPS INTO A SECOND COLUMN when flex-wrap
+  // is left on - and the popover caps its height at the viewport. On a phone the overflow
+  // menu is taller than the whole box, so it laid itself out in two columns and the second
+  // was clipped by max-width. Reported live with a screenshot of "Highlight colors..." and
+  // "Remove viewer..." sitting off to the right, cut off mid-word.
+  test("never lets a column-mode popover wrap into a second column", () => {
+    const out = html();
+    const rule = out.match(/\.pdfa-popover\.pdfa-editing,[\s\S]*?\{[^}]*\}/)[0];
+    expect(rule).toMatch(/flex-wrap:\s*nowrap/);
+    for (const mode of ["pdfa-editing", "pdfa-exporting", "pdfa-palette", "pdfa-menu"]) {
+      expect(rule).toContain(mode);
+    }
+    // The wrapping row the base rule exists for is still a wrapping row: the selection
+    // popover is genuinely a row of swatches that has to flow onto a second line.
+    expect(out).toMatch(/\.pdfa-popover\s*\{[^}]*flex-wrap:\s*wrap/);
   });
 
   // Scenario: on Android the host note claims the vertical drag, so the page area could

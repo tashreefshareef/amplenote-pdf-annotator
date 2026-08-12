@@ -107,6 +107,11 @@
 the device — with the viewer's own CSS and its <code>@media (pointer: coarse)</code> sizing applied, so the
 button heights are the ones your thumb actually gets. The box height is <code>width / data-aspect-ratio</code>
 and nothing else (api-notes.md §12), so every pixel the bar takes is a pixel of PDF you lose.</p>
+<p class="sub"><strong>What shipped is option 2's shape, not option 1.</strong> One row went in first; the
+thumbnails button and the height toggle were then wanted on the bar rather than inside the menu, and
+neither fits a single row beside the pager and the four colours. Row 1 is thumbnails, the pager, then the
+height toggle and <strong>⋮</strong> at the right edge; row 2 is shape and colour. The shape group came
+back to the bar with them, so only the zoom stepper and the highlights list are left in the menu.</p>
 
 <h2>Today</h2>
 <p class="note">Fourteen controls, left-packed, wrapping wherever they land — which is why zoom <strong>+</strong>

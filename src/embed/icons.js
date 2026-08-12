@@ -33,6 +33,10 @@ export const ICONS = {
   arrowDown: "M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z",
   // view_sidebar - a page with a distinct left column, for the thumbnails panel. Reads as
   // "a panel down the side of the document", which is what it opens, rather than as a
+  // open_in_full - the narrow bar's height control at rest. Its other state
+  // (close_fullscreen) is swapped in at runtime from MENU_ICONS, so only this one needs to
+  // be in the static markup.
+  fitScreen: "M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z",
   // grid or a list (both of which the notes panel's own glyph already implies).
   sidebar:
     "M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 19H4V5h5v14z",
@@ -73,17 +77,20 @@ export const MENU_ICONS = {
   highlight: "M17.75 7 14 3.25l-10 10V17h3.75l10-10zm2.96-2.96a.996.996 0 0 0 0-1.41L18.37.29a.996.996 0 0 0-1.41 0L15 2.25 18.75 6l1.96-1.96zM2 20h20v3H2z",
   underline: "M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z",
   strike: "M10 19h4v-3h-4v3zM5 4v3h5v3h4V7h5V4H5zM3 14h18v-2H3v2z",
-  // THE NARROW BAR'S EXILES. Below the breakpoint the highlights panel and the thumbnails
-  // lose their toolbar buttons and become menu rows, so their glyphs have to travel too -
-  // the same two the bar itself uses (ICONS.listBulleted, ICONS.sidebar), repeated here
-  // because MENU_ICONS is a separate object and viewer.js can reach only this one.
+  // THE NARROW BAR'S ONE EXILE. Below the breakpoint the highlights panel loses its
+  // toolbar button and becomes a menu row, so its glyph has to travel too - the same one
+  // the bar itself uses (ICONS.listBulleted), repeated here because MENU_ICONS is a
+  // separate object and viewer.js can reach only this one.
   list:
     "M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z",
-  thumbs:
-    "M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 19H4V5h5v14z",
-  // unfold_more - collapse's own glyph reversed, for "make this box taller". The pair
-  // reads as one axis, which is what the two menu items actually are.
-  expand: "M12 5.83 15.17 9l1.41-1.41L12 3 7.42 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.58-4.59L15.17 15 12 18.17z",
+  // THE HEIGHT CONTROL's two states: open_in_full and close_fullscreen, arrows out to the
+  // corners and back in. NOT the unfold pair, which was the first attempt and which
+  // Collapse already wears - two different controls drawn with the same glyph, one above
+  // the other in the same menu, which is what was reported. These read as "make this fill
+  // the screen" rather than "expand a section", which is also the truer description.
+  fitScreen: "M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z",
+  restoreHeight:
+    "M22 3.41 16.71 8.7 20 12h-8V4l3.29 3.29L20.59 2 22 3.41zM3.41 22l5.29-5.29L12 20v-8H4l3.29 3.29L2 20.59 3.41 22z",
   // add / remove - the "+" and "-" inside the mark card's More colors circle. Material's
   // own, the same two paths ICONS already carries for the zoom controls; they are repeated
   // here rather than shared because MENU_ICONS is a separate object that TRAVELS IN CONFIG
