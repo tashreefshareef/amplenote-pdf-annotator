@@ -24,7 +24,7 @@ Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty
 > "\<PDF name\> - Highlights" note from every highlight (optionally filtered by color),
 > each block carrying a `plugin://` deep-link back to its exact page and position
 > (Phase 5). Clicking one scrolls the note to the right PDF and flashes the highlight it
-> meant, whether the link is on this note or another.
+> meant, whether the link is on this note or another, and on a phone as well as a desktop.
 >
 > Phase 6 is done bar the plugin note's own instructions cell: the viewer is usable on a
 > phone (touch selection, fit-to-width, 40px targets, on-screen scroll controls — the
@@ -49,18 +49,25 @@ tablet browser downloads normally, and telling that user their download failed w
 sits in their downloads folder would be worse than saying nothing. Copy, Send to note and
 Export all work fine on mobile — it's specifically the file that can't leave.
 
-**Dragging doesn't scroll the viewer, and a deep link doesn't scroll the note to it.**
-The host note claims the vertical drag inside the embed; `overscroll-behavior`, a
-non-passive `touchmove` calling `preventDefault()`, and focus were each tried against it
-on a real device and none of them moved it. Use the ▲/▼ controls on the right edge of the
-viewer instead — hold one to keep scrolling. A deep link still opens the right note and
-lands the viewer on the right highlight; you scroll down to the viewer yourself.
+**Dragging doesn't scroll the viewer.** The host note claims the vertical drag inside the
+embed; `overscroll-behavior`, a non-passive `touchmove` calling `preventDefault()`, and
+focus were each tried against it on a real device and none of them moved it. Use the ▲/▼
+controls on the right edge of the viewer instead — hold one to keep scrolling.
 
 Both are recorded in [`docs/api-notes.md`](docs/api-notes.md) with what was tried, so they
 aren't re-litigated as bugs. Worth knowing why a first-party viewer can do these things
 and a plugin can't: it renders in the note's own document, with no boundary to arbitrate.
 The sandbox that makes third-party plugins safe to install is the same thing that costs
 them the gesture and the file.
+
+**A deep link used to leave you scrolling to the PDF by hand on mobile — that one is
+fixed.** Nothing inside the embed can move the mobile app's note, but the plugin doesn't
+have to: it navigates to the section anchor of the heading above the viewer
+(`…/notes/UUID#Section_name`), and the host app performs that scroll. Clicking an exported
+highlight now lands on the PDF and the highlight on a phone as it does on the desktop. The
+one requirement is a **heading somewhere above the PDF in the note** — an anchor can name
+a heading, never an embed — so a note with no heading above its viewer still opens at the
+top.
 
 ## Why there's a build step
 
