@@ -473,6 +473,17 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       today's behaviour; and how close you land depends on how far the PDF sits below that
       heading.
 
+      **On desktop the two mechanisms compose rather than fight**, which was the live
+      worry when this shipped (a host-driven scroll to the heading and an embed-driven
+      focus to the highlight are aimed at different places). Observed on the web app: the
+      note jumps to the heading - Amplenote briefly flashes it yellow, its own cue for
+      arriving via a section link - and then focus takes over and lands on the highlight.
+      Final position is unchanged from before the anchor existed, so the anchor costs an
+      intermediate scroll and a flash, not precision. Useful to know in general: a host
+      scroll that happens at NAVIGATION time and an in-page scroll that happens at MOUNT
+      time are naturally ordered by the page's own lifecycle, so the later one wins without
+      any coordination between them.
+
       **Generalize this before assuming your own embed is stuck**: "the sandbox cannot
       reach the host" is about the DOM, and it does not imply "the host cannot be asked".
       Enumerate the host's own navigation/routing API for an addressable landmark - a
