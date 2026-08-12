@@ -1078,6 +1078,52 @@ resizes and a single check can land on either side of it by luck.
 
 ---
 
+## The same symptom, twice, with two unrelated causes - and a fix for the first one didn't touch the second
+
+**Symptom:** a collapsed viewer's card was missing its bottom border - three sides
+present, the fourth gone. Reported live, fixed (see the previous entry: the box's
+computed height was a fraction of a pixel short of what its content needed, and the
+outer iframe hard-clipped the shortfall). Reported again afterward, on the SAME kind of
+box, looking identical - and the fix had made no difference at all.
+
+**Cause:** two different bugs, both capable of eating exactly one edge of a 1px border,
+triggered by two unrelated things. The first (fixed already) was a height shortfall from
+a fractional aspect-ratio calculation - reproducible at normal 100% display scaling,
+independent of any particular monitor or OS setting. The second, found while chasing why
+the first fix didn't help: **Chromium can fail to paint a `border: 1px solid` line on one
+edge of a box when the page renders at a non-integer display scale** (confirmed at 125%
+Windows scaling, reproduced identically in three separate Chromium-based browsers on that
+machine - Chrome, Edge, and Comet - which was itself the tell, since three unrelated
+browser codebases agreeing on the same wrong render points at something they all share,
+not a per-browser quirk). At 125% scale, one CSS pixel covers 1.25 device pixels, and
+whichever edge's cumulative position lands between two device pixels can render as a
+partial or fully anti-aliased-away line. Confirmed the box's SIZE was not the cause a
+second time by measuring the exact width/height on the affected machine (`262 x 18.7`)
+and reproducing that exact box, pixel for pixel, in a session running at normal scale -
+where it rendered with a complete border. Identical CSS dimensions, different result -
+so the size was cleared, and scale was the only variable left.
+
+**Fix:** replace the `border` with an equivalent `inset box-shadow`, painted through a
+different rendering path that does not share this specific failure mode - a standard
+substitution for a hairline border that needs to survive fractional-device-pixel-ratio
+scaling. Left UNVERIFIED in this entry on purpose - it could not be watched rendering
+correctly at 125% scale from this side, only reasoned about and measured up to the point
+where the switch was justified. Confirm live before trusting this as closed.
+
+**General lesson:** when a fix for a bug with a given symptom doesn't resolve the report,
+STOP re-deriving the first cause more precisely and start asking whether the symptom has
+more than one cause. Two defects that produce the identical visible result (here: "border
+missing on one edge") are indistinguishable from the outside, and the tell that finally
+separated them was reproducing the SAME numeric measurements (not just "a similar-looking
+box," the literal same width and height) in an environment known to be clean, and getting
+a DIFFERENT result. That is the actual test for "is this the same bug" - not eyeballing
+two screenshots side by side, but forcing the inputs to match exactly and comparing
+outputs. And when three independent implementations (three different browsers) agree on
+a wrong answer, suspect something they all depend on in common - here, how the OS hands a
+non-integer scale factor to whichever renderer is asking - rather than any one of them.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:

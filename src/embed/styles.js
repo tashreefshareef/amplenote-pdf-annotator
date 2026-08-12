@@ -61,9 +61,35 @@ export const STYLES = `
   body { margin: 0; background: transparent;
     font: 13px Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   /* A bordered card. overflow and the transparent body above are both load-bearing, and
-     nothing here may gain a transform, filter or contain - see the header for all three. */
+     nothing here may gain a transform, filter or contain - see the header for all three.
+     (box-shadow is none of those three - it establishes no containing block - so using
+     it below does not reopen that constraint.)
+
+     REPORTED LIVE: the collapsed card's bottom edge had no border line - three sides
+     present, the fourth gone - on a machine running Windows at 125% display scaling
+     (devicePixelRatio 1.25), reproducible in three different Chromium browsers there and
+     NOT reproducible at 100% scale (devicePixelRatio 1) on an otherwise IDENTICAL box -
+     same CSS width and height, confirmed by measuring both machines and forcing one to
+     match the other's exact pixel dimensions. That rules out the box's size as the cause
+     a second time (a real, different fix already went into COLLAPSED_ASPECT_RATIO for a
+     genuine sizing shortfall - see constants.js - this is a SEPARATE defect once that one
+     is confirmed absent). What is left is the border property itself: a plain 1px solid
+     line does not always survive rounding to a non-integer device-pixel grid - at 125%
+     scale, 1 CSS px covers 1.25 device px, and an edge whose scaled position lands
+     between two device pixels can render as a partial or fully anti-aliased-away line, on
+     whichever edge's cumulative offset happens to fall on the bad boundary (here,
+     consistently the bottom one).
+
+     An inset box-shadow of the same 1px width paints the same line, inset so it stays
+     inside the box exactly like a border does, but through a different rendering path
+     that does not have this specific failure mode - a well-established substitution for a
+     border that needs to survive fractional-device-pixel-ratio scaling. Unverified in
+     this exact environment (this DPR cannot be reproduced in the automated browser used
+     to build this fix - only measured and reasoned about, not watched render correctly at
+     125% with my own eyes), so confirm this actually closes it before treating it as
+     done. */
   #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg);
-    border: 1px solid var(--pdfa-border); border-radius: 10px; overflow: hidden; }
+    box-shadow: inset 0 0 0 1px var(--pdfa-border); border-radius: 10px; overflow: hidden; }
   /* A MANUAL toggle, applied by viewer.js's collapseViewer/openViewer, and re-applied on
      initial render when the tag says the user left this viewer collapsed - but never a
      default (see buildEmbedHtml's own comment on why a default-collapsed embed, tried

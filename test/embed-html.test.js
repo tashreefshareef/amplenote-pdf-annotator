@@ -317,7 +317,10 @@ describe("buildEmbedHtml", () => {
   test("draws the viewer as a bordered card rather than a bare rectangle", () => {
     const out = html();
     const root = out.match(/#pdfa-root \{[^}]*\}/)[0];
-    expect(root).toMatch(/border:\s*1px solid var\(--pdfa-border\)/);
+    // box-shadow, not border: a plain 1px border can render with a missing edge at
+    // fractional device-pixel-ratio display scaling (reported live at 125% Windows
+    // scaling) - inset box-shadow paints the same line through a path that survives it.
+    expect(root).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--pdfa-border\)/);
     expect(root).toMatch(/border-radius/);
     // Without this the radius is decorative - the toolbar's own square corners paint
     // straight over it.
