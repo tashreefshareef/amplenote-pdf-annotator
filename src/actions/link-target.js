@@ -33,6 +33,7 @@ import {
   removeEmbedMarkup,
   headingAboveEmbed,
 } from "../embed-args.js";
+import { DEBUG_LINKS_SETTING_NAME } from "../constants.js";
 
 const noteUrl = (noteUUID) => `https://www.amplenote.com/notes/${noteUUID}`;
 
@@ -114,20 +115,32 @@ async function sectionUrl(app, noteUUID, headingText) {
 
   const reported = match?.heading?.anchor || match?.anchor;
   if (typeof reported === "string" && reported) {
-    return `${noteUrl(noteUUID)}#${reported.replace(/%/g, "%25").replace(/#/g, "%23")}`;
+    return {
+      url: `${noteUrl(noteUUID)}#${reported.replace(/%/g, "%25").replace(/#/g, "%23")}`,
+      source: `anchor reported by getNoteSections (${sectionCount(sections)} sections)`,
+    };
   }
 
   // Some builds may carry a whole href instead - kept because it costs two lines and the
   // section object's shape is documented nowhere.
   const href = match?.heading?.href || match?.href;
   if (typeof href === "string" && href) {
-    if (/^https?:\/\//.test(href)) return href;
-    if (href.startsWith("#")) return `${noteUrl(noteUUID)}${href}`;
+    if (/^https?:\/\//.test(href)) return { url: href, source: "href reported by the host" };
+    if (href.startsWith("#")) {
+      return { url: `${noteUrl(noteUUID)}${href}`, source: "href fragment from the host" };
+    }
   }
 
   const anchor = anchorForHeading(wanted);
-  return anchor ? `${noteUrl(noteUUID)}#${anchor}` : null;
+  return {
+    url: anchor ? `${noteUrl(noteUUID)}#${anchor}` : null,
+    source: match
+      ? `section matched but reported no anchor (${sectionCount(sections)} sections)`
+      : `NO section matched "${wanted}" (${sectionCount(sections)} sections)`,
+  };
 }
+
+const sectionCount = (sections) => (Array.isArray(sections) ? sections.length : "no");
 
 /**
  * Navigate to the note, aimed at the PDF's own section rather than the top of the note.
@@ -152,31 +165,71 @@ async function sectionUrl(app, noteUUID, headingText) {
  * all assumed the scroll had to originate inside the frame, and it was that assumption
  * that was wrong, not the mechanisms.
  *
- * THEN REPORTED BROKEN on a different note, which is the failure mode to keep in mind:
- * the link landed at the BOTTOM of the note - the managed data section, or the last
- * exported block - rather than at the PDF. An anchor naming no section does not fail
- * quietly; the app appears to fall back to the end of the document, which is further from
- * the target than doing nothing at all. Hence PLAINLY_ANCHORABLE: a derived anchor is now
- * only used where deriving it cannot be wrong, and everything else waits for the host to
- * report a real one.
+ * THEN REPORTED BROKEN on a different note: the link landed at the BOTTOM of the note -
+ * the managed data section, or the last exported block. An anchor naming no section does
+ * not fail quietly; the app appears to answer an unresolvable fragment by dropping the
+ * reader at the end of the document, which is further from the target than doing nothing.
+ * Two rounds of inference about the anchor format followed, both wrong (see
+ * docs/api-notes.md 9a), which is why `DEBUG_LINKS_SETTING_NAME` exists: this path is only
+ * reproducible on a phone, where nothing about the decision is otherwise observable.
+ *
+ * A SECOND SUSPECT is still open, and it is not the anchor: this action rewrites the note
+ * twice when the link is clicked on the note the PDF already lives on (see remountEmbed),
+ * and `app.navigate` to the note you are already on is a documented no-op. So on the
+ * same-note path there may be no navigation to carry a fragment at all, and a mobile
+ * editor re-rendering a note replaced underneath it would plausibly land at the end. The
+ * report below names which path ran, because that is the fact that separates the two.
  *
  * Best-effort throughout, and it must be: landing on the right note is the promise, and a
  * wrong or unrecognised anchor must never cost that. `navigate` is documented to return
  * false when it fails, so a rejected anchor is retried bare - though note that a fragment
  * the app RESOLVES WRONGLY still returns true, so that retry is not a safety net for this.
  */
-async function navigateToEmbed(app, noteUUID, content, attachmentUUID) {
+async function navigateToEmbed(app, noteUUID, content, attachmentUUID, sameNote) {
   const plain = noteUrl(noteUUID);
   let url = plain;
+  let heading = null;
+  let source = "no heading above the embed - navigating to the note itself";
 
   try {
-    const heading = headingAboveEmbed(content, app.context.pluginUUID, attachmentUUID);
-    if (heading) url = (await sectionUrl(app, noteUUID, heading.text)) || plain;
-  } catch {
-    // Any surprise in the section lookup just means navigating to the note's top.
+    heading = headingAboveEmbed(content, app.context.pluginUUID, attachmentUUID);
+    if (heading) {
+      const resolved = await sectionUrl(app, noteUUID, heading.text);
+      url = resolved.url || plain;
+      source = resolved.source;
+    }
+  } catch (error) {
+    source = `section lookup threw: ${(error && error.message) || error}`;
   }
 
+  await reportDeepLink(app, { sameNote, heading, source, url });
+
   if ((await app.navigate(url)) === false && url !== plain) await app.navigate(plain);
+}
+
+/**
+ * Show what this link decided, when `setting | Debug deep links` is on. See that constant.
+ *
+ * Deliberately BEFORE the navigation rather than after: an alert raised while the app is
+ * changing screens is not something to rely on, and the decision is the interesting part.
+ * Silent by default and silent if anything here fails - a diagnostic that can break the
+ * feature it is diagnosing is worse than none.
+ */
+async function reportDeepLink(app, { sameNote, heading, source, url }) {
+  try {
+    const setting = app.settings && app.settings[DEBUG_LINKS_SETTING_NAME];
+    if (!setting || String(setting).trim() === "" || String(setting).trim() === "0") return;
+
+    await app.alert(
+      "PDF Annotator deep link\n\n" +
+        `Path: ${sameNote ? "SAME note (rewrite + remount, navigate is a no-op)" : "different note (navigate)"}\n` +
+        `Heading above the embed: ${heading ? `"${heading.text}" (h${heading.level})` : "none found"}\n` +
+        `Anchor source: ${source}\n\n` +
+        `Navigating to:\n${url}`
+    );
+  } catch {
+    // Never let the report cost the navigation.
+  }
 }
 
 /**
@@ -241,6 +294,10 @@ export async function linkTarget(app, queryString) {
   // Kept outside the try so the navigation below can still find the heading above the
   // embed even if the rewrite half of this fails.
   let content = null;
+  // Whether the reader is already looking at the note being linked to. Decides the remount
+  // below, and named in the debug report because it is the fact that separates "the anchor
+  // is wrong" from "there was no navigation to carry an anchor" - see navigateToEmbed.
+  const sameNote = !!(app.context && app.context.noteUUID === noteUUID);
 
   try {
     content = await app.getNoteContent({ uuid: noteUUID });
@@ -259,7 +316,7 @@ export async function linkTarget(app, queryString) {
       // answer here is not dangerous in either direction: guessing "same" when it isn't
       // costs one extra write and a reload, and guessing "different" when it isn't just
       // leaves the behaviour exactly as it is today.
-      if (app.context && app.context.noteUUID === noteUUID) {
+      if (sameNote) {
         await remountEmbed(app, noteUUID, updated, attachmentUUID);
       } else {
         await app.replaceNoteContent({ uuid: noteUUID }, updated);
@@ -269,5 +326,5 @@ export async function linkTarget(app, queryString) {
     // Best-effort only - landing on the right note beats landing nowhere at all.
   }
 
-  await navigateToEmbed(app, noteUUID, content, attachmentUUID);
+  await navigateToEmbed(app, noteUUID, content, attachmentUUID, sameNote);
 }

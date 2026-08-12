@@ -9,6 +9,7 @@
  */
 import { linkTarget } from "../src/actions/link-target.js";
 import { createMockApp, mockAttachment } from "./helpers.js";
+import { DEBUG_LINKS_SETTING_NAME } from "../src/constants.js";
 
 const PLUGIN = "plug-uuid";
 const NOTE = "note-1";
@@ -382,5 +383,68 @@ describe("a link clicked on the note the PDF already lives on", () => {
     const writes = app.replaceNoteContent.mock.calls.map((c) => c[1]);
     expect(writes).toHaveLength(1);
     expect(writes[0]).toContain("hl=hl-9");
+  });
+});
+
+/**
+ * The deep-link path is only reproducible on a phone, where nothing about its decision is
+ * observable - which is how one bug became three rounds of inference about an undocumented
+ * anchor format. This report is the fix for that, and it has to be invisible unless asked
+ * for and incapable of costing the navigation.
+ */
+describe("the deep-link debug report", () => {
+  // Scenario: the default. No setting, no alert - an ordinary user must never see this.
+  test("stays silent when the setting is unset, empty or 0", async () => {
+    for (const value of [undefined, "", "  ", "0"]) {
+      const app = appWithEmbed();
+      if (value !== undefined) app.settings[DEBUG_LINKS_SETTING_NAME] = value;
+
+      await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+      expect(app._calls.alerts).toEqual([]);
+      expect(app._calls.navigations).toHaveLength(1);
+    }
+  });
+
+  // Scenario: switched on, it has to name the three facts that separate the competing
+  // explanations - which path ran, which heading was found, and where it decided to go.
+  test("reports the path, the heading and the resolved URL", async () => {
+    const app = appWithEmbed();
+    app.context.noteUUID = "some-other-note"; // the reader is elsewhere: the navigate path
+    app.settings[DEBUG_LINKS_SETTING_NAME] = "1";
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    const [report] = app._calls.alerts;
+    expect(report).toContain("different note");
+    expect(report).toContain('"Notes"');
+    expect(report).toContain("getNoteSections");
+    expect(report).toContain(`https://www.amplenote.com/notes/${NOTE}#Notes`);
+  });
+
+  // Scenario: THE distinction the report exists to draw. A link clicked on the note the
+  // PDF already lives on takes the rewrite-and-remount path, where navigate is a no-op -
+  // so "it didn't scroll" there means something completely different.
+  test("says when the same-note path ran", async () => {
+    const app = appWithEmbed();
+    app.context.noteUUID = NOTE;
+    app.settings[DEBUG_LINKS_SETTING_NAME] = "1";
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.alerts[0]).toContain("SAME note");
+  });
+
+  // Scenario: a diagnostic that can break the feature it diagnoses is worse than none.
+  test("navigates anyway when the alert itself fails", async () => {
+    const app = appWithEmbed();
+    app.settings[DEBUG_LINKS_SETTING_NAME] = "1";
+    app.alert.mockImplementation(async () => {
+      throw new Error("no dialog here");
+    });
+
+    await call(app, `att=${ATT}&hl=hl-9&note=${NOTE}`);
+
+    expect(app._calls.navigations).toEqual([`https://www.amplenote.com/notes/${NOTE}#Notes`]);
   });
 });
