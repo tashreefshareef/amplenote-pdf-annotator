@@ -67,9 +67,30 @@ function safeJson(value) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-/** Light and dark palettes, driven by `app.context.lightDarkMode`. */
+/**
+ * Light and dark palettes, driven by `app.context.lightDarkMode`.
+ *
+ * --pdfa-border WAS #d8dbe0 in light mode - reported live as a border that partially
+ * disappeared under fractional-device-pixel-ratio rendering (125% Windows display
+ * scaling), one edge at a time, while the identical box in dark mode stayed fully
+ * visible. The box-shadow fix for that rendering issue (styles.js) still leaves a line
+ * that only gets PARTIAL pixel coverage on the affected edge, and a border that was only
+ * ever barely visible at FULL coverage disappears outright at partial coverage.
+ *
+ * Measured why the two themes diverged: #f6f7f9 (bg) against the old #d8dbe0 (border) is
+ * roughly 1.12:1 contrast - near-indistinguishable even before any rendering defect -
+ * while dark mode's #1e2126 against #3a3f47 is roughly 1.66:1, the border proportionally
+ * about twice as bright as its background rather than a few percent darker. That
+ * proportional gap, not box-shadow vs border, is why dark mode's partially-rendered line
+ * survived and light mode's didn't. #b0b5bd brings light mode to a comparable ~1.6:1
+ * without darkening it into a heavier-looking outline than the design intends.
+ *
+ * Unverified at 125% scaling for the same reason the box-shadow fix was: that display
+ * scaling cannot be reproduced in the environment this was built in, only reasoned about
+ * from the measured contrast numbers. Confirm live before trusting this as closed.
+ */
 const THEMES = {
-  light: `--pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#d8dbe0; --pdfa-btn:#fff; --pdfa-btn-hover:#eceef1; --pdfa-error:#b3261e; --pdfa-accent:#1a6fb5;`,
+  light: `--pdfa-bg:#f6f7f9; --pdfa-fg:#1c1e21; --pdfa-toolbar:#fff; --pdfa-border:#b0b5bd; --pdfa-btn:#fff; --pdfa-btn-hover:#eceef1; --pdfa-error:#b3261e; --pdfa-accent:#1a6fb5;`,
   dark: `--pdfa-bg:#1e2126; --pdfa-fg:#e6e8ea; --pdfa-toolbar:#252930; --pdfa-border:#3a3f47; --pdfa-btn:#2d323a; --pdfa-btn-hover:#3a4049; --pdfa-error:#f2b8b5; --pdfa-accent:#79b8ef;`,
 };
 
