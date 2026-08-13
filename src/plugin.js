@@ -10,7 +10,6 @@
  * into Amplenote - paste the build output.
  */
 import { annotatePdf } from "./actions/annotate-pdf.js";
-import { dumpMarkdown } from "./actions/dump-markdown.js";
 import { insertViewer } from "./actions/insert-viewer.js";
 import { linkTarget } from "./actions/link-target.js";
 import { handleEmbedCallSerialized } from "./embed-call.js";
@@ -25,12 +24,6 @@ const plugin = {
       // `app.context.pluginUUID` identifies this plugin's own note, which is what
       // `plugin://` markup must point at.
       return annotatePdf(app, noteUUID, app.context.pluginUUID);
-    },
-
-    // TEMPORARY - remove once we know how an attachment chip is represented in markdown.
-    // See src/actions/dump-markdown.js.
-    "Debug: dump note markdown": async function (app, noteUUID) {
-      return dumpMarkdown(app, noteUUID);
     },
   },
 
