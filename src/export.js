@@ -251,21 +251,31 @@ export function createExportBuilder() {
    * is in docs/bugs-found.md: pasted markup is mapped onto a document schema, so inline
    * CSS is not styling - it is a hint about WHICH NODE you meant.)
    *
-   * STILL A PLAIN INLINE HEX, UNLIKE buildHighlightBlock's markdown form - deliberately,
-   * not an oversight. The markdown fix for the dark-mode contrast bug (file header) relies
-   * on the confirmed `backgroundCycleColor` JSON-comment syntax; the HTML/paste equivalent
-   * would presumably be a `data-background-color="N"` attribute (api-notes.md 9b lists it
-   * as an existing index, by inference from the sibling `data-text-color` one), but that
-   * has never actually been round-tripped through Amplenote's own clipboard the way
-   * `data-text-color` was - and guessing at pasted-markup attributes is the exact mistake
-   * that cost five rounds elsewhere in this file. So Copy still carries the theme-fixed
-   * background until someone applies a background cycle-color mark by hand in Amplenote
-   * and reads back what its clipboard actually serializes.
+   * NOW ALSO CARRIES `data-background-color="N"`, ADDITIVELY - the HTML/paste sibling of
+   * buildHighlightBlock's markdown `backgroundCycleColor` fix (file header), for the same
+   * dark-mode contrast reason. Unlike that one, this attribute has never been round-tripped
+   * through Amplenote's own clipboard the way `data-text-color="15"` was above - it is
+   * inferred from that confirmed sibling and from api-notes.md 9b's "`data-text-color="N"`
+   * and `data-background-color="N"` are indexes into this" - and guessing at pasted-markup
+   * attributes is the exact mistake that cost five rounds elsewhere in this file.
+   *
+   * The guess is made SAFE rather than avoided: the attribute rides ALONGSIDE the inline
+   * `background-color` style that already renders correctly, never replacing it. If
+   * Amplenote's paste handler recognizes the attribute, the pasted mark should repaint per
+   * -theme same as the markdown export now does. If it does not, the sanitizer drops an
+   * attribute it does not recognize and keeps the element - the existing, CONFIRMED-working
+   * inline-style rendering is what survives either way. Needs a live paste to know which;
+   * this is not a substitute for the "apply by hand, read the clipboard" method that
+   * settled every other syntax question in this file, only a lower-risk way to try the
+   * inferred answer before that.
    */
-  function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
+  function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, cycleIndex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
     var name = escapeHtml(pdfName || "PDF");
-    var linkText = hex ? '<mark style="background-color: ' + escapeHtml(hex) + ';">' + name + "</mark>" : name;
+    var bgAttr = cycleIndex != null ? ' data-background-color="' + escapeHtml(cycleIndex) + '"' : "";
+    var linkText = hex
+      ? "<mark" + bgAttr + ' style="background-color: ' + escapeHtml(hex) + ';">' + name + "</mark>"
+      : name;
     var heading = '<p><a href="' + escapeHtml(url) + '">' + linkText + "</a></p>";
 
     // ONE OUTER BLOCKQUOTE HOLDING BOTH, not a nested quote followed by a sibling one.

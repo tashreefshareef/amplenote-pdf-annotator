@@ -2846,6 +2846,7 @@ export function viewerMain() {
       cfg.attachmentUUID,
       highlight,
       color.hex,
+      color.cycleIndex,
       cfg.noteUUID
     );
   }

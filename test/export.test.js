@@ -207,6 +207,11 @@ describe("buildHighlightBlock", () => {
  * markdown's literal characters, rendering nothing (the same "paste does not parse
  * markdown" finding as docs/api-notes.md #7). The HTML flavor was then confirmed live to
  * render - colored link, clickable anchor, nested quote.
+ *
+ * `data-background-color` (see export.js's header) is an INFERRED, not confirmed, sibling
+ * of the markdown fix - additive, so its presence or absence never changes what already
+ * renders. Tests below cover both: with a cycleIndex the attribute rides alongside the
+ * inline style, without one the markup is unchanged from before this fix.
  */
 describe("buildHighlightHtml", () => {
   // Scenario: the HTML mirrors the markdown block exactly - the colored link, quote
@@ -218,6 +223,7 @@ describe("buildHighlightHtml", () => {
       ATT_UUID,
       highlight({ note: "a plain remark" }),
       "#F4DE6C",
+      undefined,
       "note-42"
     );
     // A pasted <mark> maps onto Amplenote's HIGHLIGHT node, which renders as a colored
@@ -290,11 +296,20 @@ describe("buildHighlightHtml", () => {
     expect(html).not.toContain("<mark");
   });
 
-  // Scenario: the HTML flavor needs only the hex - unlike the markdown form, nothing here
-  // depends on the cycle index, so a color missing from the index table still renders.
-  test("colors the link from the hex alone, with no cycle index", () => {
+  // Scenario: the HTML flavor works from the hex alone - a color missing from the index
+  // table (no cycleIndex given) still renders, unchanged from before the attribute existed.
+  test("colors the link from the hex alone when no cycle index is given", () => {
     const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#F4DE6C");
     expect(html).toContain('<mark style="background-color: #F4DE6C;">paper.pdf</mark>');
+    expect(html).not.toContain("data-background-color");
+  });
+
+  // Scenario: an inferred, unconfirmed sibling of the markdown fix (file header) - added
+  // ADDITIVELY specifically so it cannot regress the inline-style rendering that is
+  // confirmed live, whether or not Amplenote's paste handler turns out to honor it.
+  test("adds data-background-color alongside the inline style when a cycle index is given", () => {
+    const html = buildHighlightHtml("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#BBE077", 15);
+    expect(html).toContain('<mark data-background-color="15" style="background-color: #BBE077;">paper.pdf</mark>');
   });
 });
 
