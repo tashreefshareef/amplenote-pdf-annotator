@@ -19,8 +19,10 @@ highlight — and export it all back into Amplenote as linked, colored quotes.
 
 ### Open a PDF
 
-Attach a PDF to a note, then run **Annotate PDF** from the note's **⋯** menu. Pick the
-attachment if the note has more than one; the viewer opens beneath it.
+Attach a PDF to a note, then run **Annotate PDF** — either from the note's **⋯** menu, or
+by typing `/pdf annotator` anywhere in the note and picking **PDF Annotator: Annotate
+PDF** from the list that pops up. Pick the attachment if the note has more than one; the
+viewer opens beneath it.
 
 (Prefer to place the viewer somewhere specific in the note instead of at the bottom? Type
 `{PDF Annotator}` at that spot.)
