@@ -163,6 +163,18 @@ export const STYLES = `
      the same problem the color swatches' selected state already solves this way. */
   .pdfa-zoom-field:focus { outline: none; opacity: 1;
     background: var(--pdfa-toolbar); border-color: var(--pdfa-accent); }
+  /* The page number is now an input too, same reasoning as the zoom field above - but
+     narrower (a page count rarely runs past 4 digits, and .pdfa-label's 62px min-width is
+     sized for "2 / 5" as ONE piece of text, not for half of it). */
+  .pdfa-page-field { font: inherit; width: 34px; padding: 5px 2px; border: 1px solid transparent;
+    border-radius: 6px; background: transparent; color: inherit; cursor: text; text-align: center; }
+  .pdfa-page-field:hover { background: var(--pdfa-btn-hover); }
+  .pdfa-page-field:focus { outline: none; opacity: 1;
+    background: var(--pdfa-toolbar); border-color: var(--pdfa-accent); }
+  /* The "/ N" half stays a plain span, so it needs none of the input treatment above -
+     only .pdfa-label's min-width undone, since that 62px was sized for the whole "2 / 5"
+     and would otherwise leave a wide gap after a one-digit total. */
+  .pdfa-page-total { min-width: 0; padding-left: 2px; }
   /* The overflow trigger is now a plain icon button (Material's more_vert, the glyph the
      note menu above this embed uses), so it needs no rule of its own. Its contents render
      as ordinary popover buttons below. */
@@ -673,6 +685,10 @@ export const STYLES = `
        needs a width of its own rather than inheriting the min-width above. Still wide
        enough for the longest value it can hold, "400%". */
     .pdfa-zoom-field { width: 46px; padding: 5px 2px; }
+    /* Both page controls override the 44px rule just set above - see their own rules for
+       why each is sized independently of .pdfa-label. */
+    .pdfa-page-field { width: 26px; padding: 5px 1px; }
+    .pdfa-page-total { min-width: 0; }
   }
 
   /* ---- TWO DESIGNED ROWS -----------------------------------------------------
@@ -763,6 +779,7 @@ export const STYLES = `
        between two 40px buttons is both the odd one out and the hardest thing in the
        toolbar to tap accurately. */
     .pdfa-zoom-field { min-height: 40px; }
+    .pdfa-page-field { min-height: 40px; }
     /* Square, not the 8px 12px above - an icon button has no text to pad around, and the
        extra width would push a phone's toolbar into another row. */
     .pdfa-toolbar button.pdfa-icon-btn { min-width: 40px; padding: 8px; }

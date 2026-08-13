@@ -47,7 +47,8 @@ export function viewerMain() {
     root: document.getElementById("pdfa-root"),
     pages: document.getElementById("pdfa-pages"),
     status: document.getElementById("pdfa-status"),
-    pageLabel: document.getElementById("pdfa-page-label"),
+    pageInput: document.getElementById("pdfa-page-input"),
+    pageTotal: document.getElementById("pdfa-page-total"),
     zoomLabel: document.getElementById("pdfa-zoom-label"),
     colors: document.getElementById("pdfa-colors"),
     styles: document.getElementById("pdfa-styles"),
@@ -2315,7 +2316,11 @@ export function viewerMain() {
   }
 
   function updateLabels() {
-    els.pageLabel.textContent = state.current + " / " + state.pageCount;
+    // Left alone while the reader is typing in it, same guard and same reason as the
+    // zoom field below - this runs from renderAll and from every scroll that changes the
+    // current page, and would otherwise overwrite half-typed digits mid-edit.
+    if (document.activeElement !== els.pageInput) els.pageInput.value = state.current;
+    els.pageTotal.textContent = "/ " + state.pageCount;
     // The thumbnails panel is a second page indicator, so it goes stale in exactly the
     // same places this one would - a scroll, a jump, a deep link. One call site for both.
     updateThumbnailCurrent();
@@ -2528,6 +2533,24 @@ export function viewerMain() {
     // restores a rejected one, and updateLabels cannot do it while the field still has
     // focus (see its own comment).
     els.zoomLabel.value = zoomText();
+  }
+
+  /**
+   * Commit whatever is currently typed in the page field.
+   *
+   * Same shape as applyZoomInput above: junk snaps back to the current page rather than
+   * navigating anywhere, and an in-range or out-of-range number both resolve through
+   * goToPage, which already clamps to [1, pageCount] and calls updateLabels - so a typed
+   * "900" on a 5-page document answers itself with "5", the same way the zoom field
+   * answers an oversized percent with the actual clamped value.
+   */
+  function applyPageInput() {
+    var typed = String(els.pageInput.value).trim();
+    var page = /^\d+$/.test(typed) ? parseInt(typed, 10) : NaN;
+    if (page > 0) goToPage(page);
+    // Unconditional, and after goToPage above: it both formats an accepted value and
+    // restores a rejected one, mirroring applyZoomInput.
+    els.pageInput.value = state.current;
   }
 
   /**
@@ -3649,6 +3672,29 @@ export function viewerMain() {
         // popovers. The blur that follows re-commits this restored value, by then a no-op.
         els.zoomLabel.value = zoomText();
         els.zoomLabel.blur();
+      }
+    });
+
+    // ---- typed page ------------------------------------------------------------
+    // Same select-on-focus trick as the zoom field, for the same reason: a click into a
+    // three-character field lands the caret between two digits rather than selecting them.
+    els.pageInput.addEventListener("focus", function () {
+      setTimeout(function () {
+        if (document.activeElement === els.pageInput) els.pageInput.select();
+      }, 0);
+    });
+    // Blur commits, Escape abandons - identical contract to the zoom field.
+    els.pageInput.addEventListener("blur", applyPageInput);
+    els.pageInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyPageInput();
+        // Handing focus back lets the arrow keys go back to scrolling the pages.
+        els.pageInput.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        els.pageInput.value = state.current;
+        els.pageInput.blur();
       }
     });
     bindHoldToScroll(els.scrollUp, -1);

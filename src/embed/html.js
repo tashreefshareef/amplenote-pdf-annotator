@@ -230,7 +230,14 @@ export function buildEmbedHtml({
             aria-label="Show page thumbnails">${icon(ICONS.sidebar)}</button>
     <button id="pdfa-prev" class="pdfa-icon-btn" title="Previous page"
             aria-label="Previous page">${icon(ICONS.chevronLeft)}</button>
-    <span class="pdfa-label" id="pdfa-page-label">- / -</span>
+    <!-- An input, not the label it looks like - same trick as pdfa-zoom-label below.
+         Typing a number and pressing Enter jumps straight to that page, the way the
+         Obsidian PDF viewer's own page field does; the total stays a plain span since
+         only the current page is ever navigated TO. -->
+    <input id="pdfa-page-input" class="pdfa-label pdfa-page-field" type="text"
+           inputmode="numeric" autocomplete="off" spellcheck="false"
+           aria-label="Page number" title="Page number - type a page and press Enter" value="-">
+    <span class="pdfa-label pdfa-page-total" id="pdfa-page-total">/ -</span>
     <button id="pdfa-next" class="pdfa-icon-btn" title="Next page"
             aria-label="Next page">${icon(ICONS.chevronRight)}</button>
     <span class="pdfa-sep"></span>

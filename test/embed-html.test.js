@@ -122,7 +122,7 @@ describe("buildEmbedHtml", () => {
   test("contains every element the viewer script binds to", () => {
     const out = html();
     for (const id of [
-      "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-label",
+      "pdfa-root", "pdfa-pages", "pdfa-status", "pdfa-page-input", "pdfa-page-total",
       "pdfa-zoom-label", "pdfa-prev", "pdfa-next", "pdfa-zoom-in", "pdfa-zoom-out",
       "pdfa-colors", "pdfa-styles", "pdfa-popover",
       "pdfa-panel", "pdfa-list-toggle", "pdfa-count",
