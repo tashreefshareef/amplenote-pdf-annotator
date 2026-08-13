@@ -204,6 +204,22 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    of its own rendering.** Expect to inherit decoration you did not ask for whenever you
    name one.
 
+   **UPDATE - the underline turned out to be the cheaper cost.** This plugin shipped
+   without the comment for one release, on exactly the reasoning above (no unwanted
+   decoration). Reported live afterward, with a screenshot from a dark-themed note: the
+   exported link's text was nearly invisible - pale link text over a bright, light-mode
+   -tuned highlight color. Comparing Amplenote's own published "Index of Cycle Colors"
+   light-mode and dark-mode reference images pixel-for-pixel showed why: the SAME cycle
+   index (12, this plugin's coral) renders as a bright `#F2998C` in the light chart and a
+   muted, dark-appropriate `#AB4435` in the dark one - Amplenote repaints a cycle-color
+   node's background per-theme, presumably tuned against whatever text/link color that
+   theme uses. A literal inline `background-color` skips that entirely and paints the same
+   hex regardless of theme, which is exactly what went unreadable. **A color name/index is
+   theme-aware; a literal value you copied out of one theme is not** - if a platform offers
+   both, and your only path to color a link is CSS (text color on a link being invisible,
+   above), the semantic one is the one that stays correct in a theme you didn't test in.
+   The underline is back; see export.js's header for the current reasoning.
+
 9. **A clickable `[text](plugin://UUID?args)` markdown link does NOT route to
    `renderEmbed` - it routes to a completely separate, easy-to-miss action called
    `linkTarget`.** `renderEmbed` only ever handles the `<object data="plugin://...">`
