@@ -54,7 +54,9 @@ viewer opens beneath it.
   reader, not flattened images.
 - **Copy** puts a highlight on your clipboard as a colored Amplenote quote, ready to
   paste anywhere.
-- **Send to note** appends that same quote to the bottom of the current note.
+- **Send to note** appends that same quote to the bottom of the current note — below
+  anything you've written, above the "PDF Annotator data" section described below, which
+  always stays last.
 - **Export all** (⋮ menu) builds a new "*\<PDF name\>* - Highlights" note containing
   every highlight, optionally filtered to one color.
 
@@ -63,6 +65,19 @@ viewer opens beneath it.
 Each exported highlight is a colored link back to the PDF, the quoted text, and your
 note if you left one — click the small icon at the end of the link (not the text itself
 — that's how Amplenote links work) to jump back to the exact page and position.
+
+### What's the "PDF Annotator data" section?
+
+Amplenote plugins have no database of their own, so every highlight and note you create
+is written back into the PDF's own note, under a "PDF Annotator data" heading the plugin
+adds automatically. It holds a block of JSON, not meant to be read — that's your
+highlights, keyed by which PDF they belong to so several PDFs on one note don't collide.
+
+It's labeled *"safe to ignore, don't edit"* for a real reason: editing or deleting it
+resets or corrupts every highlight and note stored there the next time you save one. It
+always sits at the very bottom of the note — "Send to note" and every exported block are
+written just above it — so it stays out of the way of your own writing rather than
+splitting it up.
 
 ### Pick your own four colors
 
