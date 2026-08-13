@@ -27,10 +27,12 @@ Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty
 > meant, whether the link is on this note or another — on desktop; see the mobile
 > limitations below.
 >
-> Phase 6 is done bar the plugin note's own instructions cell: the viewer is usable on a
-> phone (touch selection, fit-to-width, 40px targets, on-screen scroll controls — the
-> Amplenote apps do render embeds, and a desktop-only one is close to unusable there),
-> and pages render as they come into view rather than all at once. See
+> Phase 6 is done: the viewer is usable on a phone (touch selection, fit-to-width, 40px
+> targets, on-screen scroll controls — the Amplenote apps do render embeds, and a
+> desktop-only one is close to unusable there), pages render as they come into view
+> rather than all at once, and the plugin note's own instructions cell is written and
+> screenshotted (see [`docs/plugin-instructions.md`](docs/plugin-instructions.md)).
+> Submission (Phase 7 — repo/videos/directory publish/bounty claim) hasn't started. See
 > [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan
 > and [`docs/bugs-found.md`](docs/bugs-found.md) for what went wrong on the way.
 
