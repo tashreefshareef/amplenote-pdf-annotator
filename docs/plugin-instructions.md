@@ -86,10 +86,17 @@ yourself.
 **Fit the viewer to your phone.** An embed can't size itself — its box comes from a
 single number stored in the note, the same on every device that note is opened on. On a
 narrow screen, an extra button appears in the toolbar next to ⋮: **Fit to this screen**.
-Tap it once and the box resizes to a comfortable height for *that* phone; the button then
-becomes **Restore height** so you can put it back to the plugin's default from the same
-place. It's a one-time action, not a live/automatic fit — tap it again any time your
-screen changes (a different phone, a rotated tablet), and it stays exactly as you left it
+
+![Mobile toolbar in its default state, with the Fit to this screen (expand) icon next to ⋮](screenshots/07-mobile-fit-to-screen-default.jpg)
+
+Tap it once and the box resizes to a comfortable height for *that* phone — the button
+then becomes **Restore height** (a compress icon) so you can put it back to the plugin's
+default from the same place:
+
+![Mobile toolbar after fitting: the same button now shows Restore height, and the page renders noticeably taller](screenshots/08-mobile-restore-height-fitted.jpg)
+
+It's a one-time action, not a live/automatic fit — tap it again any time your screen
+changes (a different phone, a rotated tablet), and it stays exactly as you left it
 otherwise, so a phone and a desktop with the same note open don't keep re-adjusting each
 other's view. If a note was fitted to a phone and you later open it on a desktop, that
 toolbar button won't be there (it's phone-only) — instead the ⋮ menu on desktop grows a
@@ -110,16 +117,12 @@ generated sample, so highlighted phrases read naturally in context.
 | `04-exported-highlights-note.png` | Exported "*PDF name* - Highlights" note, 5 colored blocks | Get your highlights out |
 | `05-highlight-colors-picker.png` | ⋮ → Highlight colors… popover | Pick your own four colors |
 | `06-viewer-menu-bonus.png` | The ⋮ menu itself | Referenced, not required |
+| `07-mobile-fit-to-screen-default.jpg` | Mobile toolbar, unfitted (Fit to this screen) | On mobile |
+| `08-mobile-restore-height-fitted.jpg` | Mobile toolbar, fitted (Restore height), taller page | On mobile |
 
-Two additional captures exist alongside the source PNGs (in
+Two additional captures exist alongside the source files (in
 `F:\Screenshots\2026-08\PDF Annotator screenshots\`, not copied into the repo) but aren't
 used here: `extra-selection-color-popover-precursor.png` (the color popover before a
 highlight is created — a valid but redundant moment right before shot 1) and
 `extra-viewer-opened-unclear-state.png` (an ambiguous mid-testing capture). Keep or
 discard those at your discretion.
-
-**No screenshot exists yet for "Fit to this screen" / "Restore height"** (the mobile-only
-toolbar button described above) — that needs a real phone or a narrow-viewport capture,
-neither of which happened in this session. Get one before finalizing if you want the
-instructions cell to show it rather than only describe it in text; the "On mobile"
-paragraph reads fine without an image, so it's not blocking.
