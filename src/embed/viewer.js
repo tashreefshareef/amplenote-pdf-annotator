@@ -1258,8 +1258,12 @@ export function viewerMain() {
    */
   function measureSelection(range, layer) {
     var rects = [];
-    var words = [];
     var lastCssRect = null;
+    // One entry per intersected node, fed to geom.joinSelectionSlices at the end - kept
+    // even for a node skipped below (no __pdfaItem), because its whitespace still
+    // decides whether a space belongs between the words on either side of it. See that
+    // function for why this can't just be `words.join(" ")`.
+    var slices = [];
     var walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT, null);
     var node;
 
@@ -1268,6 +1272,7 @@ export function viewerMain() {
       var text = node.nodeValue || "";
       var from = node === range.startContainer ? range.startOffset : 0;
       var to = node === range.endContainer ? range.endOffset : text.length;
+      slices.push({ text: text, from: from, to: to });
 
       var div = node.parentElement;
       var item = div && div.__pdfaItem;
@@ -1311,12 +1316,11 @@ export function viewerMain() {
         if (!pdfRect) continue;
 
         rects.push(pdfRect);
-        words.push(text.slice(tokens[t].start, tokens[t].end));
         lastCssRect = subRectFull;
       }
     }
 
-    return { rects: rects, text: words.join(" "), lastCssRect: lastCssRect };
+    return { rects: rects, text: geom.joinSelectionSlices(slices), lastCssRect: lastCssRect };
   }
 
   /**

@@ -19,6 +19,7 @@ import {
   roundRect,
   isVisibleRect,
   textTokenRanges,
+  joinSelectionSlices,
   unionClientRects,
   clientRectsToPdfRects,
   pdfRectToViewportRect,
@@ -198,6 +199,86 @@ describe("textTokenRanges", () => {
       { x: 148, y: 700, width: 25, height: 13 },
     ];
     expect(mergeLineRects(words)).toEqual([{ x: 72, y: 700, width: 101, height: 13 }]);
+  });
+});
+
+describe("joinSelectionSlices", () => {
+  // Scenario: THE bug. Reported live on a real exam PDF - "are" exported as "ar e".
+  // PDF.js had split the word across two adjacent text items (a kerning pair, common in
+  // justified text) with no space glyph on either side, and the old
+  // `words.join(" ")` inserted one anyway just because they came from separate DOM
+  // nodes. No space belongs here because the source had none.
+  test("does not insert a space between two items that split one word", () => {
+    const slices = [
+      { text: "ar", from: 0, to: 2 },
+      { text: "e", from: 0, to: 1 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("are");
+  });
+
+  // Scenario: a genuine word gap, encoded as trailing whitespace on the earlier item -
+  // exactly how PDF.js represents a real space between two text-layer spans.
+  test("keeps the space when the earlier slice's text trails whitespace", () => {
+    const slices = [
+      { text: "questions ", from: 0, to: 10 },
+      { text: "carrying", from: 0, to: 8 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("questions carrying");
+  });
+
+  // Scenario: the same real gap, but encoded as leading whitespace on the later item
+  // instead - PDF.js is not consistent about which side of a boundary the space lands
+  // on, so both must work.
+  test("keeps the space when the later slice's text leads with whitespace", () => {
+    const slices = [
+      { text: "questions", from: 0, to: 9 },
+      { text: " carrying", from: 0, to: 9 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("questions carrying");
+  });
+
+  // Scenario: a node that is pure whitespace (its own separate text-layer span) still
+  // produces exactly one space, not zero and not two.
+  test("collapses a whitespace-only node between two words to a single space", () => {
+    const slices = [
+      { text: "questions", from: 0, to: 9 },
+      { text: "   ", from: 0, to: 3 },
+      { text: "carrying", from: 0, to: 8 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("questions carrying");
+  });
+
+  // Scenario: two tokens inside the SAME node - the tokenizer only ever splits on real
+  // whitespace, so a second token in one slice is always a genuine word boundary.
+  test("puts a space between two tokens found within the same slice", () => {
+    const slices = [{ text: "brown fox", from: 0, to: 9 }];
+    expect(joinSelectionSlices(slices)).toBe("brown fox");
+  });
+
+  // Scenario: the very first word must never get a leading space, however its slice's
+  // [from,to) window is shaped.
+  test("never leads with a space, even if the first slice starts mid-whitespace", () => {
+    const slices = [{ text: "  fox", from: 0, to: 5 }];
+    expect(joinSelectionSlices(slices)).toBe("fox");
+  });
+
+  // Scenario: honours the same [from,to) windowing as textTokenRanges - a selection that
+  // starts or ends mid-node must not pull in text outside the drag. Only the first and
+  // last node of a real selection are ever cropped like this; the trailing space stays
+  // inside the first slice's window, same as a real DOM Range would include it.
+  test("only reassembles the selected portion of each slice", () => {
+    const slices = [
+      { text: "alpha beta ", from: 6, to: 11 },
+      { text: "gamma delta", from: 0, to: 5 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("beta gamma");
+  });
+
+  // Scenario: no slices, or slices with nothing selected, produce empty text rather than
+  // throwing.
+  test("returns an empty string for no slices or all-empty slices", () => {
+    expect(joinSelectionSlices([])).toBe("");
+    expect(joinSelectionSlices([{ text: "abc", from: 1, to: 1 }])).toBe("");
   });
 });
 
@@ -573,6 +654,7 @@ describe("createGeometry", () => {
         "clientRectsToPdfRects",
         "expandRectToLineBox",
         "textTokenRanges",
+        "joinSelectionSlices",
         "unionClientRects",
         "hitTestHighlights",
         "isVisibleRect",

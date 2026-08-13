@@ -1124,6 +1124,44 @@ non-integer scale factor to whichever renderer is asking - rather than any one o
 
 ---
 
+## Joining text captured from separate DOM nodes inserted a space that was never there
+
+**Symptom:** an exported highlight's quoted text read "ar e" instead of "are", on a real
+exam PDF - only inside that one word, nowhere else on the page, and only for a selection
+that happened to cross that exact spot.
+
+**Cause:** the code that reassembles a selection's text measures one PDF.js text item at
+a time (each rendered as its own DOM node in the text layer, needed for the per-item
+rect math - see the first entry in this file) and pushed one string per item into an
+array, then joined the whole array with a hardcoded `" "`. That is correct when items
+are genuinely separate words, but PDF.js can and does split a SINGLE word across two
+adjacent items with no space glyph on either side - a kerning pair, common wherever a
+PDF's content stream distributes letter-spacing for justified text. The DOM has no
+signal marking "these two items are still one word" beyond the literal absence of a
+space character between them, and the code wasn't looking for it - it assumed every
+item boundary was a word boundary and manufactured a separator there unconditionally.
+
+**Fix:** stop assuming a fixed separator belongs at every join point. Track, per node,
+whether the SOURCE text actually contained whitespace at that boundary - either inside
+a single node (a tokenizer only ever splits there by finding real whitespace, so that
+case is free) or carried over because the earlier node's captured text ended in
+whitespace or the later one's began with it - and only then insert a space. Extracted as
+a small pure function (`joinSelectionSlices` in `src/geometry.js`) taking plain
+`{text, from, to}` slices, kept separate from the DOM-walking code that measures rects -
+that half needs a live selection and can't be unit tested, but the space-or-not decision
+has no DOM dependency at all and now has its own direct test coverage, including the
+exact "ar" + "e" case reported live.
+
+**General lesson:** when reassembling something (text, in this case) out of pieces that
+were split for an UNRELATED reason (here: rect geometry needs one DOM node per item),
+don't let the pieces' own boundaries silently become semantic boundaries in the
+reassembled output. A join operator that is correct for the common case (word A, word B)
+can be actively wrong for a case the splitting logic never intended to distinguish (one
+word, split in two) - the fix is to carry forward whatever information the source
+actually had at each boundary, not to pick a fixed separator and apply it everywhere.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:

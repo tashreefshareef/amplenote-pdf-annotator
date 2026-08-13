@@ -118,6 +118,48 @@ export function createGeometry() {
   }
 
   /**
+   * Reassemble the text of a selection that may span several DOM text-layer nodes -
+   * one per PDF.js text item - WITHOUT assuming a space belongs at every node boundary.
+   *
+   * PDF.js can render a single WORD as two adjacent items with no space glyph on either
+   * side - a kerning pair, common in justified text - so a caller that just joins one
+   * word per node with a fixed " " turns "are" into "ar e" whenever that happens.
+   * Reported live on a real exam PDF's exported highlight. A space belongs between two
+   * tokens only when the SOURCE actually had whitespace there: either inside a single
+   * node (textTokenRanges only ever splits on real whitespace, so a second token within
+   * one node is always preceded by some) or carried across a node boundary because the
+   * earlier node's slice ended in whitespace or the later one's began with it.
+   *
+   * Kept separate from measureSelection (viewer.js), which needs a live DOM to pair each
+   * token with a rect and so can't be unit tested directly - this half of the decision
+   * has no DOM dependency and can be.
+   *
+   * @param slices [{ text, from, to }] - one entry per DOM text node the selection
+   *   intersects, IN SELECTION ORDER; `text` is that node's full value, [from, to) the
+   *   portion the selection covers. Include a node even when its geometry can't be
+   *   resolved (no PDF.js item), so its whitespace still counts toward the next gap.
+   * @returns the reassembled text.
+   */
+  function joinSelectionSlices(slices) {
+    var out = "";
+    var pendingGap = false;
+    for (var i = 0; i < slices.length; i++) {
+      var slice = slices[i];
+      var tokens = textTokenRanges(slice.text, slice.from, slice.to);
+      for (var t = 0; t < tokens.length; t++) {
+        var spaceBefore = out.length > 0 && (t > 0 || pendingGap || tokens[t].start > slice.from);
+        out += (spaceBefore ? " " : "") + slice.text.slice(tokens[t].start, tokens[t].end);
+      }
+      pendingGap = tokens.length
+        ? slice.to > tokens[tokens.length - 1].end
+        : slice.to > slice.from
+          ? true
+          : pendingGap;
+    }
+    return out;
+  }
+
+  /**
    * Collapse a word's own client rects into a single bounding box.
    *
    * `Range.getClientRects()` on a SINGLE word can return more than one rect - a browser
@@ -429,6 +471,7 @@ export function createGeometry() {
     roundRect: roundRect,
     isVisibleRect: isVisibleRect,
     textTokenRanges: textTokenRanges,
+    joinSelectionSlices: joinSelectionSlices,
     unionClientRects: unionClientRects,
     clientRectsToPdfRects: clientRectsToPdfRects,
     pdfRectToViewportRect: pdfRectToViewportRect,
@@ -449,6 +492,7 @@ export const rectFromCorners = geometry.rectFromCorners;
 export const roundRect = geometry.roundRect;
 export const isVisibleRect = geometry.isVisibleRect;
 export const textTokenRanges = geometry.textTokenRanges;
+export const joinSelectionSlices = geometry.joinSelectionSlices;
 export const unionClientRects = geometry.unionClientRects;
 export const clientRectsToPdfRects = geometry.clientRectsToPdfRects;
 export const pdfRectToViewportRect = geometry.pdfRectToViewportRect;
