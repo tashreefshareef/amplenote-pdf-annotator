@@ -91,6 +91,11 @@ in the toolbar. Takes effect the next time you open the viewer.
 (The ⋮ menu these last two live in — Collapse, Download, Export, Highlight colors,
 Remove viewer — for reference: `screenshots/06-viewer-menu-bonus.png`.)
 
+**Remove viewer** (⋮ menu) takes the viewer out of the note — and deletes every highlight
+and note you made on that PDF along with it, not just the box showing it. The PDF stays
+attached; running **Annotate PDF** again opens a fresh, empty viewer on it, but your
+annotations don't come back. Confirmed with a prompt first, since there's no undo after.
+
 ### On mobile
 
 Selecting, highlighting, notes, and export all work the same as desktop. Two things
