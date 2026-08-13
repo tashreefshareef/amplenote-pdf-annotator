@@ -20,23 +20,32 @@
  *      asks for the link to be "highlighted" in the matching color, this is the
  *      background key, not the text one.
  *
- *      AND NO `<!-- {"backgroundCycleColor":"N"} -->` COMMENT, which this file emitted
- *      until it was found to be what draws an UNDERLINE under the exported link.
- *      Reported live: an exported block and a pasted one, same highlight, same note, one
- *      underlined and one not. A dump of that note settled it - the two stored lines were
- *      identical apart from the comment:
+ *      AND THE `<!-- {"backgroundCycleColor":"N"} -->` COMMENT IS BACK, having been
+ *      dropped for one release because it draws an UNDERLINE under the exported link.
+ *      Reported live at the time: an exported block and a pasted one, same highlight,
+ *      same note, one underlined and one not. A dump of that note settled it - the two
+ *      stored lines were identical apart from the comment:
  *
  *        [<mark style="background-color:#F4DE6C;">name<!-- {"backgroundCycleColor":"14"}
  *          --></mark>](url)      <- underlined
  *        [<mark style="background-color:#BBE077;">name</mark>](url)   <- not
  *
  *      The comment names Amplenote's cycle-color node, and that node brings its own link
- *      decoration; a plain background mark maps to a plainer one. The style-only form is
- *      not a guess either - it is what Amplenote ITSELF stored for a pasted highlight,
- *      and the note re-renders from that markdown on every open, in the right color.
- *      The cycle indices are still recorded in constants.js: they are how a colored TEXT
- *      marker would have to be written (`data-text-color`), which this file no longer
- *      needs but the next thing might.
+ *      decoration - that part still holds. What changed is which cost turned out to be
+ *      bigger. A plain background mark paints the SAME literal hex regardless of the
+ *      note's theme; the cycle-color node does not - Amplenote repaints its own reference
+ *      chart for cycle color 12 as a muted, dark-appropriate rust in a dark-themed note,
+ *      nothing like the bright coral it shows in a light one (compared pixel-for-pixel
+ *      against Amplenote's own published light/dark "Index of Cycle Colors" charts). A
+ *      fixed inline hex skips that theme handling entirely, so the light-tuned palette
+ *      this file uses went straight to illegible white-on-lime-green in a dark-themed
+ *      note - reported live, screenshot in hand. An underline is cosmetic; unreadable
+ *      link text is not, so the comment is worth restoring even though it re-adds the
+ *      decoration.
+ *
+ *      The cycle indices were already recorded in constants.js the whole time this was
+ *      dropped - they never stopped being how a colored TEXT marker would be written
+ *      (`data-text-color`), and now they are also how the background one is again.
  *
  *      SUPERSEDES an earlier finding that a mark and a link "do not compose AT ALL, in
  *      either nesting order". That was tested with the `==...==` shorthand
@@ -129,17 +138,23 @@ export function createExportBuilder() {
    * with a link, and the color is a BACKGROUND, because a text color on a link is
    * invisible - the anchor's own color wins.
    *
-   * The inline style is the whole marker now: the `<!-- {"backgroundCycleColor":"N"} -->`
-   * comment that used to sit inside the mark is what drew an underline under the link
-   * (file header finding 1). This form is Amplenote's own storage for a pasted highlight,
-   * which renders in color with no decoration.
+   * The `<!-- {"backgroundCycleColor":"N"} -->` comment names Amplenote's cycle-color
+   * node, which brings an underline under the link (file header finding 1) - a cosmetic
+   * cost worth paying so Amplenote renders the background itself, in whatever shade its
+   * current theme pairs with readable link text. A plain inline hex looked identical in
+   * light mode but painted the same literal color in a dark-themed note too, where
+   * Amplenote's own reference chart shows this same index rendering much darker - a
+   * fixed hex skips that and reads as pale text on a pale background.
    *
    * Falls back to a plain, uncolored name when there is no hex - an uncolored link beats
-   * a broken one.
+   * a broken one. Falls back to the inline-only form when there is no cycleIndex either
+   * (an older config, or a color missing one), rather than emitting a comment that names
+   * nothing.
    */
-  function colorizeLinkText(linkText, hex) {
+  function colorizeLinkText(linkText, hex, cycleIndex) {
     if (!hex) return linkText;
-    return '<mark style="background-color:' + hex + ';">' + linkText + "</mark>";
+    var comment = cycleIndex != null ? '<!-- {"backgroundCycleColor":"' + cycleIndex + '"} -->' : "";
+    return '<mark style="background-color:' + hex + ';">' + linkText + comment + "</mark>";
   }
 
   /**
@@ -167,12 +182,15 @@ export function createExportBuilder() {
    * @param attachmentUUID which PDF the deep link should open.
    * @param highlight      { id, page, quoteText, note, color }.
    * @param hex            the highlight color's hex, worn by the link as a background.
+   * @param cycleIndex     that color's Amplenote cycle index, naming the background node
+   *   so Amplenote repaints it per-theme (see colorizeLinkText). Omit for a plain,
+   *   theme-fixed background instead.
    * @param sourceNoteUUID the note THIS highlight lives on - what `linkTarget` navigates
    *   to when the link is clicked. See buildDeepLink's own comment for why it's required.
    */
-  function buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
+  function buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, highlight, hex, cycleIndex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
-    var linkText = colorizeLinkText(escapeLinkText(pdfName || "PDF"), hex);
+    var linkText = colorizeLinkText(escapeLinkText(pdfName || "PDF"), hex, cycleIndex);
     var heading = "[" + linkText + "](" + url + ")";
 
     // THE EXTRA LEVEL EXISTS TO SEPARATE THE QUOTE FROM THE NOTE, so a highlight with no
@@ -232,6 +250,17 @@ export function createExportBuilder() {
    * future marker wanting colored TEXT rather than a highlight does. The general lesson
    * is in docs/bugs-found.md: pasted markup is mapped onto a document schema, so inline
    * CSS is not styling - it is a hint about WHICH NODE you meant.)
+   *
+   * STILL A PLAIN INLINE HEX, UNLIKE buildHighlightBlock's markdown form - deliberately,
+   * not an oversight. The markdown fix for the dark-mode contrast bug (file header) relies
+   * on the confirmed `backgroundCycleColor` JSON-comment syntax; the HTML/paste equivalent
+   * would presumably be a `data-background-color="N"` attribute (api-notes.md 9b lists it
+   * as an existing index, by inference from the sibling `data-text-color` one), but that
+   * has never actually been round-tripped through Amplenote's own clipboard the way
+   * `data-text-color` was - and guessing at pasted-markup attributes is the exact mistake
+   * that cost five rounds elsewhere in this file. So Copy still carries the theme-fixed
+   * background until someone applies a background cycle-color mark by hand in Amplenote
+   * and reads back what its clipboard actually serializes.
    */
   function buildHighlightHtml(pdfName, pluginUUID, attachmentUUID, highlight, hex, sourceNoteUUID) {
     var url = buildDeepLink(pluginUUID, attachmentUUID, highlight.page, highlight.id, sourceNoteUUID);
@@ -282,8 +311,9 @@ export function createExportBuilder() {
    * rather than reading as one continuous quote.
    *
    * @param colorFilter Set/array of color ids to include, or null/empty for "all colors".
-   * @param colorTable { [colorId]: { hex } } - the hex IS the marker now; the cycle index
-   *   that used to travel beside it named a node that came with an underline (header).
+   * @param colorTable { [colorId]: { hex, cycleIndex } } - hex is the fallback background,
+   *   cycleIndex (when present) names Amplenote's own background node so it repaints per
+   *   theme instead (see colorizeLinkText).
    * @param sourceNoteUUID the note every highlight here lives on - see buildDeepLink.
    * @returns {string} empty string if nothing matches the filter - callers decide how
    *   to handle "nothing to export" rather than this function guessing at a message.
@@ -305,7 +335,7 @@ export function createExportBuilder() {
 
     var blocks = sorted.map(function (h) {
       var color = (colorTable && colorTable[h.color]) || {};
-      return buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, h, color.hex, sourceNoteUUID);
+      return buildHighlightBlock(pdfName, pluginUUID, attachmentUUID, h, color.hex, color.cycleIndex, sourceNoteUUID);
     });
     return blocks.join("\n\n");
   }

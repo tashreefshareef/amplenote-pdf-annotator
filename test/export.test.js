@@ -8,12 +8,17 @@
  * {"backgroundCycleColor":"N"} --></mark>](url)`, read off Amplenote's own serialization
  * after applying the formatting by hand and dumping it with src/actions/dump-markdown.js.
  *
- * Two of those details are the ones to preserve if this ever gets rewritten, because both
+ * Three of those details are the ones to preserve if this ever gets rewritten, because all
  * were arrived at the expensive way: the mark must be the ELEMENT rather than the
- * `==...==` shorthand, which really does not compose with a link, and the key must be
+ * `==...==` shorthand, which really does not compose with a link; the key must be
  * `backgroundCycleColor` rather than `cycleColor`, because a text color applied to a link
- * is invisible - the anchor's own color wins. An earlier format shipped a colored `●`
- * next to a plain link, working around a limitation that turned out not to exist.
+ * is invisible - the anchor's own color wins; and the `backgroundCycleColor` comment
+ * itself, dropped for one release to avoid the underline it draws, came back because a
+ * fixed inline hex has a worse cost - it paints the same literal color in a dark-themed
+ * note too, where Amplenote's own reference chart shows this same cycle index rendering
+ * much darker, and the result was unreadable link text (reported live). An earlier format
+ * shipped a colored `●` next to a plain link, working around a limitation that turned out
+ * not to exist.
  */
 import {
   createExportBuilder,
@@ -37,13 +42,13 @@ const highlight = (overrides = {}) => ({
   ...overrides,
 });
 
-// { hex } per color, mirroring what viewer.js builds from config. The hex IS the marker:
-// the cycle index that used to sit beside it named the node that underlined the link.
+// { hex, cycleIndex } per color, mirroring what viewer.js's colorTable() builds from
+// config. cycleIndex is what lets the exported link's background repaint per-theme.
 const CYCLE_TABLE = {
-  coral: { hex: "#F3998C" },
-  yellow: { hex: "#F4DE6C" },
-  green: { hex: "#BBE077" },
-  blue: { hex: "#84B6D9" },
+  coral: { hex: "#F2998C", cycleIndex: 12 },
+  yellow: { hex: "#F3DE6C", cycleIndex: 14 },
+  green: { hex: "#BBE077", cycleIndex: 15 },
+  blue: { hex: "#84B6D9", cycleIndex: 18 },
 };
 
 describe("buildDeepLink", () => {
@@ -95,6 +100,7 @@ describe("buildHighlightBlock", () => {
       ATT_UUID,
       highlight({ note: "worth double-checking at renewal" }),
       "#F4DE6C",
+      undefined,
       "note-42"
     );
     const lines = block.split("\n");
@@ -121,21 +127,34 @@ describe("buildHighlightBlock", () => {
   // ELEMENT - the ==...== shorthand does not compose with a link, which is what drove an
   // earlier "marks and links never compose" reading and a colored-dot workaround. And the
   // key must be backgroundCycleColor: a TEXT color on a link is invisible, because the
-  // anchor's own color wins - and it is carried by inline style ALONE. A
-  // `<!-- {"backgroundCycleColor":"N"} -->` comment inside the mark colors the link too,
-  // and is what this emitted until it turned out to be what UNDERLINES it: an exported
-  // block and a pasted one, same highlight in the same note, differed by that comment and
-  // by nothing else, and only the commented one was underlined. Both stored lines are in
-  // export.js's header, read back with src/actions/dump-markdown.js.
-  test("wraps the link text in a background-colored mark, with no cycle-color comment", () => {
+  // anchor's own color wins - a foreground color could never have worked here regardless
+  // of which key carried it.
+  test("wraps the link text in a background-colored mark, plus a backgroundCycleColor comment", () => {
+    const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#84B6D9", 18);
+    const heading = block.split("\n")[0];
+    expect(heading).toBe(
+      `[<mark style="background-color:#84B6D9;">paper.pdf<!-- {"backgroundCycleColor":"18"} --></mark>]` +
+        `(plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123)`
+    );
+    expect(heading).not.toContain("●"); // the dot workaround is gone
+  });
+
+  // Scenario: the comment is what lets Amplenote repaint the background per-theme (file
+  // header) - it is what this emitted until it turned out to be what UNDERLINES the link:
+  // an exported block and a pasted one, same highlight in the same note, differed by that
+  // comment and by nothing else, and only the commented one was underlined. Both stored
+  // lines are in export.js's header, read back with src/actions/dump-markdown.js. That
+  // underline is a real, accepted cost now (see the test above) - but a caller with no
+  // cycleIndex at all (an older config, or a color missing one) still gets a plain,
+  // theme-fixed background rather than a comment naming nothing.
+  test("omits the comment entirely when there is no cycle index", () => {
     const block = buildHighlightBlock("paper.pdf", PLUGIN_UUID, ATT_UUID, highlight(), "#84B6D9");
     const heading = block.split("\n")[0];
     expect(heading).toBe(
       `[<mark style="background-color:#84B6D9;">paper.pdf</mark>](plugin://${PLUGIN_UUID}?att=${ATT_UUID}&page=3&hl=hl-abc123)`
     );
-    expect(heading).not.toContain("backgroundCycleColor"); // the underline
+    expect(heading).not.toContain("backgroundCycleColor");
     expect(heading).not.toContain("<!--");
-    expect(heading).not.toContain("●"); // the dot workaround is gone
   });
 
   // Scenario: an unknown color leaves nothing to color the link with. An uncolored link
@@ -285,6 +304,17 @@ describe("buildExportAllContent", () => {
     highlight({ id: "hl-b", page: 2, color: "green", quoteText: "second", rects: [{ x: 0, y: 700, width: 10, height: 10 }] }),
     highlight({ id: "hl-c", page: 1, color: "blue", quoteText: "third", rects: [{ x: 0, y: 650, width: 10, height: 10 }] }),
   ];
+
+  // Scenario: this is the actual dark-mode contrast fix end to end - a real colorTable()
+  // (hex plus cycleIndex, as viewer.js now builds it) must produce a backgroundCycleColor
+  // comment for every block, not just the ones exercised directly against
+  // buildHighlightBlock above.
+  test("threads each color's cycle index into its block's comment", () => {
+    const content = buildExportAllContent("paper.pdf", PLUGIN_UUID, ATT_UUID, three, CYCLE_TABLE, null);
+    expect(content).toContain('{"backgroundCycleColor":"12"}'); // coral
+    expect(content).toContain('{"backgroundCycleColor":"15"}'); // green
+    expect(content).toContain('{"backgroundCycleColor":"18"}'); // blue
+  });
 
   // Scenario: every highlight, no filter, joined as separate blocks.
   test("includes every highlight when no color filter is given", () => {

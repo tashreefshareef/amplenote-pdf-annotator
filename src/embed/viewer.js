@@ -2800,17 +2800,17 @@ export function viewerMain() {
   }
 
   /**
-   * { [colorId]: { hex } } from config, for export.js's builders.
+   * { [colorId]: { hex, cycleIndex } } from config, for export.js's builders.
    *
-   * The hex is the whole marker: an exported link wears it as a background. A cycle index
-   * used to travel beside it, naming the color to Amplenote - that is what underlined the
-   * link, so it is gone from here and from the config (see export.js's header).
+   * The hex is the fallback background; cycleIndex names the color to Amplenote's own
+   * cycle-color node so the markdown export repaints per-theme instead of wearing a fixed
+   * hex that goes unreadable in a dark-themed note (see export.js's header).
    */
   function colorTable() {
     var table = {};
     var list = colorList();
     for (var i = 0; i < list.length; i++) {
-      table[list[i].id] = { hex: list[i].hex };
+      table[list[i].id] = { hex: list[i].hex, cycleIndex: list[i].cycleIndex };
     }
     return table;
   }
@@ -2831,6 +2831,7 @@ export function viewerMain() {
       cfg.attachmentUUID,
       highlight,
       color.hex,
+      color.cycleIndex,
       cfg.noteUUID
     );
   }

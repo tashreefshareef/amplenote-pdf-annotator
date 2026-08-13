@@ -155,10 +155,14 @@ export function buildEmbedHtml({
     // (which only reliably carries strings - see docs/api-notes.md). The hex serves both
     // the swatch and the exported link's background.
     //
-    // cycleIndex used to ride along too, for the export marker. It named Amplenote's
-    // cycle-color node, which brought an underline under every exported link - the marker
-    // is a plain background hex now, so nothing here needs the index. It stays recorded in
-    // constants.js, where the verified mapping is the reference for a colored-TEXT marker.
+    // cycleIndex rides along too, for the export marker's `backgroundCycleColor` comment.
+    // It named Amplenote's cycle-color node, which brings an underline under every
+    // exported link - dropped for a while over exactly that underline, but a fixed inline
+    // hex turned out to have a worse cost: Amplenote repaints a cycle-color background per
+    // theme (confirmed by comparing its own light/dark reference charts - the same index
+    // renders a muted, dark-appropriate shade in a dark-themed note), while a literal hex
+    // never does, so the light-tuned palette went unreadable under a dark-mode note's own
+    // light link text (reported live, screenshot in hand). See export.js's header.
     //
     // THE WHOLE CATALOG travels, not just the four on the toolbar, and the distinction is
     // load-bearing. This list is what RESOLVES a highlight - the fill drawn on the page,
@@ -173,6 +177,7 @@ export function buildEmbedHtml({
       label: c.label,
       hex: c.hex,
       rgb: c.rgb,
+      cycleIndex: c.cycleIndex,
     })),
     // ...and which of them get circles. Display only - nothing resolves through this.
     toolbarColorIds,
