@@ -83,6 +83,18 @@ than fail silently), and dragging to scroll — use the ▲/▼ buttons on the r
 instead. A deep link still opens the right note and highlight; you scroll down to it
 yourself.
 
+**Fit the viewer to your phone.** An embed can't size itself — its box comes from a
+single number stored in the note, the same on every device that note is opened on. On a
+narrow screen, an extra button appears in the toolbar next to ⋮: **Fit to this screen**.
+Tap it once and the box resizes to a comfortable height for *that* phone; the button then
+becomes **Restore height** so you can put it back to the plugin's default from the same
+place. It's a one-time action, not a live/automatic fit — tap it again any time your
+screen changes (a different phone, a rotated tablet), and it stays exactly as you left it
+otherwise, so a phone and a desktop with the same note open don't keep re-adjusting each
+other's view. If a note was fitted to a phone and you later open it on a desktop, that
+toolbar button won't be there (it's phone-only) — instead the ⋮ menu on desktop grows a
+**Restore height** entry, so you can undo a phone-sized box from there too.
+
 ---
 
 ## Screenshot files
@@ -105,3 +117,9 @@ used here: `extra-selection-color-popover-precursor.png` (the color popover befo
 highlight is created — a valid but redundant moment right before shot 1) and
 `extra-viewer-opened-unclear-state.png` (an ambiguous mid-testing capture). Keep or
 discard those at your discretion.
+
+**No screenshot exists yet for "Fit to this screen" / "Restore height"** (the mobile-only
+toolbar button described above) — that needs a real phone or a narrow-viewport capture,
+neither of which happened in this session. Get one before finalizing if you want the
+instructions cell to show it rather than only describe it in text; the "On mobile"
+paragraph reads fine without an image, so it's not blocking.
