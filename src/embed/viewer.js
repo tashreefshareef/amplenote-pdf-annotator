@@ -1289,6 +1289,12 @@ export function viewerMain() {
         to: to,
         line: item ? item.transform[5] : null,
         lineSize: item ? item.height : null,
+        // The horizontal extent, for the same reason and read the same way: a baseline
+        // that moves without the text returning to the left is stacked notation, not a
+        // new line. Right edge included because a numbered list starts every line at the
+        // same x, so only "where the last one ended" distinguishes the two.
+        x: item ? item.transform[4] : null,
+        xEnd: item ? item.transform[4] + item.width : null,
       });
 
       // Every div PDF.js builds gets its item attached in renderPage. No item means no

@@ -315,6 +315,56 @@ describe("joinSelectionSlices", () => {
     expect(joinSelectionSlices(slices)).toBe("x2 plus");
   });
 
+  // Scenario: THE third bug. A stacked fraction moves the baseline exactly like a line
+  // break does, so a maths paper's "[-1/3, 1/3]" exported as ten fragments on ten lines,
+  // taking the prose around it with them. Reported live from a highlighted exam question.
+  // The fraction bar is a vector rule and never reaches the text layer, so 1/3 cannot be
+  // recovered - the most that is available is to stop it breaking the line.
+  test("does not break for a fraction, whose stacked digits never return to the left", () => {
+    const slices = [
+      { text: "[-", from: 0, to: 2, line: 700, lineSize: 10, x: 100, xEnd: 110 },
+      { text: "1", from: 0, to: 1, line: 704, lineSize: 6, x: 112, xEnd: 117 },
+      { text: "3", from: 0, to: 1, line: 694, lineSize: 6, x: 112, xEnd: 117 },
+      { text: ", is", from: 0, to: 4, line: 700, lineSize: 10, x: 119, xEnd: 140 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("[- 1 3 , is");
+  });
+
+  // Scenario: the one outcome worse than a garbled quote. Joined flat, a numerator over a
+  // denominator reads as a two-digit number - 1 over 3 becomes 13 - and nothing about it
+  // looks wrong to whoever reads the note later.
+  test("never fuses a fraction's digits into a different number", () => {
+    const slices = [
+      { text: "1", from: 0, to: 1, line: 704, lineSize: 6, x: 112, xEnd: 117 },
+      { text: "3", from: 0, to: 1, line: 694, lineSize: 6, x: 112, xEnd: 117 },
+    ];
+    expect(joinSelectionSlices(slices)).not.toBe("13");
+    expect(joinSelectionSlices(slices)).toBe("1 3");
+  });
+
+  // Scenario: a denominator wider than its numerator starts slightly LEFT of it, which is
+  // a return by direction but not by distance. The threshold is the type size, an order
+  // of magnitude below any real carriage return.
+  test("treats a wide denominator's small leftward shift as still the same line", () => {
+    const slices = [
+      { text: "1", from: 0, to: 1, line: 704, lineSize: 6, x: 112, xEnd: 117 },
+      { text: "12", from: 0, to: 2, line: 694, lineSize: 6, x: 109, xEnd: 119 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("1 12");
+  });
+
+  // Scenario: the numbered-list break from two tests above, now carrying x - the case the
+  // return test must not cost us. Every line starts at the same left margin, so only the
+  // PREVIOUS line's right edge shows the carriage return; comparing starts would see zero
+  // movement and silently undo the fix.
+  test("still breaks a wrapped line that restarts at the same left margin", () => {
+    const slices = [
+      { text: "with only one", from: 0, to: 13, line: 700, lineSize: 10, x: 72, xEnd: 152 },
+      { text: "correct option", from: 0, to: 14, line: 688, lineSize: 10, x: 72, xEnd: 158 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("with only one\ncorrect option");
+  });
+
   // Scenario: a break replaces the space rather than joining it, or every wrapped line in
   // an exported quote would arrive indented by one character.
   test("does not leave a space beside the break it inserts", () => {

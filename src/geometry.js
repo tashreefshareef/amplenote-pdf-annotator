@@ -160,7 +160,8 @@ export function createGeometry() {
    *   gap - such a node simply carries no `line`, and an absent `line` never breaks,
    *   since "I don't know where this sits" must not be read as "somewhere else".
    *   `line` is the item's baseline in PDF user space (`item.transform[5]`), `lineSize`
-   *   its height; both optional, and without them this behaves exactly as it used to.
+   *   its height, `x` its left edge (`item.transform[4]`) and `xEnd` its right one; all
+   *   optional, and without them this behaves exactly as it used to.
    * @returns the reassembled text, with "\n" at each line boundary.
    */
   function joinSelectionSlices(slices) {
@@ -171,6 +172,9 @@ export function createGeometry() {
     // rather than resetting to nothing every time an unresolvable node goes past.
     var lastLine = null;
     var lastLineSize = 0;
+    // The right edge of the last item whose geometry was known, for the carriage-return
+    // test below. Tracked like lastLine, and for the same reason.
+    var lastXEnd = null;
     // Survives a slice that contributes no tokens, so a break between two known lines
     // isn't swallowed by an empty node that happens to sit between them.
     var pendingBreak = false;
@@ -180,10 +184,48 @@ export function createGeometry() {
       if (slice.line !== null && slice.line !== undefined) {
         var size = slice.lineSize || lastLineSize || 0;
         var tolerance = Math.max(size / 2, 0.5);
-        if (lastLine !== null && Math.abs(slice.line - lastLine) > tolerance) pendingBreak = true;
+        if (lastLine !== null && Math.abs(slice.line - lastLine) > tolerance) {
+          // A moved baseline alone does not make a new line. Stacked notation moves it
+          // too: a fraction draws its numerator and denominator at the same x, one above
+          // the other, and the bar between them is a vector rule that never reaches the
+          // text layer at all. Breaking on the baseline alone turned every such fraction
+          // into three lines and shredded the prose around it.
+          //
+          // What a real line break also does is RETURN - it resumes left of where the
+          // previous item ended, while stacked notation stays put or advances. Require
+          // both. Compared against the previous item's right edge rather than its start,
+          // because a numbered list sets every line at the same left margin: comparing
+          // starts would see no movement and never break, which is the bug this whole
+          // baseline mechanism exists to fix.
+          //
+          // With either x unknown this falls back to the baseline alone, so every caller
+          // that predates x behaves exactly as it did.
+          // Two ems of the type in hand. One is not enough: a denominator wider than its
+          // numerator is centred under it and so starts left of it, by up to about an em
+          // of the small type a fraction is set in. A carriage return is an order of
+          // magnitude larger - a wrapped line returns most of the column width - so the
+          // gap between "centred" and "returned" is wide enough not to need tuning. The
+          // cost of being generous is a wrap inside a column barely two ems wide, which
+          // holds single characters rather than the prose this is protecting.
+          var returned =
+            lastXEnd === null || slice.x === null || slice.x === undefined
+              ? true
+              : lastXEnd - slice.x > Math.max(size * 2, 1);
+          if (returned) {
+            pendingBreak = true;
+          } else {
+            // Stacked, not wrapped - so keep the glyphs apart. Joining them flat is the
+            // one outcome worse than a garbled quote: a fraction with 1 over 3 becomes
+            // the number 13, and "domain is [-1/3, 1/3]" arrives as "[-13, 13]", wrong
+            // and with nothing about it looking wrong. A space cannot be mistaken for
+            // notation that survived.
+            pendingGap = true;
+          }
+        }
         lastLine = slice.line;
         lastLineSize = slice.lineSize || lastLineSize;
       }
+      if (slice.xEnd !== null && slice.xEnd !== undefined) lastXEnd = slice.xEnd;
 
       var tokens = textTokenRanges(slice.text, slice.from, slice.to);
       for (var t = 0; t < tokens.length; t++) {
