@@ -1294,14 +1294,31 @@ would let a line far above win over the one beside the pointer on a wide page. T
 divides at its midpoint, so a line is claimed when it is the closer one. Mouse only; on
 touch the handles belong to the host app and no event of ours drives them.
 
-**And the fix's own bug, which shipped first:** doing that from a `pointermove` listener
-changes nothing at all. Selecting text is the DEFAULT ACTION of `mousemove`, and a default
-action runs after listeners - so the correction lands, the browser then recomputes the
-selection from the raw pointer position, and the result is indistinguishable from having
-done nothing. It has to be applied on `selectionchange`, which fires after the browser has
-written, whatever wrote it. Chrome delivers that event asynchronously, so an
-"in-progress" flag is not enough to stop our own `extend` re-triggering it - the guard
-that works is checking whether the focus is already where it should be.
+**And the two fixes that shipped before the real one, both reported back as "same":**
+
+1. Snapping from a `pointermove` listener changes nothing. Selecting text is the DEFAULT
+   ACTION of `mousemove`, and a default action runs after listeners: the correction lands,
+   the browser recomputes from the raw pointer position, net zero.
+2. Moving it to `selectionchange` - which does fire after the browser has written - fixes
+   the final selection and *still* changes nothing about the feel. Measured directly:
+   `selectionchange` is delivered as a queued task, not synchronously with the write. So
+   every mouse movement paints the wrong selection first and the correction arrives a
+   frame or more later. Correct at mouseup, identical to watch.
+
+**The fix that worked** was upstream of all of it: give the gap an owner, in CSS, so the
+browser's own hit-testing never lands in dead space.
+`.textLayer > span { padding-block: 0.35em; margin-top: -0.35em; }` - padding claims half
+the leading above and below each line, and the negative margin cancels the shift the
+padding would otherwise give the glyphs, since `top` positions the margin edge. Measured
+with the correction code inert, so this is the browser alone: line-to-line gaps went from
+9.95px to -0.55px, and a downward drag that ballooned to the full page at 10 positions
+ballooned at 0. Paragraph gaps (24.5px here) are still partly dead - closing those would
+need padding wide enough to overlap neighbouring lines, which trades a rare wrong
+selection for a frequent one. The snap stays as the net for those.
+
+Highlight painting was unaffected, and the reason is worth keeping: `lineBoxesFor`
+measures through a `Range`, and a Range reports the line box of the TEXT, which element
+padding does not move. Measured before and after - identical to the pixel.
 
 **General lesson:** "it feels too sensitive" is a measurement waiting to happen, not a
 matter of taste - the instinct to answer it by tuning a threshold skips the step where you
@@ -1313,13 +1330,21 @@ gaps need owners. And an asymmetry in a bug report is evidence, not noise: worse
 direction than the other was the clue that the fallback target had a fixed position rather
 than being a near-miss of the intended one.
 
-The sharpest lesson here is about the test, not the bug. The first fix was "verified" by
-setting the selection and then dispatching the event - which made the code under test the
-last writer, the one thing a real drag guarantees it is not. A test that cannot fail is
-not evidence, and the tell is that it never exercises the thing that would break it. When
-you are correcting something a browser also controls, the test has to model the browser
-fighting back: write the wrong value first, deliberately, and only then check whether your
-code puts it right.
+The sharpest lesson here is about the tests, not the bug. Three of them in a row passed on
+code that did nothing, and each passed for the same reason: it measured OUR code instead
+of the browser's. The first set the selection and then dispatched the event, making the
+code under test the last writer - the one thing a real drag guarantees it is not. The
+second modelled the browser overwriting us and proved we could win that exchange, without
+ever asking WHEN we win it, which was the whole question. Only the third measured the
+browser alone, with our code deliberately unarmed, and that one both failed before the fix
+and passed after.
+
+The rule that falls out: when the thing you are fixing is the browser's own behaviour,
+the test has to run with your code switched off. If a test cannot fail while your code is
+inert, it is measuring the wrong system. And a correction applied after the fact can only
+ever fix a *state*, never a *feel* - anything a user experiences as continuous is decided
+by what gets painted between events, so a fix that arrives a task late is invisible no
+matter how correct the value it writes.
 
 ---
 

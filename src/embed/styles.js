@@ -234,6 +234,21 @@ export const STYLES = `
     opacity: 0.3; forced-color-adjust: none; }
   .textLayer > span { color: transparent; position: absolute; white-space: pre;
     cursor: text; transform-origin: 0% 0%; }
+  /* GIVE THE SPACE BETWEEN LINES AN OWNER.
+     PDF.js sizes each span to exactly one font-size and puts nothing between them, so
+     ordinary leading leaves a band belonging to no span at all - measured on this page,
+     15px boxes with 9.95px between them, about 40% of the distance a drag travels. The
+     browser still has to resolve a caret in there, and with nothing in flow to fall back
+     on it answers with an arbitrary distant span: a downward drag selected the entire
+     page at every line crossing. Padding makes the gap belong to the line above and
+     below, so the browser's own hit-testing lands somewhere a reader would expect.
+     In em so it tracks the type and the zoom rather than one page's leading.
+     margin-top cancels the shift padding-top would give the glyphs - top positions the
+     MARGIN edge, so the border box moves up and the content lands back where it was.
+     padding-bottom needs no counterpart: nothing below is positioned from this box.
+     Selection painting is unaffected. It measures through a Range (see lineBoxesFor),
+     and a Range reports the line box of the TEXT, which padding does not move. */
+  .textLayer > span { padding-block: 0.35em; margin-top: -0.35em; }
   /* Opaque on purpose: the container's opacity fades the layer as a single group, so
      overlapping spans can't compound their alpha into dark seams between lines. */
   .textLayer ::selection { background: #1a73e8; }
