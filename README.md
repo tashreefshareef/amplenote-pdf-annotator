@@ -8,38 +8,35 @@ page and position.
 
 Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty_plugins).
 
-> **Status: Phase 6 (polish), submission not yet started.** The PDF renders in the note
-> with a working text layer, zoom and
-> page navigation (Phase 1). Highlights work end to end — select text and pick one of
-> four colors, either from the toolbar or from the popover that appears at the selection;
-> recolor or remove an existing highlight by clicking it (Phase 2). Each highlight takes
-> one plain-text note, offered as soon as it's created, and a panel lists every highlight
-> and note with click-to-jump (Phase 3). A Download button bakes every highlight and note
-> into the PDF as native annotations — real, selectable, reader-editable ones, not
-> painted-on rectangles — and downloads the result (Phase 4). A highlight can be copied
-> to the clipboard or sent to the note as a deep link whose text carries the highlight's
-> own color, in Amplenote's own
-> `<mark style="background-color:#HEX;">…<!-- {"backgroundCycleColor":"N"} --></mark>`
-> markdown, and an Export button builds a
-> "\<PDF name\> - Highlights" note from every highlight (optionally filtered by color),
-> each block carrying a `plugin://` deep-link back to its exact page and position
-> (Phase 5). Clicking one scrolls the note to the right PDF and flashes the highlight it
-> meant, whether the link is on this note or another — on desktop; see the mobile
-> limitations below.
->
-> Phase 6 is done: the viewer is usable on a phone (touch selection, fit-to-width, 40px
-> targets, on-screen scroll controls — the Amplenote apps do render embeds, and a
-> desktop-only one is close to unusable there), pages render as they come into view
-> rather than all at once, and the plugin note's own instructions cell is written and
-> screenshotted (see [`docs/plugin-instructions.md`](docs/plugin-instructions.md)).
-> Submission (Phase 7 — repo/videos/directory publish/bounty claim) hasn't started. See
-> [`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md) for the full plan
-> and [`docs/bugs-found.md`](docs/bugs-found.md) for what went wrong on the way.
+Feature-complete and in polish; not yet submitted to the bounty program.
+
+## What it does
+
+- **Renders the PDF in the note** — a real text layer, zoom, and page navigation, with
+  pages drawn as they scroll into view rather than all at once.
+- **Highlights in four colors** — select text and pick a color from the toolbar or from
+  the popover that appears at the selection; click an existing highlight to recolor or
+  remove it.
+- **Takes a note on any highlight** — one plain-text note, offered as soon as the
+  highlight is created. A panel lists every highlight and note, with click-to-jump.
+- **Downloads with native annotations** — the Download button bakes every highlight and
+  note into the PDF as real, selectable, reader-editable annotations, not painted-on
+  rectangles.
+- **Copies a highlight into the note** — to the clipboard or straight into the note, as a
+  deep link whose text carries the highlight's own color, in Amplenote's own
+  `<mark style="background-color:#HEX;">…<!-- {"backgroundCycleColor":"N"} --></mark>`
+  markdown.
+- **Exports every highlight to its own note** — a "\<PDF name\> - Highlights" note,
+  optionally filtered by color, each block carrying a `plugin://` deep link back to its
+  exact page and position. Clicking one scrolls to the right PDF and flashes the
+  highlight it meant, whether the link is on this note or another.
+- **Works on a phone** — touch selection, fit-to-width, 40px targets, and on-screen
+  scroll controls, with three exceptions noted below.
 
 ## Known limitations on mobile
 
 Everything else works on a phone — selecting, highlighting, notes, the panel, export and
-deep links. These two don't, and both are the same wall: an embed is a sandboxed
+deep links. These three don't, and all of them are the same wall: an embed is a sandboxed
 cross-origin iframe, so the host application decides what it may do.
 
 **Downloading the annotated PDF is desktop-only.** The Download menu item builds the
@@ -69,7 +66,7 @@ reproduced the same failure, which rules out a code regression — the mechanism
 doesn't reliably work on the mobile client. See docs/api-notes.md finding 13 and
 docs/bugs-found.md for the full account.
 
-Both mobile limitations are recorded in [`docs/api-notes.md`](docs/api-notes.md) with
+All three are recorded in [`docs/api-notes.md`](docs/api-notes.md) with
 what was tried, so they aren't re-litigated as bugs. Worth knowing why a first-party
 viewer can do these things and a plugin can't: it renders in the note's own document,
 with no boundary to arbitrate. The sandbox that makes third-party plugins safe to install
@@ -288,6 +285,12 @@ Note: Jest runs in ESM mode, so `jest.fn()` and friends need an explicit
 `import { jest } from "@jest/globals"` — the global isn't injected.
 
 ## Contributing
+
+The full plan lives in
+[`amplenote-pdf-annotator-spec.md`](amplenote-pdf-annotator-spec.md), the plugin note's
+own instructions cell in [`docs/plugin-instructions.md`](docs/plugin-instructions.md), and
+an account of what went wrong along the way in
+[`docs/bugs-found.md`](docs/bugs-found.md).
 
 1. Edit `src/`, not `dist/`.
 2. Add a test for anything that touches note data, with a comment stating the scenario
