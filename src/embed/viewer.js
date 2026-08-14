@@ -3764,6 +3764,85 @@ export function viewerMain() {
     // selection, so the pending capture would be thrown away just before it is used.
     els.pages.addEventListener("mouseup", captureSelection);
     els.pages.addEventListener("click", onPagesClick);
+
+    // Selection snapping. See geom.snapPointToLineBox for the measurement this comes
+    // from: the gaps between a text layer's absolutely positioned spans belong to no
+    // span, and a drag crossing one selects an arbitrary distant span - in practice the
+    // whole page - until the pointer reaches the next line.
+    //
+    // Mouse only, and deliberately so. On touch the selection handles belong to the host
+    // app rather than to this frame, no pointermove of ours drives them, and a listener
+    // that did would be competing with the on-screen scroll controls the mobile layout
+    // depends on. Desktop is where this can be fixed without risking that.
+    var dragLines = null;
+
+    function lineBoxesOf(layer) {
+      var out = [];
+      var spans = layer.querySelectorAll("span");
+      for (var i = 0; i < spans.length; i++) {
+        if (!(spans[i].textContent || "").trim()) continue;
+        var r = spans[i].getBoundingClientRect();
+        if (r.width > 0 && r.height > 0)
+          out.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+      }
+      return out;
+    }
+
+    function caretRangeAt(x, y) {
+      if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+      if (document.caretPositionFromPoint) {
+        var pos = document.caretPositionFromPoint(x, y);
+        if (!pos) return null;
+        var range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        return range;
+      }
+      return null;
+    }
+
+    els.pages.addEventListener("pointerdown", function (event) {
+      dragLines = null;
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      var layer = textLayerOf(event.target);
+      if (!layer) return;
+      // Measured once, at the start of the drag. Every span's rect on a dense page is far
+      // too much to recompute per pointermove; scrolling mid-drag is what invalidates
+      // them, so that is where the refresh goes.
+      dragLines = { layer: layer, boxes: lineBoxesOf(layer) };
+    });
+
+    scroller().addEventListener("scroll", function () {
+      if (dragLines) dragLines.boxes = lineBoxesOf(dragLines.layer);
+    });
+
+    els.pages.addEventListener("pointermove", function (event) {
+      if (!dragLines || !(event.buttons & 1)) return;
+      var snapped = geom.snapPointToLineBox(
+        { x: event.clientX, y: event.clientY },
+        dragLines.boxes
+      );
+      // Inside a line already: the browser's own answer is the right one, and the whole
+      // point of this is to leave the common case untouched.
+      if (!snapped || (snapped.x === event.clientX && snapped.y === event.clientY)) return;
+      var sel = window.getSelection();
+      if (!sel || !sel.rangeCount || !sel.anchorNode) return;
+      var caret = caretRangeAt(snapped.x, snapped.y);
+      // Never drag a selection out of the layer it started in - that is the same
+      // cross-page spill measureSelection already refuses.
+      if (!caret || textLayerOf(caret.startContainer) !== dragLines.layer) return;
+      try {
+        sel.extend(caret.startContainer, caret.startOffset);
+      } catch (err) {
+        // extend throws when the anchor sits in another tree. The browser's own
+        // selection is still there; leaving it alone beats replacing it with nothing.
+      }
+    });
+
+    ["pointerup", "pointercancel"].forEach(function (type) {
+      els.pages.addEventListener(type, function () {
+        dragLines = null;
+      });
+    });
     // The touch path - see captureSettledSelection for why it cannot simply replace the
     // mouseup above, and why it is safe on document when mouseup deliberately is not.
     // selectionchange only exists on document; it has no element-scoped form.

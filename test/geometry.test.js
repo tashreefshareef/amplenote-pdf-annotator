@@ -28,6 +28,7 @@ import {
   rectContainsPoint,
   hitTestHighlights,
   normalizeQuoteText,
+  snapPointToLineBox,
   expandRectToLineBox,
 } from "../src/geometry.js";
 
@@ -462,6 +463,60 @@ describe("joinSelectionSlices", () => {
   });
 });
 
+describe("snapPointToLineBox", () => {
+  // Two 15px line boxes with the ~10px gap a PDF.js text layer actually leaves between
+  // them - measured in the harness, where the boxes are exactly one font-size tall.
+  const LINES = [
+    { left: 340, top: 207.8, right: 600, bottom: 222.8 },
+    { left: 340, top: 232.7, right: 600, bottom: 247.7 },
+  ];
+
+  // Scenario: the common case, and the one that must stay untouched - inside a line the
+  // browser's own hit-testing is right and nothing should interfere with it.
+  test("returns a point inside a line unchanged", () => {
+    expect(snapPointToLineBox({ x: 400, y: 215 }, LINES)).toEqual({ x: 400, y: 215 });
+  });
+
+  // Scenario: THE bug. A drag crossing the dead gap resolved to an arbitrary distant
+  // span, selecting the whole page until the pointer reached the next line.
+  test("pulls a point in the gap onto the nearer line", () => {
+    expect(snapPointToLineBox({ x: 400, y: 225 }, LINES).y).toBeCloseTo(222.3, 1);
+    expect(snapPointToLineBox({ x: 400, y: 245 }, LINES).y).toBeCloseTo(245, 1);
+  });
+
+  // Scenario: the gap belongs half to each line, so the change happens at its midpoint
+  // rather than at an edge - which is what makes it feel predictable rather than eager.
+  test("changes line at the middle of the gap, not at its edges", () => {
+    const mid = (222.8 + 232.7) / 2;
+    expect(snapPointToLineBox({ x: 400, y: mid - 1 }, LINES).y).toBeLessThan(222.8);
+    expect(snapPointToLineBox({ x: 400, y: mid + 1 }, LINES).y).toBeGreaterThan(232.7);
+  });
+
+  // Scenario: past the end of a short line, the reader means that line's end - not a
+  // longer line above or below that happens to extend under the pointer. Vertical
+  // distance has to win, or a wide page makes the nearest line the wrong one.
+  test("prefers the line beside the pointer over a nearer edge on another line", () => {
+    const snapped = snapPointToLineBox({ x: 900, y: 215 }, LINES);
+    expect(snapped.y).toBeGreaterThanOrEqual(207.8);
+    expect(snapped.y).toBeLessThanOrEqual(222.8);
+    expect(snapped.x).toBeCloseTo(599.5, 1);
+  });
+
+  // Scenario: above the first line and below the last, a drag that runs off the text
+  // entirely still has to mean something - the nearest end of the text, not nothing.
+  test("clamps to the first and last lines beyond the text", () => {
+    expect(snapPointToLineBox({ x: 400, y: 50 }, LINES).y).toBeCloseTo(208.3, 1);
+    expect(snapPointToLineBox({ x: 400, y: 900 }, LINES).y).toBeCloseTo(247.2, 1);
+  });
+
+  // Scenario: a page still rendering has no spans yet. Answering "nowhere" lets the
+  // caller leave the browser's selection alone rather than snap to a guess.
+  test("has no answer when there are no lines", () => {
+    expect(snapPointToLineBox({ x: 400, y: 215 }, [])).toBeNull();
+    expect(snapPointToLineBox({ x: 400, y: 215 }, null)).toBeNull();
+  });
+});
+
 describe("unionClientRects", () => {
   const rect = (left, top, width, height) => ({ left, top, width, height });
 
@@ -845,6 +900,7 @@ describe("createGeometry", () => {
         "rectContainsPoint",
         "rectFromCorners",
         "roundRect",
+        "snapPointToLineBox",
       ].sort()
     );
     expect(geom.rectFromCorners([10, 20], [110, 34])).toEqual({

@@ -272,6 +272,54 @@ export function createGeometry() {
   }
 
   /**
+   * Pull a point that has landed between two lines onto the nearest one.
+   *
+   * A PDF.js text layer is absolutely positioned spans with nothing between them: the
+   * boxes are exactly one font-size tall, and on ordinary leading that leaves a gap of
+   * roughly the same height again belonging to no span at all - about 40% of the vertical
+   * distance a drag travels. The browser still has to resolve a caret there, and with no
+   * flow to fall back on it picks an arbitrary distant span. Measured in the harness, a
+   * downward drag selected the entire page every time it crossed a gap, then snapped back
+   * on entering the next line. It reads as a wildly oversensitive selection, and it is
+   * worse downward than upward only because the span it lands on happens to sit above.
+   *
+   * Snapping the point onto the nearest box first turns that into what a reader expects:
+   * the line you are closest to, changing at the midpoint of the gap.
+   *
+   * @param point {x, y} in the same coordinate space as the boxes (client coordinates).
+   * @param boxes [{left, top, right, bottom}] - the line boxes, in any order.
+   * @returns {x, y} - the point unchanged when it is already inside a box, otherwise
+   *   moved just inside the nearest one; null when there are no boxes to snap to.
+   */
+  function snapPointToLineBox(point, boxes) {
+    if (!boxes || !boxes.length) return null;
+    var best = null;
+    var bestDy = Infinity;
+    var bestDx = Infinity;
+    for (var i = 0; i < boxes.length; i++) {
+      var b = boxes[i];
+      var dy = point.y < b.top ? b.top - point.y : point.y > b.bottom ? point.y - b.bottom : 0;
+      var dx = point.x < b.left ? b.left - point.x : point.x > b.right ? point.x - b.right : 0;
+      if (dy === 0 && dx === 0) return { x: point.x, y: point.y };
+      // Vertical first, and only then horizontal. Distance as a single hypotenuse would
+      // let a line far above win over the one beside the pointer on a wide page, which is
+      // the opposite of how a reader reads a gap.
+      if (dy < bestDy || (dy === bestDy && dx < bestDx)) {
+        bestDy = dy;
+        bestDx = dx;
+        best = b;
+      }
+    }
+    // Just INSIDE, not on the edge - the caller feeds this straight back to the browser's
+    // own hit-testing, which owns the horizontal half of the answer, and a point exactly
+    // on a boundary is the case that was ambiguous to begin with.
+    return {
+      x: Math.min(Math.max(point.x, best.left + 0.5), best.right - 0.5),
+      y: Math.min(Math.max(point.y, best.top + 0.5), best.bottom - 0.5),
+    };
+  }
+
+  /**
    * Does the next placed item sit directly UNDER slices[i], rather than beside it?
    *
    * That is the whole difference between a fraction's numerator and a superscript. Both
@@ -639,6 +687,7 @@ export function createGeometry() {
     hitTestHighlights: hitTestHighlights,
     normalizeQuoteText: normalizeQuoteText,
     expandRectToLineBox: expandRectToLineBox,
+    snapPointToLineBox: snapPointToLineBox,
   };
 }
 
@@ -660,3 +709,4 @@ export const mergeLineRects = geometry.mergeLineRects;
 export const rectContainsPoint = geometry.rectContainsPoint;
 export const hitTestHighlights = geometry.hitTestHighlights;
 export const normalizeQuoteText = geometry.normalizeQuoteText;
+export const snapPointToLineBox = geometry.snapPointToLineBox;

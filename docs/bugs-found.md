@@ -1268,6 +1268,42 @@ tested; and when a lossy extraction cannot be made correct, prefer output that i
 visibly incomplete to output that is quietly wrong, because a reader can act on the first
 and cannot even detect the second.
 
+## Dragging across the gap between two lines selected the entire page
+
+**Symptom:** text selection in the PDF felt wildly oversensitive - a drag would grab far
+more than was aimed at - and noticeably worse dragging downward than upward. Reported as
+a feel problem ("other PDF plugins are more precise"), which is the kind of report that
+usually goes uninvestigated because it sounds subjective.
+
+**Cause:** it was not subjective and not a threshold. A PDF.js text layer is absolutely
+positioned spans over a canvas, each one exactly one font-size tall, and they are the only
+things in the layer. On ordinary leading that leaves a gap of about the same height again
+- measured in the harness, 15px boxes with 9.9px between them, so roughly 40% of the
+vertical distance a drag travels belongs to no span at all. The browser must still resolve
+a caret in that dead zone, and with no flow to fall back on it picks an arbitrary distant
+span: here, the heading at the top of the page. Modelling a downward drag showed the
+selection jumping to the entire page's 448 characters at every gap crossing and snapping
+back on entering the next line. The direction asymmetry has the same single cause - the
+span it lands on sits *above*, so dragging down inverts the selection violently, while
+dragging up merely overshoots in the direction already being travelled.
+
+**Fix:** snap the point onto the nearest line box before asking the browser for a caret,
+and only when it is outside every box - inside a line the browser's own answer is right
+and is left alone. Nearest is vertical-first and only then horizontal: a single hypotenuse
+would let a line far above win over the one beside the pointer on a wide page. The gap
+divides at its midpoint, so a line is claimed when it is the closer one. Mouse only; on
+touch the handles belong to the host app and no event of ours drives them.
+
+**General lesson:** "it feels too sensitive" is a measurement waiting to happen, not a
+matter of taste - the instinct to answer it by tuning a threshold skips the step where you
+find out there was no threshold. Two things worth carrying. When a layout positions
+everything absolutely, the space *between* the elements belongs to nothing, and any
+browser behaviour that has to resolve a point - carets, hit-testing, focus order - will
+answer from somewhere arbitrary rather than from the neighbour a reader would expect; the
+gaps need owners. And an asymmetry in a bug report is evidence, not noise: worse in one
+direction than the other was the clue that the fallback target had a fixed position rather
+than being a near-miss of the intended one.
+
 ---
 
 A few entries in the Amplenote-specific notes file are really platform-agnostic
