@@ -178,6 +178,7 @@ export function createGeometry() {
     // Survives a slice that contributes no tokens, so a break between two known lines
     // isn't swallowed by an empty node that happens to sit between them.
     var pendingBreak = false;
+    var pendingCaret = false;
 
     for (var i = 0; i < slices.length; i++) {
       var slice = slices[i];
@@ -213,6 +214,22 @@ export function createGeometry() {
               : lastXEnd - slice.x > Math.max(size * 2, 1);
           if (returned) {
             pendingBreak = true;
+          } else if (
+            slice.line > lastLine &&
+            // Superscripts are set in smaller type. Without this, coming back UP from a
+            // denominator to the body baseline looks identical to rising into a
+            // superscript, and "[- 1 3, is" acquired a caret before its comma.
+            slice.lineSize &&
+            lastLineSize &&
+            slice.lineSize < lastLineSize &&
+            !stacksBelow(slices, i)
+          ) {
+            // Raised, with the text returning to its own baseline afterwards rather than
+            // a denominator arriving underneath: a superscript. "^" is the one piece of
+            // this notation that CAN be carried across, since the character exists and
+            // the direction is unambiguous - unlike a fraction bar, which is a vector
+            // rule with no character to recover.
+            pendingCaret = true;
           } else {
             // Stacked, not wrapped - so keep the glyphs apart. Joining them flat is the
             // one outcome worse than a garbled quote: a fraction with 1 over 3 becomes
@@ -232,12 +249,17 @@ export function createGeometry() {
         // The break replaces the space rather than joining it - a line boundary already
         // separates the words, and "word\n word" would indent every wrapped line.
         var breakBefore = out.length > 0 && t === 0 && pendingBreak;
+        var caretBefore = !breakBefore && out.length > 0 && t === 0 && pendingCaret;
         var spaceBefore =
-          !breakBefore && out.length > 0 && (t > 0 || pendingGap || tokens[t].start > slice.from);
+          !breakBefore &&
+          !caretBefore &&
+          out.length > 0 &&
+          (t > 0 || pendingGap || tokens[t].start > slice.from);
         out +=
-          (breakBefore ? "\n" : spaceBefore ? " " : "") +
+          (breakBefore ? "\n" : caretBefore ? "^" : spaceBefore ? " " : "") +
           slice.text.slice(tokens[t].start, tokens[t].end);
         pendingBreak = false;
+        pendingCaret = false;
       }
 
       pendingGap = tokens.length
@@ -247,6 +269,37 @@ export function createGeometry() {
           : pendingGap;
     }
     return out;
+  }
+
+  /**
+   * Does the next placed item sit directly UNDER slices[i], rather than beside it?
+   *
+   * That is the whole difference between a fraction's numerator and a superscript. Both
+   * are raised off the running baseline by more than the line tolerance, and neither can
+   * be told from the other by looking at itself - only by what follows. A numerator has a
+   * denominator arriving below it at the same x; a superscript is followed by the text
+   * resuming its own baseline further right.
+   *
+   * Called only for an item already known to be raised. Unknown geometry answers "no",
+   * which routes to the plain space - the conservative outcome, since a wrongly inserted
+   * "^" asserts notation that was never there.
+   */
+  function stacksBelow(slices, i) {
+    var here = slices[i];
+    if (here.xEnd === null || here.xEnd === undefined) return false;
+    for (var j = i + 1; j < slices.length; j++) {
+      var next = slices[j];
+      if (next.line === null || next.line === undefined) continue;
+      if (next.line >= here.line) return false;
+      if (next.x === null || next.x === undefined) return false;
+      // Under, not after. A denominator is centred beneath its numerator and so begins
+      // before the numerator ENDS; text resuming the line begins after it. Measuring
+      // against the right edge separates them cleanly, where "is it nearby" cannot -
+      // the word following a superscript starts about as close to it as a denominator
+      // sitting underneath does.
+      return next.x < here.xEnd;
+    }
+    return false;
   }
 
   /**

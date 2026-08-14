@@ -330,6 +330,40 @@ describe("joinSelectionSlices", () => {
     expect(joinSelectionSlices(slices)).toBe("[- 1 3 , is");
   });
 
+  // Scenario: a superscript is the one piece of this notation that can be carried across,
+  // because the character exists and the direction is unambiguous. What identifies it is
+  // not the raise - a fraction's numerator is raised too - but what comes next: the text
+  // resuming its own baseline further right, rather than a denominator below.
+  test("carries a superscript across as ^", () => {
+    const slices = [
+      { text: "2x", from: 0, to: 2, line: 700, lineSize: 10, x: 100, xEnd: 118 },
+      { text: "2", from: 0, to: 1, line: 705, lineSize: 6, x: 119, xEnd: 124 },
+      { text: " is increasing", from: 0, to: 14, line: 700, lineSize: 10, x: 128, xEnd: 200 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("2x^2 is increasing");
+  });
+
+  // Scenario: the numerator of a fraction is raised exactly like a superscript and must
+  // NOT take a caret - "1^3" would assert an exponent the document never contained. The
+  // denominator underneath is what distinguishes them.
+  test("does not mistake a fraction's numerator for a superscript", () => {
+    const slices = [
+      { text: "[-", from: 0, to: 2, line: 700, lineSize: 10, x: 100, xEnd: 110 },
+      { text: "1", from: 0, to: 1, line: 704, lineSize: 6, x: 112, xEnd: 117 },
+      { text: "3", from: 0, to: 1, line: 694, lineSize: 6, x: 112, xEnd: 117 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("[- 1 3");
+  });
+
+  // Scenario: a caret can no more lead the output than a break can.
+  test("never leads with a caret", () => {
+    const slices = [
+      { text: "  ", from: 0, to: 2, line: 700, lineSize: 10, x: 100, xEnd: 106 },
+      { text: "2", from: 0, to: 1, line: 705, lineSize: 6, x: 107, xEnd: 112 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("2");
+  });
+
   // Scenario: the one outcome worse than a garbled quote. Joined flat, a numerator over a
   // denominator reads as a two-digit number - 1 over 3 becomes 13 - and nothing about it
   // looks wrong to whoever reads the note later.
