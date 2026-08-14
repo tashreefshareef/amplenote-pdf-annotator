@@ -3775,6 +3775,8 @@ export function viewerMain() {
     // that did would be competing with the on-screen scroll controls the mobile layout
     // depends on. Desktop is where this can be fixed without risking that.
     var dragLines = null;
+    var dragPoint = null;
+    var correcting = false;
 
     function lineBoxesOf(layer) {
       var out = [];
@@ -3815,32 +3817,56 @@ export function viewerMain() {
       if (dragLines) dragLines.boxes = lineBoxesOf(dragLines.layer);
     });
 
-    els.pages.addEventListener("pointermove", function (event) {
-      if (!dragLines || !(event.buttons & 1)) return;
-      var snapped = geom.snapPointToLineBox(
-        { x: event.clientX, y: event.clientY },
-        dragLines.boxes
-      );
+    function correctSelectionToPointer() {
+      if (!dragLines || !dragPoint) return;
+      var snapped = geom.snapPointToLineBox(dragPoint, dragLines.boxes);
       // Inside a line already: the browser's own answer is the right one, and the whole
       // point of this is to leave the common case untouched.
-      if (!snapped || (snapped.x === event.clientX && snapped.y === event.clientY)) return;
+      if (!snapped || (snapped.x === dragPoint.x && snapped.y === dragPoint.y)) return;
       var sel = window.getSelection();
       if (!sel || !sel.rangeCount || !sel.anchorNode) return;
       var caret = caretRangeAt(snapped.x, snapped.y);
-      // Never drag a selection out of the layer it started in - that is the same
-      // cross-page spill measureSelection already refuses.
+      // Never drag a selection out of the layer it started in - the same cross-page
+      // spill measureSelection already refuses.
       if (!caret || textLayerOf(caret.startContainer) !== dragLines.layer) return;
+      // Already where it should be. This is the loop guard that matters: our own extend
+      // fires selectionchange again, and Chrome delivers that asynchronously, by which
+      // time a simple in-progress flag has already been cleared.
+      if (sel.focusNode === caret.startContainer && sel.focusOffset === caret.startOffset)
+        return;
+      correcting = true;
       try {
         sel.extend(caret.startContainer, caret.startOffset);
       } catch (err) {
         // extend throws when the anchor sits in another tree. The browser's own
         // selection is still there; leaving it alone beats replacing it with nothing.
       }
+      correcting = false;
+    }
+
+    els.pages.addEventListener("pointermove", function (event) {
+      if (!dragLines || !(event.buttons & 1)) return;
+      dragPoint = { x: event.clientX, y: event.clientY };
+      // Optimistic. If it survives, the correction happens before anything is painted;
+      // if the browser overwrites it, the selectionchange below puts it back.
+      correctSelectionToPointer();
+    });
+
+    // The one that actually does the work. Selecting text is the DEFAULT ACTION of
+    // mousemove, and a default action runs after listeners - so correcting from
+    // pointermove alone sets the selection and then watches the browser recompute it
+    // from the raw pointer position a moment later, which is indistinguishable from
+    // having done nothing. Correcting on selectionchange runs after the browser has
+    // written, whichever event carried it.
+    document.addEventListener("selectionchange", function () {
+      if (correcting) return;
+      correctSelectionToPointer();
     });
 
     ["pointerup", "pointercancel"].forEach(function (type) {
       els.pages.addEventListener(type, function () {
         dragLines = null;
+        dragPoint = null;
       });
     });
     // The touch path - see captureSettledSelection for why it cannot simply replace the

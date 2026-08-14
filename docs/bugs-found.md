@@ -1294,6 +1294,15 @@ would let a line far above win over the one beside the pointer on a wide page. T
 divides at its midpoint, so a line is claimed when it is the closer one. Mouse only; on
 touch the handles belong to the host app and no event of ours drives them.
 
+**And the fix's own bug, which shipped first:** doing that from a `pointermove` listener
+changes nothing at all. Selecting text is the DEFAULT ACTION of `mousemove`, and a default
+action runs after listeners - so the correction lands, the browser then recomputes the
+selection from the raw pointer position, and the result is indistinguishable from having
+done nothing. It has to be applied on `selectionchange`, which fires after the browser has
+written, whatever wrote it. Chrome delivers that event asynchronously, so an
+"in-progress" flag is not enough to stop our own `extend` re-triggering it - the guard
+that works is checking whether the focus is already where it should be.
+
 **General lesson:** "it feels too sensitive" is a measurement waiting to happen, not a
 matter of taste - the instinct to answer it by tuning a threshold skips the step where you
 find out there was no threshold. Two things worth carrying. When a layout positions
@@ -1303,6 +1312,14 @@ answer from somewhere arbitrary rather than from the neighbour a reader would ex
 gaps need owners. And an asymmetry in a bug report is evidence, not noise: worse in one
 direction than the other was the clue that the fallback target had a fixed position rather
 than being a near-miss of the intended one.
+
+The sharpest lesson here is about the test, not the bug. The first fix was "verified" by
+setting the selection and then dispatching the event - which made the code under test the
+last writer, the one thing a real drag guarantees it is not. A test that cannot fail is
+not evidence, and the tell is that it never exercises the thing that would break it. When
+you are correcting something a browser also controls, the test has to model the browser
+fighting back: write the wrong value first, deliberately, and only then check whether your
+code puts it right.
 
 ---
 
