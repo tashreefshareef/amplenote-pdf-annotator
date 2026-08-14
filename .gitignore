@@ -8,6 +8,10 @@ coverage/
 # .githooks/ and documented in docs/development.md, not here.
 CLAUDE.md
 
+# Unsent draft correspondence and submission working notes — private by nature,
+# and of no use to anyone reading the repo.
+bounty-intent-email.md
+
 # Generated spike output copied to the root for convenient opening — regenerate with
 # `npm run spike:annotations`, don't commit it.
 /annotated-sample*.pdf
