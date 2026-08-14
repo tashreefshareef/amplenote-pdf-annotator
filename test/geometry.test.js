@@ -280,6 +280,102 @@ describe("joinSelectionSlices", () => {
     expect(joinSelectionSlices([])).toBe("");
     expect(joinSelectionSlices([{ text: "abc", from: 1, to: 1 }])).toBe("");
   });
+
+  // Scenario: THE second bug, the mirror image of the first. A PDF stores no newline -
+  // it just starts drawing lower down - so a line break is invisible to a test that only
+  // looks at characters, and two lines fused into "onecorrect". Reported live from an
+  // exported nine-item numbered list that arrived as one run-on paragraph.
+  test("breaks the line when the next slice sits on a lower baseline", () => {
+    const slices = [
+      { text: "with only one", from: 0, to: 13, line: 700, lineSize: 10 },
+      { text: "correct option", from: 0, to: 14, line: 688, lineSize: 10 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("with only one\ncorrect option");
+  });
+
+  // Scenario: the kerning-pair case from the top of this block, now with baselines on it -
+  // the break must not fire for two items that are simply beside each other.
+  test("does not break between two items sharing a baseline", () => {
+    const slices = [
+      { text: "ar", from: 0, to: 2, line: 700, lineSize: 10 },
+      { text: "e", from: 0, to: 1, line: 700, lineSize: 10 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("are");
+  });
+
+  // Scenario: a superscript or an inline fraction is nudged off its neighbours' baseline
+  // and is still the same line. The tolerance scales with the type so this holds at any
+  // font size, rather than being tuned to 10pt body text.
+  test("treats a superscript's raised baseline as the same line", () => {
+    const slices = [
+      { text: "x", from: 0, to: 1, line: 700, lineSize: 10 },
+      { text: "2", from: 0, to: 1, line: 703, lineSize: 6 },
+      { text: " plus", from: 0, to: 5, line: 700, lineSize: 10 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("x2 plus");
+  });
+
+  // Scenario: a break replaces the space rather than joining it, or every wrapped line in
+  // an exported quote would arrive indented by one character.
+  test("does not leave a space beside the break it inserts", () => {
+    const slices = [
+      { text: "questions ", from: 0, to: 10, line: 700, lineSize: 10 },
+      { text: "carrying", from: 0, to: 8, line: 688, lineSize: 10 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("questions\ncarrying");
+  });
+
+  // Scenario: a node whose PDF.js item could not be resolved carries no baseline. Unknown
+  // must not read as "a new line" - and it must not reset the comparison either, or the
+  // break either side of it is lost.
+  test("an unplaceable node neither breaks the line nor hides a real break", () => {
+    expect(
+      joinSelectionSlices([
+        { text: "one", from: 0, to: 3, line: 700, lineSize: 10 },
+        { text: " ", from: 0, to: 1 },
+        { text: "two", from: 0, to: 3, line: 700, lineSize: 10 },
+      ])
+    ).toBe("one two");
+
+    expect(
+      joinSelectionSlices([
+        { text: "one", from: 0, to: 3, line: 700, lineSize: 10 },
+        { text: "", from: 0, to: 0 },
+        { text: "two", from: 0, to: 3, line: 688, lineSize: 10 },
+      ])
+    ).toBe("one\ntwo");
+  });
+
+  // Scenario: the break is owed by the first token that actually gets emitted. An empty
+  // node sitting on the new line must not swallow it.
+  test("holds the break across a slice that contributes no tokens", () => {
+    const slices = [
+      { text: "one", from: 0, to: 3, line: 700, lineSize: 10 },
+      { text: "", from: 0, to: 0, line: 688, lineSize: 10 },
+      { text: "two", from: 0, to: 3, line: 688, lineSize: 10 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("one\ntwo");
+  });
+
+  // Scenario: a break can never lead the output, however the first slices are shaped.
+  test("never leads with a break", () => {
+    const slices = [
+      { text: "  ", from: 0, to: 2, line: 700, lineSize: 10 },
+      { text: "fox", from: 0, to: 3, line: 688, lineSize: 10 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("fox");
+  });
+
+  // Scenario: slices with no baselines at all are the old call shape - every existing
+  // caller and every test above must behave exactly as it did.
+  test("behaves as before when no slice carries a baseline", () => {
+    const slices = [
+      { text: "ar", from: 0, to: 2 },
+      { text: "e ", from: 0, to: 2 },
+      { text: "questions", from: 0, to: 9 },
+    ];
+    expect(joinSelectionSlices(slices)).toBe("are questions");
+  });
 });
 
 describe("unionClientRects", () => {
@@ -686,8 +782,26 @@ describe("createGeometry", () => {
 describe("normalizeQuoteText", () => {
   // Scenario: PDF.js text-layer spans are separate DOM nodes; joining their
   // textContent naively can leave doubled/irregular whitespace at span boundaries.
-  test("collapses internal whitespace and trims", () => {
-    expect(normalizeQuoteText("  hello   world  \n  again  ")).toBe("hello world again");
+  test("collapses horizontal whitespace and trims", () => {
+    expect(normalizeQuoteText("  hello   world  ")).toBe("hello world");
+  });
+
+  // Scenario: the regression this function used to cause. joinSelectionSlices works out
+  // where a PDF's line breaks are - information the character stream does not carry - and
+  // a flat /\s+/ collapse here threw it away again one step later, flattening an exported
+  // numbered list into a single run-on item.
+  test("keeps the line breaks joinSelectionSlices worked out", () => {
+    expect(normalizeQuoteText("1.  This paper\n2.  That paper")).toBe("1. This paper\n2. That paper");
+  });
+
+  // Scenario: spaces sitting either side of a break would indent the wrapped line in the
+  // exported blockquote, and a blank line would close the quote where it stands.
+  test("trims around each break and drops blank lines", () => {
+    expect(normalizeQuoteText("one \n\n  two   \n \n three")).toBe("one\ntwo\nthree");
+  });
+
+  test("normalizes CRLF rather than leaving the CR as a space", () => {
+    expect(normalizeQuoteText("one\r\ntwo\rthree")).toBe("one\ntwo\nthree");
   });
 
   test("handles empty and non-string input without throwing", () => {

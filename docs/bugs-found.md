@@ -1197,6 +1197,45 @@ effect its own way.
 
 ---
 
+## A highlighted numbered list exported as one run-on paragraph
+
+**Symptom:** a highlight swept over a nine-item numbered list in a PDF exported into the
+note as a single list item containing everything, and words had fused across the source's
+line breaks - "with only one / correct option" arriving as "onecorrect option", "carrying
+/ 2 marks each" as "carrying2 marks each". The export code was already written for
+multi-line quotes (it prefixes every line for the blockquote, and has tests for it); the
+text simply never had any lines in it.
+
+**Cause:** two steps in the capture pipeline each discarding the line structure, for
+opposite reasons. The reassembler joined the selection's text items by asking whether the
+SOURCE had whitespace between them - correct, and the fix for an earlier bug where a
+fixed `" "` turned a kerning-split "are" into "ar e" - but a PDF's content stream contains
+no newline characters at all. It just starts drawing the next run at a lower baseline, so
+two items on two different lines are character-for-character indistinguishable from a
+kerning pair, and got concatenated. Whatever survived that was then flattened by a
+`/\s+/g -> " "` normalizer, written before the reassembler existed and never revisited.
+Downstream, markdown did the rest: one line beginning "1." is an ordered list of exactly
+one item, no matter how much text follows it.
+
+**Fix:** carry each text item's baseline (`item.transform[5]`, from PDF.js's own text
+content) alongside its characters, and emit a real `\n` where the baseline changes -
+tolerance half the item's height, so a superscript stays on its line at any font size.
+Then narrow the normalizer to horizontal whitespace so it stops undoing that. Nothing
+downstream changed: the export already handled multi-line quotes, and once the lines
+exist the markdown reconstitutes the numbered list on its own.
+
+**General lesson:** when you extract content from a format, some of its structure lives in
+the *presentation* rather than in the character stream, and it is gone the moment you
+stop looking at coordinates - a PDF's line breaks, a spreadsheet's cell boundaries, a
+scanned table's columns. Guard against the second half of this too: a normalizer written
+early in a pipeline's life encodes assumptions about what its input looks like, and a
+`\s` character class is a single decision about newlines, spaces and tabs at once. When
+an upstream step starts producing structure the normalizer predates, it will silently
+delete it - so a downstream step being *correct for its own inputs* is not evidence that
+the pipeline is.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:

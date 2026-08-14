@@ -1272,10 +1272,25 @@ export function viewerMain() {
       var text = node.nodeValue || "";
       var from = node === range.startContainer ? range.startOffset : 0;
       var to = node === range.endContainer ? range.endOffset : text.length;
-      slices.push({ text: text, from: from, to: to });
 
       var div = node.parentElement;
       var item = div && div.__pdfaItem;
+      // The item's BASELINE, taken here rather than in joinSelectionSlices because only
+      // this side has the DOM. It is what tells that function a span sits on the next
+      // line rather than beside the previous one - a distinction the characters alone
+      // cannot make, since a PDF stores no newline between them. Read off the text
+      // item's own transform, not a client rect, so it is in stable PDF units and
+      // unaffected by zoom or by PDF.js's per-item font-substitution scaling. A node
+      // with no item contributes none, and joinSelectionSlices treats that as "unknown",
+      // never as "a new line".
+      slices.push({
+        text: text,
+        from: from,
+        to: to,
+        line: item ? item.transform[5] : null,
+        lineSize: item ? item.height : null,
+      });
+
       // Every div PDF.js builds gets its item attached in renderPage. No item means no
       // reliable way to place this word in PDF space - skip it rather than guess; a
       // missing word beats a wrongly-sized one.

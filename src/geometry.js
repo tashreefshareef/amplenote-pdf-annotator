@@ -130,26 +130,74 @@ export function createGeometry() {
    * one node is always preceded by some) or carried across a node boundary because the
    * earlier node's slice ended in whitespace or the later one's began with it.
    *
+   * AND A LINE BREAK IS NOT WHITESPACE IN A PDF. The rule above - "a space belongs only
+   * where the source had one" - is right about spaces and blind about lines: a PDF's
+   * content stream has no newline characters at all, it just starts drawing the next run
+   * at a lower baseline, so two items on two different LINES look exactly like a kerning
+   * pair to a character-only test. Reported live from an exported highlight over a
+   * numbered list: "with only one / correct option" came back as "onecorrect option",
+   * "carrying / 2 marks each" as "carrying2 marks each", and with every break gone the
+   * whole nine-item list arrived as one run-on paragraph. So each slice also carries
+   * WHERE ITS BASELINE IS, and a change of baseline emits a real "\n" - the one piece of
+   * structure the character stream cannot express on its own.
+   *
+   * The tolerance is half the item's own height rather than a fixed number of points,
+   * because the thing it has to tell apart scales with the type: a superscript or an
+   * inline fraction is nudged a couple of points off its neighbours' baseline and is
+   * still the same line, while the next line down is a whole line-height away. Half an
+   * em separates those two at any font size, where a fixed threshold that works for
+   * 10pt body text either splits superscripts in a 24pt heading or merges the lines of a
+   * 6pt footnote.
+   *
    * Kept separate from measureSelection (viewer.js), which needs a live DOM to pair each
    * token with a rect and so can't be unit tested directly - this half of the decision
    * has no DOM dependency and can be.
    *
-   * @param slices [{ text, from, to }] - one entry per DOM text node the selection
-   *   intersects, IN SELECTION ORDER; `text` is that node's full value, [from, to) the
-   *   portion the selection covers. Include a node even when its geometry can't be
-   *   resolved (no PDF.js item), so its whitespace still counts toward the next gap.
-   * @returns the reassembled text.
+   * @param slices [{ text, from, to, line, lineSize }] - one entry per DOM text node the
+   *   selection intersects, IN SELECTION ORDER; `text` is that node's full value,
+   *   [from, to) the portion the selection covers. Include a node even when its geometry
+   *   can't be resolved (no PDF.js item), so its whitespace still counts toward the next
+   *   gap - such a node simply carries no `line`, and an absent `line` never breaks,
+   *   since "I don't know where this sits" must not be read as "somewhere else".
+   *   `line` is the item's baseline in PDF user space (`item.transform[5]`), `lineSize`
+   *   its height; both optional, and without them this behaves exactly as it used to.
+   * @returns the reassembled text, with "\n" at each line boundary.
    */
   function joinSelectionSlices(slices) {
     var out = "";
     var pendingGap = false;
+    // Deliberately NOT "the previous slice's line" - a slice with no line of its own
+    // leaves this untouched, so the comparison is always against the last KNOWN baseline
+    // rather than resetting to nothing every time an unresolvable node goes past.
+    var lastLine = null;
+    var lastLineSize = 0;
+    // Survives a slice that contributes no tokens, so a break between two known lines
+    // isn't swallowed by an empty node that happens to sit between them.
+    var pendingBreak = false;
+
     for (var i = 0; i < slices.length; i++) {
       var slice = slices[i];
+      if (slice.line !== null && slice.line !== undefined) {
+        var size = slice.lineSize || lastLineSize || 0;
+        var tolerance = Math.max(size / 2, 0.5);
+        if (lastLine !== null && Math.abs(slice.line - lastLine) > tolerance) pendingBreak = true;
+        lastLine = slice.line;
+        lastLineSize = slice.lineSize || lastLineSize;
+      }
+
       var tokens = textTokenRanges(slice.text, slice.from, slice.to);
       for (var t = 0; t < tokens.length; t++) {
-        var spaceBefore = out.length > 0 && (t > 0 || pendingGap || tokens[t].start > slice.from);
-        out += (spaceBefore ? " " : "") + slice.text.slice(tokens[t].start, tokens[t].end);
+        // The break replaces the space rather than joining it - a line boundary already
+        // separates the words, and "word\n word" would indent every wrapped line.
+        var breakBefore = out.length > 0 && t === 0 && pendingBreak;
+        var spaceBefore =
+          !breakBefore && out.length > 0 && (t > 0 || pendingGap || tokens[t].start > slice.from);
+        out +=
+          (breakBefore ? "\n" : spaceBefore ? " " : "") +
+          slice.text.slice(tokens[t].start, tokens[t].end);
+        pendingBreak = false;
       }
+
       pendingGap = tokens.length
         ? slice.to > tokens[tokens.length - 1].end
         : slice.to > slice.from
@@ -395,13 +443,28 @@ export function createGeometry() {
   }
 
   /**
-   * Selected text arrives as one string per text-layer span, and PDF.js does not insert
-   * spaces between spans that are adjacent on the page but backed by separate text runs
-   * in the PDF content stream. Collapse internal whitespace and trim, which is the same
-   * normalization applied to the copy-paste path browsers already use for text selection.
+   * Tidy the reassembled quote without destroying its shape.
+   *
+   * This used to be a flat `/\s+/g -> " "`, from before joinSelectionSlices existed, when
+   * the text came straight off the DOM selection and every run of whitespace was noise.
+   * It is now the LAST step of a pipeline that has just worked out where the line breaks
+   * are (see joinSelectionSlices), and collapsing "\s" as one class threw that away
+   * again - the highlight was flattened to a single line before anything downstream could
+   * use it, which is why an exported numbered list arrived as one run-on item. Horizontal
+   * whitespace collapses; newlines survive.
+   *
+   * Blank lines go too: nothing in a PDF's text layer produces a meaningful one (a
+   * paragraph gap is space on the page, not an empty text run), and an empty line inside
+   * an exported blockquote closes the quote where it stands.
    */
   function normalizeQuoteText(text) {
-    return String(text === null || text === undefined ? "" : text).replace(/\s+/g, " ").trim();
+    return String(text === null || text === undefined ? "" : text)
+      .replace(/\r\n?/g, "\n")
+      // Every whitespace character EXCEPT a newline - a plain \s+ here is the old bug.
+      .replace(/[^\S\n]+/g, " ")
+      .replace(/ ?\n ?/g, "\n")
+      .replace(/\n+/g, "\n")
+      .trim();
   }
 
   /**
