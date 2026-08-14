@@ -4,6 +4,9 @@ coverage/
 
 # Editor/agent-local launch config. `npm run harness` is the portable entry point.
 .claude/
+# Agent-local instructions. The rules that matter to the repo are enforced by
+# .githooks/ and documented in docs/development.md, not here.
+CLAUDE.md
 
 # Generated spike output copied to the root for convenient opening — regenerate with
 # `npm run spike:annotations`, don't commit it.

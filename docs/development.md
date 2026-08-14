@@ -26,6 +26,17 @@ Then:
 npm run build
 ```
 
+Once per clone, enable the repo's git hooks — `core.hooksPath` is local config, so it
+doesn't come with the checkout:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That activates `.githooks/commit-msg`, which strips any `Co-Authored-By:` trailer naming
+Claude or Anthropic. GitHub reads that trailer as co-authorship and lists the co-author on
+the repo; this project credits one person.
+
 ## Commands
 
 | Command | What it does |

@@ -4,7 +4,7 @@
 #
 # GitHub turns that trailer into a repo contributor. This project credits one
 # person, so the line is removed before the commit is written rather than left
-# to be remembered — see CLAUDE.md.
+# to be remembered.
 
 msg="$1"
 tmp="$msg.coauthor-filtered"
