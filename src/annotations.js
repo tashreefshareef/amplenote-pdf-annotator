@@ -92,6 +92,24 @@ export function createAnnotationWriter() {
   var MIN_BAND_THICKNESS = 0.6;
 
   /**
+   * Opacity for every mark, fill and band alike - and it is 1 BECAUSE of the multiply
+   * blend, not in spite of it.
+   *
+   * A highlight used to be written at 0.4, on the reasoning that a fill sits under the
+   * text and has to be seen through. But /BM /Multiply is what makes the text readable:
+   * black glyphs times any colour are still black. The alpha was doing a second, separate
+   * job - fading the colour toward the paper - and a constant alpha over a multiply
+   * resolves to paper * (0.6 + 0.4 * colour), which is a visibly paler wash than the
+   * colour the user picked. Coral #F2998C landed near #F9D6CE on white.
+   *
+   * The viewer has always drawn its rects at full strength under one multiply pass
+   * (.pdfa-highlights in src/embed/styles.js), so 0.4 here meant a download never matched
+   * what was on screen - the one thing this whole file exists to guarantee. Change this
+   * and the viewer's rect opacity together, or they drift apart again.
+   */
+  var FILL_ALPHA = 1;
+
+  /**
    * The rectangles actually painted for one mark - what the appearance stream fills.
    *
    * A highlight paints its rects as they are. The other two paint a bar per rect, which is
@@ -130,7 +148,7 @@ export function createAnnotationWriter() {
    *
    * @returns {PDFRef} the registered Form XObject, ready to hang off /AP /N.
    */
-  function buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, bbox, alpha) {
+  function buildAppearanceStream(PDFLib, pdfDoc, rects, rgbTriple, bbox) {
     var gsRef = pdfDoc.context.register(
       pdfDoc.context.obj({
         Type: PDFLib.PDFName.of("ExtGState"),
@@ -141,7 +159,7 @@ export function createAnnotationWriter() {
         BM: PDFLib.PDFName.of("Multiply"),
         // Baked into the appearance itself, not just the annotation's own /CA, since a
         // reader that renders the /AP is not guaranteed to also apply /CA on top of it.
-        ca: PDFLib.PDFNumber.of(alpha),
+        ca: PDFLib.PDFNumber.of(FILL_ALPHA),
       })
     );
 
@@ -267,10 +285,6 @@ export function createAnnotationWriter() {
       boxMaxY = Math.max(boxMaxY, pr.y + pr.height);
     }
 
-    // A fill sits UNDER the text and has to be seen through; a 1pt bar does not. At 0.4
-    // an underline reads as a printing defect rather than a mark - the value that makes
-    // the highlight right is the value that makes the other two nearly invisible.
-    var alpha = style === "highlight" ? 0.4 : 1;
 
     var dict = pdfDoc.context.obj({
       Type: PDFLib.PDFName.of("Annot"),
@@ -282,9 +296,7 @@ export function createAnnotationWriter() {
       F: PDFLib.PDFNumber.of(4),
       T: PDFLib.PDFString.of("PDF Annotator"),
       M: PDFLib.PDFString.of(new Date().toISOString()),
-      // Opacity, so the underlying text stays readable - verified at this value
-      // against all four spec colors in the spike.
-      CA: PDFLib.PDFNumber.of(alpha),
+      CA: PDFLib.PDFNumber.of(FILL_ALPHA),
     });
 
     if (highlight.note) {
@@ -294,7 +306,7 @@ export function createAnnotationWriter() {
     // Finding 5 - without this, the annotation is invisible in Adobe's tools even
     // though it is present in the file and visible in Chrome/PDFGear/PDF.js.
     var apRef = buildAppearanceStream(
-      PDFLib, pdfDoc, painted, rgbTriple, [boxMinX, boxMinY, boxMaxX, boxMaxY], alpha
+      PDFLib, pdfDoc, painted, rgbTriple, [boxMinX, boxMinY, boxMaxX, boxMaxY]
     );
     dict.set(PDFLib.PDFName.of("AP"), pdfDoc.context.obj({ N: apRef }));
 

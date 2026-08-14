@@ -174,7 +174,7 @@ describe("writeHighlightsIntoPdf", () => {
     const annots = await annotsOnPage(bytes);
     const dict = resolve(doc, annots.get(0));
 
-    expect(dict.get(PDFLib.PDFName.of("CA")).asNumber()).toBe(0.4);
+    expect(dict.get(PDFLib.PDFName.of("CA")).asNumber()).toBe(1);
     expect(dict.get(PDFLib.PDFName.of("F")).asNumber()).toBe(4);
     expect(dict.get(PDFLib.PDFName.of("T")).asString()).toBe("PDF Annotator");
   });
@@ -375,7 +375,7 @@ describe("writeHighlightsIntoPdf", () => {
     const resources = form.dict.get(PDFLib.PDFName.of("Resources"));
     const extGState = doc.context.lookup(resources.get(PDFLib.PDFName.of("ExtGState")).get(PDFLib.PDFName.of("GS0")));
     expect(extGState.get(PDFLib.PDFName.of("BM"))).toEqual(PDFLib.PDFName.of("Multiply"));
-    expect(extGState.get(PDFLib.PDFName.of("ca")).asNumber()).toBe(0.4);
+    expect(extGState.get(PDFLib.PDFName.of("ca")).asNumber()).toBe(1);
     // And the content stream actually invokes it, not just declares it unused.
     expect(formContentString(form)).toContain("/GS0 gs");
   });
@@ -569,11 +569,11 @@ describe("mark shapes", () => {
     expect(arr(dict, "Rect")).toEqual([RECT.x, RECT.y, RECT.x + RECT.width, RECT.y + RECT.height]);
   });
 
-  // Scenario: 0.4 is what keeps text readable under a FILL. A 1pt bar at 0.4 reads as a
-  // printing defect - the value that makes the highlight right makes the other two nearly
-  // invisible, so the bands are opaque and rely on the blend mode instead.
-  test("bands are opaque while the fill stays translucent", async () => {
-    expect(num((await annotFor("highlight")).dict, "CA")).toBe(0.4);
+  // Scenario: all three shapes are opaque and lean on /BM /Multiply for legibility, which
+  // is what the on-screen overlay does. The fill used to be 0.4, which faded it toward the
+  // paper on top of the multiply and made every download paler than the viewer.
+  test("every shape is opaque, matching the viewer's full-strength rects", async () => {
+    expect(num((await annotFor("highlight")).dict, "CA")).toBe(1);
     expect(num((await annotFor("underline")).dict, "CA")).toBe(1);
     expect(num((await annotFor("strike")).dict, "CA")).toBe(1);
   });

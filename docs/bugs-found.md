@@ -1162,6 +1162,41 @@ actually had at each boundary, not to pick a fixed separator and apply it everyw
 
 ---
 
+## Downloaded highlights came out paler than the ones on screen
+
+**Symptom:** the same highlight, the same color, the same document - vivid in the viewer,
+a washed-out pastel wash of the same hue in the downloaded PDF. Not a wrong hue and not a
+missing annotation, both of which have obvious causes; just consistently weaker, in every
+reader, for every color.
+
+**Cause:** two renderers, each solving the "keep the text readable under the fill"
+problem, and the two solutions stacking. Both painted the color with a MULTIPLY blend -
+which alone is enough, since black glyphs multiplied by any color are still black - but
+the export ALSO set an opacity (`/CA` and the appearance stream's `ca`, both 0.4), a
+leftover from before the blend mode was added. Alpha and multiply are not two settings
+for the same knob: multiply darkens toward the color, constant alpha fades toward the
+backdrop. Composited together over white paper the result is
+`paper * (0.6 + 0.4 * color)` - coral `#F2998C` arriving as roughly `#F9D6CE`. The viewer
+had none of that second term, because its CSS overlay draws the rects at full strength
+and multiplies once.
+
+**Fix:** drop the opacity, keep the blend mode - one mechanism doing the legibility work
+in both renderers, and it's the one already proven on screen. The alpha is now a single
+named constant, documented as deliberately 1 *because of* the multiply rather than in
+spite of it, so a future reader doesn't "restore" it.
+
+**General lesson:** when the same visual has to be produced twice by two different
+rendering stacks (DOM/CSS here, a PDF content stream there), the bug is rarely a wrong
+value in one of them - it's each stack accumulating its own compensations for the same
+problem until they no longer describe the same picture. Compositing settings are
+especially prone to this because they LOOK independent and multiply quietly: a blend mode
+and an alpha each "make it readable," so both survive review, and nothing fails loudly
+when both are applied. Write down which mechanism owns an effect, in the code, and make
+the second renderer's job to reproduce that mechanism rather than to re-achieve the
+effect its own way.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:
