@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# Strip any Co-Authored-By trailer naming Claude or Anthropic.
+#
+# GitHub turns that trailer into a repo contributor. This project credits one
+# person, so the line is removed before the commit is written rather than left
+# to be remembered — see CLAUDE.md.
+
+msg="$1"
+tmp="$msg.coauthor-filtered"
+
+if grep -qiE '^[[:space:]]*co-authored-by:.*(claude|anthropic)' "$msg"; then
+	grep -viE '^[[:space:]]*co-authored-by:.*(claude|anthropic)' "$msg" > "$tmp"
+	mv "$tmp" "$msg"
+	echo "commit-msg: removed a Co-Authored-By trailer naming Claude/Anthropic." >&2
+fi
+
+exit 0
