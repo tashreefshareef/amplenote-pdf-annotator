@@ -1234,6 +1234,40 @@ an upstream step starts producing structure the normalizer predates, it will sil
 delete it - so a downstream step being *correct for its own inputs* is not evidence that
 the pipeline is.
 
+## The fix for the missing line breaks turned every fraction into its own line
+
+**Symptom:** a highlight over a maths exam question exported as roughly a dozen fragments
+on a dozen lines - `Inverse Trigonometric Function, whose domain is [-`, then `1`, then
+`3 ,`, then `1`, then `3] , is ...` - with the prose torn apart along with the notation.
+Introduced by the fix for the entry above, and only visible on a document that entry was
+never tested against.
+
+**Cause:** that fix reads a moved baseline as a line break, which is true of a wrapped
+line and equally true of a stacked fraction: a numerator and a denominator are drawn one
+above the other and are indistinguishable, by baseline alone, from two consecutive lines.
+The tolerance (half the item's height) was sized to keep superscripts inline, and a
+fraction's stack is well outside it.
+
+**Fix:** require a *return* as well as a moved baseline. A wrapped line resumes left of
+where the previous item ended; a fraction's two halves sit at the same x. Compare against
+the previous item's right edge, not its start - a numbered list sets every line at the
+same left margin, so comparing starts sees no movement and silently undoes the previous
+fix. Two ems of slack, because a denominator wider than its numerator is centred under it
+and starts slightly left, where a real return is an order of magnitude larger. Stacked
+glyphs are then separated by a space rather than joined flat: 1 over 3 concatenated is the
+number 13, so `[-1/3, 1/3]` would arrive as `[-13, 13]` - wrong, and with nothing about it
+looking wrong.
+
+**General lesson:** a heuristic that infers structure from presentation will meet inputs
+where the same signal means something else, and the fix is usually a second, independent
+signal rather than a better threshold - no tolerance on baseline alone can separate a
+fraction from a line break, because on that axis they are the same event. Two things
+worth carrying: when a fix invents a rule, ask what else in the format produces the
+signal it keys on, since the answer arrives later as a regression on a document nobody
+tested; and when a lossy extraction cannot be made correct, prefer output that is
+visibly incomplete to output that is quietly wrong, because a reader can act on the first
+and cannot even detect the second.
+
 ---
 
 A few entries in the Amplenote-specific notes file are really platform-agnostic

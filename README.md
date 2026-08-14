@@ -109,6 +109,23 @@ Two things worth knowing:
 - **Four is the cap.** Extra names are ignored rather than honoured; a fifth circle wraps
   the toolbar onto a second row on a phone.
 
+## Formulas in a quoted PDF
+
+Copy, Send to note and Export take their text from the PDF's text layer, and a PDF stores
+no formulas — only glyphs at coordinates. A stacked fraction is a numerator and a
+denominator drawn one above the other, separated by a **vector rule that is not text at
+all**, so there is no `/` anywhere to extract. Superscripts are separate runs at a raised
+baseline, frequently stored in a different order from the one they're read in.
+
+So `[−1/3, 1/3]` is quoted as `[− 1 3 , 1 3]`, and `2x²` as `2x 2`. The glyphs are kept
+apart on purpose: joined flat, 1 over 3 becomes the number 13, and a quote that is wrong
+while looking right is worse than one that is visibly incomplete.
+
+What is guaranteed is that the prose around the notation survives — a quoted question
+keeps one line per line of the original instead of breaking apart at every fraction.
+Recovering the notation itself would need OCR against the rendered page, which a sandboxed
+embed can't do.
+
 ## Known limitations on mobile
 
 Everything else works on a phone — selecting, highlighting, notes, the panel, export and
