@@ -249,6 +249,10 @@ export const STYLES = `
      Selection painting is unaffected. It measures through a Range (see lineBoxesFor),
      and a Range reports the line box of the TEXT, which padding does not move. */
   .textLayer > span { padding-block: 0.35em; margin-top: -0.35em; }
+
+  /* The one inline action the status bar can carry - currently the new-tab fallback for
+     a host that ignores a download attribute. Sits on the same line as its sentence. */
+  .pdfa-status-action { margin-left: 6px; vertical-align: baseline; }
   /* Opaque on purpose: the container's opacity fades the layer as a single group, so
      overlapping spans can't compound their alpha into dark seams between lines. */
   .textLayer ::selection { background: #1a73e8; }
