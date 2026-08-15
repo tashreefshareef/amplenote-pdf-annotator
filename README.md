@@ -111,6 +111,27 @@ Two things worth knowing:
 - **Four is the cap.** Extra names are ignored rather than honoured; a fifth circle wraps
   the toolbar onto a second row on a phone.
 
+## The "PDF Annotator data" section in your note
+
+A plugin gets no database of its own, so every mark and note is written back into the
+note the PDF is attached to, under a **PDF Annotator data** heading the plugin adds
+itself. It holds a block of JSON keyed by attachment, so several PDFs on one note don't
+collide, and it is labelled *"safe to ignore, don't edit"* in the note itself.
+
+That label is literal. Editing or deleting the block resets or corrupts every mark and
+note stored in it the next time one is saved. It always sits at the very bottom — "Send
+to note" and every exported block are written just above it — so it stays out of the way
+of your own writing rather than splitting it in half.
+
+Worth knowing before you install rather than discovering after: the plugin does add
+visible content to your note, and it isn't a bug.
+
+**⋮ → Remove viewer** takes out the viewer's line *and* that PDF's entry in this section —
+which means every mark and note you made on it. The PDF stays attached, and running
+**Annotate PDF** again opens a fresh, empty viewer on it, but the annotations don't come
+back. Other PDFs on the same note keep theirs. It asks before doing it, because there is
+no undo afterwards.
+
 ## Formulas in a quoted PDF
 
 Copy, Send to note and Export take their text from the PDF's text layer, and a PDF stores
