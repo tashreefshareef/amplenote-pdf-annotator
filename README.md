@@ -127,10 +127,13 @@ Worth knowing before you install rather than discovering after: the plugin does 
 visible content to your note, and it isn't a bug.
 
 **⋮ → Remove viewer** takes out the viewer's line *and* that PDF's entry in this section —
-which means every mark and note you made on it. The PDF stays attached, and running
-**Annotate PDF** again opens a fresh, empty viewer on it, but the annotations don't come
-back. Other PDFs on the same note keep theirs. It asks before doing it, because there is
-no undo afterwards.
+which means every mark and note you made on it. Other PDFs on the same note keep theirs.
+It asks before doing it, because there is no undo afterwards.
+
+The PDF file itself stays attached and still opens. What you can't do is put a viewer back
+on it: **Annotate PDF** will report no PDF attachments on the note. Attaching the file
+again gives you a viewer on the new copy. This is a platform limitation rather than a
+choice — see [`docs/api-notes.md`](docs/api-notes.md) for the measurement.
 
 ## Formulas in a quoted PDF
 

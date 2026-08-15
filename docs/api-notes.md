@@ -720,6 +720,54 @@ several of these cost real debugging time (or a live, reported bug) on this one.
     actions list and ask which of those four kinds it is. If it's none of them, it doesn't
     exist, and no amount of embed-side work reaches it.
 
+17. **`getNoteContent` → `replaceNoteContent` is LOSSY: a rich-footnote definition does
+    not survive the round trip, and for a PDF attachment that footnote is what registers
+    it.** Measured 2026-08-15 with dumps either side of a single whole-note write. Before:
+
+    ```
+    # Attachments
+    - Maths-SQP-annotated (7).pdf | application/pdf | 29c7d978-...
+
+    [Maths-SQP-annotated (7).pdf](attachment://29c7d978-...) [^1]
+
+    [^1]: MATHEMATICS - Code No. 041
+        ... ~470 lines of the PDF's extracted text ...
+    ```
+
+    After — the note read, one line spliced in, the whole thing written back:
+
+    ```
+    # Attachments
+    - (none)
+
+    [Maths-SQP-annotated (7).pdf](attachment://29c7d978-...) [1][^1]
+
+    [^1]: [1]()
+    ```
+
+    **The `attachment://` link is byte-identical.** What changed is the footnote: its
+    definition collapsed to `[1]()`, a stray `[1]` appeared on the chip line, and
+    `getNoteAttachments` went from one PDF to none. So the link is not the registration —
+    the footnote is, and writing the note back destroys it. Finding #10 above found that
+    footnote and did not test whether it survives a write; this is that test.
+
+    **Consequences for anything that rewrites a note wholesale.** Amplenote offers no
+    positional write (#11): `insertNoteContent` takes only `atEnd`, and
+    `replaceNoteContent`'s `section` option is no help on a note with no headings or
+    horizontal rules, since the whole note is then one section. So placing content at a
+    specific point *requires* the lossy round trip. Here that means a PDF can be given a
+    viewer once; afterwards the plugin cannot find it on that note again, and the file has
+    to be re-attached. Newly attached PDFs register fresh and are unaffected, so a note can
+    still accumulate several viewers — the loss is per-attachment, at the moment of the
+    write, not per-note.
+
+    **The generalizable part:** treat any read-modify-write of note content as *lossy for
+    constructs the markdown reference does not document*. The documented ones (colored
+    text, tables, tasks, footnote *markers*) round-trip; an attachment's extracted-text
+    definition does not. Before building on a whole-note rewrite, write the note back
+    unchanged and diff it — if the platform cannot reproduce its own output, nothing built
+    on that write is safe, and the failure is silent.
+
 ## Core types
 
 **`noteHandle`** — an object, minimally `{ uuid: string }`. May also carry `name` and

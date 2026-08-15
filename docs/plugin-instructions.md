@@ -92,9 +92,12 @@ in the toolbar. Takes effect the next time you open the viewer.
 Remove viewer — for reference: `screenshots/06-viewer-menu-bonus.png`.)
 
 **Remove viewer** (⋮ menu) takes the viewer out of the note — and deletes every highlight
-and note you made on that PDF along with it, not just the box showing it. The PDF stays
-attached; running **Annotate PDF** again opens a fresh, empty viewer on it, but your
-annotations don't come back. Confirmed with a prompt first, since there's no undo after.
+and note you made on that PDF along with it, not just the box showing it. Confirmed with a
+prompt first, since there's no undo after.
+
+The PDF file stays attached and still opens. You can't put a viewer back on it, though:
+**Annotate PDF** will say there are no PDF attachments on the note. Attach the file again
+if you need a viewer on it. Treat Remove viewer as final for that copy.
 
 ### On mobile
 
