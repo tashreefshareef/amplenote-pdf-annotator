@@ -87,9 +87,29 @@ export const STYLES = `
      this exact environment (this DPR cannot be reproduced in the automated browser used
      to build this fix - only measured and reasoned about, not watched render correctly at
      125% with my own eyes), so confirm this actually closes it before treating it as
-     done. */
+     done.
+
+     THE SHADOW LIVES ON ::after, NOT ON THE ROOT, and that is the whole point of the
+     pseudo-element - reported live as the card losing its border across the toolbar band,
+     in light mode most of all. An inset box-shadow is painted with the element's OWN
+     background, which is underneath every descendant; a border is not, because children
+     sit inside it. So the moment the shadow replaced the border, the toolbar's opaque
+     background (--pdfa-toolbar is pure #fff in light mode, against a #b0b5bd line) painted
+     over the ring along the top, left and right of its own row, and the card read as
+     open-topped. Same for the collapsed bar, which has the same background. Screenshotted
+     three ways side by side - border, shadow-on-root, shadow-on-::after - and only the
+     first and last draw all four sides.
+
+     ::after is a positioned descendant, so it paints AFTER the in-flow toolbar rather than
+     before it, while keeping the shadow rendering path the 125% fix above depends on.
+     position: relative on the root is what it is positioned against, and it is safe here:
+     only transform, filter and contain make a containing block for the fixed popovers, and
+     relative is none of those (see the header). pointer-events: none because the layer
+     covers the entire viewer, clicks included. */
   #pdfa-root { display: flex; flex-direction: column; height: 100vh; background: var(--pdfa-bg); color: var(--pdfa-fg);
-    box-shadow: inset 0 0 0 1px var(--pdfa-border); border-radius: 10px; overflow: hidden; }
+    position: relative; border-radius: 10px; overflow: hidden; }
+  #pdfa-root::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+    pointer-events: none; box-shadow: inset 0 0 0 1px var(--pdfa-border); }
   /* A MANUAL toggle, applied by viewer.js's collapseViewer/openViewer, and re-applied on
      initial render when the tag says the user left this viewer collapsed - but never a
      default (see buildEmbedHtml's own comment on why a default-collapsed embed, tried

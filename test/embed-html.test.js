@@ -321,7 +321,22 @@ describe("buildEmbedHtml", () => {
     // box-shadow, not border: a plain 1px border can render with a missing edge at
     // fractional device-pixel-ratio display scaling (reported live at 125% Windows
     // scaling) - inset box-shadow paints the same line through a path that survives it.
-    expect(root).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--pdfa-border\)/);
+    //
+    // On ::after rather than on the root, and THAT is what these three assertions are
+    // for. An inset box-shadow paints with the element's own background, which is
+    // underneath every descendant - so on the root itself the toolbar's opaque background
+    // covered the line along its entire row, and the card lost its border across the top
+    // (reported live; worst in light mode, where --pdfa-toolbar is pure white). A
+    // pseudo-element is a positioned descendant, so it paints AFTER the toolbar. Keep the
+    // shadow off #pdfa-root: putting it back there is exactly the regression.
+    const ring = out.match(/#pdfa-root::?after\s*\{[^}]*\}/)[0];
+    expect(ring).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--pdfa-border\)/);
+    expect(root).not.toMatch(/box-shadow/);
+    // What ::after is positioned against - and safe, because only transform, filter and
+    // contain make a containing block for the fixed popovers (asserted below).
+    expect(root).toMatch(/position:\s*relative/);
+    // The ring covers the whole viewer, so it must not swallow a click on anything.
+    expect(ring).toMatch(/pointer-events:\s*none/);
     expect(root).toMatch(/border-radius/);
     // Without this the radius is decorative - the toolbar's own square corners paint
     // straight over it.
@@ -331,6 +346,7 @@ describe("buildEmbedHtml", () => {
     // establish a containing block for a fixed element (transform, filter, contain) or
     // the color picker gets cut off at the viewer's edge.
     expect(out).not.toMatch(/#pdfa-root \{[^}]*(transform|filter|contain):/);
+    expect(ring).not.toMatch(/(transform|filter|contain):/);
     // Collapsed, the bar IS the card - its own bottom rule would double the root's border.
     expect(out).toMatch(/\.pdfa-collapsed-mode \.pdfa-collapsed \{[^}]*border-bottom:\s*none/);
   });

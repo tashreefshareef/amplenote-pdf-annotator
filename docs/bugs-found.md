@@ -1348,6 +1348,48 @@ matter how correct the value it writes.
 
 ---
 
+## Swapping a border for an inset box-shadow put the line underneath the toolbar
+
+**Symptom:** the viewer's card had no border across the toolbar row - the top edge and the
+top of both side edges simply absent, while the same border was crisp everywhere below the
+bar. Reported live in light mode, where it is loudest.
+
+**Cause:** the fix in the previous entry. Replacing `border: 1px solid` on `#pdfa-root`
+with `box-shadow: inset 0 0 0 1px` changed WHERE IN THE PAINT ORDER the line is drawn, not
+just how. A border is painted in the element's own border box, and children live inside
+it, so nothing a child does can cover it. An inset box-shadow is painted with the
+element's BACKGROUND, and every descendant paints on top of that. The toolbar is a child
+of the root, it stretches the full width, and it has an opaque background of its own
+(`--pdfa-toolbar`, which is `#fff` in light mode against a `#b0b5bd` line) - so it painted
+straight over the ring along its whole row. Same for the collapsed bar, which uses the
+same background. Dark mode had the identical defect and read as much milder, because
+`#252930` over `#3a3f47` is a far smaller step than white over grey.
+
+**Fix:** keep the inset shadow - the fractional-scaling reason for it stands - but move it
+onto `#pdfa-root::after`, an absolutely-positioned overlay at `inset: 0` with
+`border-radius: inherit` and `pointer-events: none`, with `position: relative` on the root
+to anchor it. A pseudo-element is a positioned descendant, so it paints AFTER the in-flow
+toolbar rather than before it, and the same shadow rendering path is preserved. Verified
+by screenshotting all three arrangements side by side at 1x - `border`, shadow-on-root,
+shadow-on-`::after` - where only the first and last draw four sides; then in the real
+embed HTML in all four states that touch this (light/dark x open/collapsed). `relative` is
+safe where `transform`/`filter`/`contain` would not be: it makes a containing block for
+absolute descendants but not for the `position: fixed` popovers.
+
+**General lesson:** two CSS properties that produce the same picture in isolation are not
+interchangeable in a composite - `border`, `outline`, `box-shadow` and a
+pseudo-element overlay each paint at a different point in the stacking order, and the
+difference is invisible until something else in the box paints over the same pixels. When
+substituting one for another to dodge a rendering bug, the question to ask is not "does it
+look the same here" but "what else paints in this region, and when". The tell that it was
+paint order and not color: the line was missing for exactly the height of one opaque child
+and perfect immediately below it. A defect whose boundary lines up with an element's box
+is a compositing problem, not a rendering-quality one. And light mode is the theme to
+check first for anything hairline - a fix reasoned about in dark mode, where backgrounds
+sit close together, can be flatly broken in the theme where they do not.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:
