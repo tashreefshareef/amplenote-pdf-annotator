@@ -32,8 +32,8 @@ Feature-complete and in polish; not yet submitted.
   exact page and position. Clicking one scrolls to the right PDF and flashes the
   highlight it meant, whether the link is on this note or another.
 - **Works on a phone** — touch selection, fit-to-width, 40px targets, and on-screen
-  scroll controls. Three things the Amplenote apps don't allow an embed to do are
-  [noted below](#known-limitations-in-the-mobile-app).
+  scroll controls. Three behaviours vary by host rather than by device, and which host
+  allows what is [measured below](#known-limitations-in-the-mobile-apps).
 
 | The highlights panel | An exported highlights note |
 |---|---|
@@ -134,7 +134,7 @@ Everything the plugin does works everywhere — selecting, highlighting, notes, 
 copy, send to note and export. Three behaviours vary, and they vary by **host**, not by
 device:
 
-| | Desktop browser | Android browser | iOS Safari | iOS app | Android app |
+| | Desktop Chrome | Chrome (Android) | iOS Safari | iOS app | Android app |
 |---|---|---|---|---|---|
 | Drag to scroll the viewer | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Download the annotated PDF | ✅ | ✅ | ❌ | ✅ | ❌ |
@@ -170,10 +170,11 @@ the annotated file correctly on every platform, but a `download` attribute needs
 to act on it and those two don't; the Web Share API, which is how a phone would
 normally save a file, isn't delegated to the embed either. Rather than appear to succeed
 and produce nothing, the viewer says the PDF is ready and where to save it if no file
-appeared — conditionally, because a touch device is not proof of failure: Amplenote in a
-tablet browser downloads normally, and telling that user their download failed while it
-sits in their downloads folder would be worse than saying nothing. Copy, Send to note and
-Export all work fine on mobile — it's specifically the file that can't leave.
+appeared — conditionally, because a touch device is not proof of failure: Chrome on
+Android and the iOS app both download normally, and telling those users their download
+failed while the file sits in their downloads folder would be worse than saying nothing.
+The grid above is why the check can't be a device test. Copy, Send to note and Export all
+work everywhere — it's specifically the file that can't leave.
 
 **On Android, dragging doesn't scroll the viewer.** The note claims the vertical drag
 inside the embed; `overscroll-behavior`, a non-passive `touchmove` calling

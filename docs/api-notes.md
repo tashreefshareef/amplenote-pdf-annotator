@@ -499,7 +499,7 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       safe to install is what costs an embed the gesture: a trade, not an oversight.
       Running the same build in other hosts killed that, in two rounds. Measured:
 
-      | | Desktop browser | Android browser | iOS Safari | iOS app | Android app |
+      | | Desktop Chrome | Chrome (Android) | iOS Safari | iOS app | Android app |
       |---|---|---|---|---|---|
       | Drag to scroll the embed | yes | yes | yes | yes | **no** |
       | Download (`download` attribute) | yes | yes | **no** | yes | **no** |
