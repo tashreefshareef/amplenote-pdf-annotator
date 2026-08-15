@@ -13,16 +13,17 @@ Install it from
 
 ## What it does
 
-- **Renders the PDF in the note** — a real text layer, zoom, and page navigation, with
-  pages drawn as they scroll into view rather than all at once.
-- **Highlights in four colors** — select text and pick a color from the toolbar or from
-  the popover that appears at the selection; click an existing highlight to recolor or
-  remove it.
-- **Takes a note on any highlight** — one plain-text note, offered as soon as the
-  highlight is created. A panel lists every highlight and note, with click-to-jump.
-- **Downloads with native annotations** — the Download button bakes every highlight and
-  note into the PDF as real, selectable, reader-editable annotations, not painted-on
-  rectangles.
+- **Renders the PDF in the note** — a real text layer, zoom, page navigation and a
+  thumbnails panel, with pages drawn as they scroll into view rather than all at once.
+- **Highlight, underline or strike through, in four colors** — select text and pick a
+  color from the toolbar or from the popover that appears at the selection. Click an
+  existing mark to change its style, recolor it, or remove it.
+- **Takes a note on any mark** — one plain-text note, offered as soon as the mark is
+  created. A panel lists every mark and note, with click-to-jump.
+- **Downloads with native annotations** — the Download button bakes everything into the
+  PDF as real, selectable, reader-editable annotations, not painted-on rectangles — and
+  each mark is written as its own proper subtype, so a highlight arrives as a Highlight,
+  an underline as an Underline and a strikethrough as a StrikeOut in any external reader.
 - **Copies a highlight into the note** — to the clipboard or straight into the note, as a
   deep link whose text carries the highlight's own color, in Amplenote's own
   `<mark style="background-color:#HEX;">…<!-- {"backgroundCycleColor":"N"} --></mark>`
