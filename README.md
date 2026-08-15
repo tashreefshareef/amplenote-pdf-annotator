@@ -32,7 +32,8 @@ Feature-complete and in polish; not yet submitted.
   exact page and position. Clicking one scrolls to the right PDF and flashes the
   highlight it meant, whether the link is on this note or another.
 - **Works on a phone** — touch selection, fit-to-width, 40px targets, and on-screen
-  scroll controls, with three exceptions [noted below](#known-limitations-on-mobile).
+  scroll controls. Three things the Amplenote apps don't allow an embed to do are
+  [noted below](#known-limitations-in-the-mobile-app).
 
 | The highlights panel | An exported highlights note |
 |---|---|
@@ -127,15 +128,20 @@ keeps one line per line of the original instead of breaking apart at every fract
 Recovering the notation itself would need OCR against the rendered page, which a sandboxed
 embed can't do.
 
-## Known limitations on mobile
+## Known limitations in the mobile app
 
 Everything else works on a phone — selecting, highlighting, notes, the panel, export and
-deep links. These three don't, and all of them are the same wall: an embed is a sandboxed
-cross-origin iframe, so the host application decides what it may do.
+deep links. The three below don't, and all of them are the same wall: an embed is a
+sandboxed cross-origin iframe, so the host application decides what it may do.
 
-![The viewer fitted to a phone screen](docs/screenshots/07-mobile-fit-to-screen-default.jpg)
+**Which host matters more than which device.** Two of these three are limits of the
+Amplenote *apps*, not of phones: in a mobile browser, downloading and deep-link scrolling
+both behave exactly as they do on desktop. Only dragging to scroll fails everywhere,
+because that one is the embed boundary itself rather than the app's handling of it.
 
-**Downloading the annotated PDF is desktop-only.** The Download menu item builds the
+<img src="docs/screenshots/07-mobile-fit-to-screen-default.jpg" alt="The viewer fitted to a phone screen" width="280">
+
+**Downloading the annotated PDF needs a browser.** The Download menu item builds the
 annotated file correctly on every platform, but a `download` attribute needs the host app
 to act on it and the mobile app doesn't; the Web Share API, which is how a phone would
 normally save a file, isn't delegated to the embed either. Rather than appear to succeed
@@ -150,8 +156,10 @@ embed; `overscroll-behavior`, a non-passive `touchmove` calling `preventDefault(
 focus were each tried against it on a real device and none of them moved it. Use the ▲/▼
 controls on the right edge of the viewer instead — hold one to keep scrolling.
 
-**A deep link opens the right note and the viewer lands on the right highlight — you
-scroll down to it yourself.** Nothing inside the embed can move the mobile app's note, and
+**In the app, a deep link opens the right note and the viewer lands on the right
+highlight — you scroll down to it yourself.** In a mobile browser it scrolls the note for
+you, exactly as desktop does; it is the app that doesn't.
+Nothing inside the embed can move the mobile app's note, and
 after a genuinely thorough attempt at a fix from outside the iframe — navigating with a
 `…/notes/UUID#Section_name` fragment aimed at the heading above the embed, the platform's
 own documented way to scroll a note to a section — it turned out not to be usable on
