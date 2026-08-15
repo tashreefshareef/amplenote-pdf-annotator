@@ -134,19 +134,27 @@ Everything the plugin does works everywhere — selecting, highlighting, notes, 
 copy, send to note and export. Three behaviours vary, and they vary by **host**, not by
 device:
 
-| | Desktop browser | Mobile browser | iOS app | Android app |
-|---|---|---|---|---|
-| Drag to scroll the viewer | ✅ | ✅ | ✅ | ❌ |
-| Download the annotated PDF | ✅ | ✅ | ✅ | ❌ |
-| Deep link scrolls the note to the highlight | ✅ | ✅ | ❌ | ❌ |
+| | Desktop browser | Android browser | iOS Safari | iOS app | Android app |
+|---|---|---|---|---|---|
+| Drag to scroll the viewer | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Download the annotated PDF | ✅ | ✅ | ❌ | ✅ | ❌ |
+| Deep link scrolls the note to the highlight | ✅ | ✅ | ❌ | ❌ | ❌ |
 
-Only one of the three is common to both apps. The other two are specific to the Android
-app, and work fine on iOS.
+**There is no single rule here, and looking for one produced three wrong answers.** It is
+not "mobile" — iOS drags and downloads fine. It is not the sandbox — the embed is the same
+cross-origin iframe in every column, running the same build, and the left two pass
+everything. It is not even "the apps": the iOS *app* downloads where iOS *Safari* won't,
+so a host can be more permissive than the browser engine underneath it.
 
-It is not the sandbox. The embed is the same cross-origin iframe in every column, running
-the same build — so the boundary cannot be what costs these, or the browser columns would
-fail too. Each host decides what it hands through, and they decide differently. None of it
-is reachable from inside the frame, whichever way a host decides.
+What's left is per-host capability, measured rather than derived. Two plausible mechanisms,
+offered as reasons and not as verified causes: Safari restricts a `download` attribute
+originating in a cross-origin frame, which the iOS app evidently handles itself; and the
+note-scroll needs the host to move a document the embed cannot reach, which only the two
+left-hand columns do.
+
+Nothing here is reachable from inside the frame whichever way a host decides, so the viewer
+ships its ▲/▼ scroll controls everywhere rather than detecting a device — the one host that
+needs them is not the one a device check would predict.
 
 One thing worth knowing before the limitations, because it is the first thing a phone
 needs: a narrow screen gets an extra toolbar button beside ⋮. **Fit to this screen** sizes
@@ -157,10 +165,9 @@ one-time action stored with the note, not a live fit, so it stays exactly as you
 |---|---|
 | <img src="docs/screenshots/07-mobile-fit-to-screen-default.jpg" alt="Mobile toolbar in its default state, with the Fit to this screen expand icon next to the three-dots menu" width="260"> | <img src="docs/screenshots/08-mobile-restore-height-fitted.jpg" alt="Mobile toolbar after fitting: the same button now shows Restore height, and the page renders noticeably taller" width="260"> |
 
-**On Android, downloading the annotated PDF needs a browser.** The Download menu item
-builds the annotated file correctly on every platform, but a `download` attribute needs
-the host app to act on it and the Android app doesn't; the Web Share API, which is how a
-phone would
+**Downloading fails in the Android app and in iOS Safari.** The Download menu item builds
+the annotated file correctly on every platform, but a `download` attribute needs the host
+to act on it and those two don't; the Web Share API, which is how a phone would
 normally save a file, isn't delegated to the embed either. Rather than appear to succeed
 and produce nothing, the viewer says the PDF is ready and where to save it if no file
 appeared — conditionally, because a touch device is not proof of failure: Amplenote in a
@@ -175,9 +182,9 @@ moved it. Use the ▲/▼ controls on the right edge of the viewer instead — h
 scrolling. They are there for every platform, so nothing depends on the gesture. The iOS
 app and mobile browsers hand it to the embed and dragging works there.
 
-**In both apps, a deep link opens the right note and the viewer lands on the right
-highlight — you scroll down to it yourself.** This is the only one of the three that both
-apps share; mobile browsers scroll the note for you exactly as desktop does.
+**In both apps and in iOS Safari, a deep link opens the right note and the viewer lands on
+the right highlight — you scroll down to it yourself.** This is the most widely affected of
+the three; only a desktop browser and an Android browser scroll the note for you.
 Nothing inside the embed can move the mobile app's note, and
 after a genuinely thorough attempt at a fix from outside the iframe — navigating with a
 `…/notes/UUID#Section_name` fragment aimed at the heading above the embed, the platform's

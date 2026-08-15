@@ -499,16 +499,22 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       safe to install is what costs an embed the gesture: a trade, not an oversight.
       Running the same build in other hosts killed that, in two rounds. Measured:
 
-      | | Desktop browser | Mobile browser | iOS app | Android app |
-      |---|---|---|---|---|
-      | Drag to scroll the embed | yes | yes | yes | **no** |
-      | Download (`download` attribute) | yes | yes | yes | **no** |
-      | Host scrolls its note to the embed | yes | yes | **no** | **no** |
+      | | Desktop browser | Android browser | iOS Safari | iOS app | Android app |
+      |---|---|---|---|---|---|
+      | Drag to scroll the embed | yes | yes | yes | yes | **no** |
+      | Download (`download` attribute) | yes | yes | **no** | yes | **no** |
+      | Host scrolls its note to the embed | yes | yes | **no** | **no** | **no** |
 
-      The sandbox cannot be the cause or the browser columns would fail too — it is the
-      same cross-origin iframe in every one. The gesture and the download are specific to
-      the **Android** app. Only the note-scroll is shared by both apps, and that one has
-      its own entry below.
+      The sandbox cannot be the cause or the left two columns would fail too — it is the
+      same cross-origin iframe running the same build in every one. Nor is it "mobile",
+      nor "the apps": **the iOS app downloads where iOS Safari will not**, so a host can
+      be more permissive than the engine underneath it. Treat capability as per-host and
+      measure it; there is no rule here to derive.
+
+      Two plausible mechanisms, offered as reasons rather than verified causes: Safari
+      restricts a `download` attribute originating in a cross-origin frame, which the iOS
+      app evidently handles itself; and the note-scroll needs the host to move a document
+      the embed cannot reach.
 
       Every practical conclusion above still stands, because none of this is reachable
       from inside the frame whichever way a host decides: enumerate your scrollable
@@ -519,12 +525,19 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       could change, not a structural cost of being a plugin.
 
       **The reasoning lesson, which is why this correction is kept rather than edited
-      away.** The sandbox explanation fitted every observation available at the time and
-      was still wrong, because every observation had come from one host. Then "it is the
-      apps" fitted the second round and was also wrong, for the same reason at a smaller
-      scale. A cause that is never varied is not a cause that has been tested, and one
-      counter-example does not license the next generalisation — vary it again. Both
-      rounds cost minutes, against a wrong claim sitting in a public README.
+      away.** Three explanations were written down and published here, each fitting every
+      observation available when it was written, each wrong:
+
+      1. *The sandbox* — from one host. Killed by a mobile browser.
+      2. *The apps* — from two. Killed by iOS, which drags and downloads fine.
+      3. *The Android app* — from three. Killed by Safari, which fails two of the three
+         while the iOS app built on it passes one of those.
+
+      A cause that is never varied is not a cause that has been tested, and no number of
+      counter-examples licenses the next generalisation. Each round cost minutes; each
+      wrong version sat in a public README until the next test. The fix in the end was
+      not a better theory but abandoning the search for one: publish the grid, mark the
+      cells you measured, and let a reader see the shape rather than your summary of it.
     - **An embed cannot scroll the mobile app's note to itself. Accepted limitation,
       after a genuinely thorough attempt to beat it - see the correction at the end of
       this entry before reusing anything below.**
