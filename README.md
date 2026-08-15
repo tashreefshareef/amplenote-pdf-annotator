@@ -187,6 +187,12 @@ moved it. Use the ▲/▼ controls on the right edge of the viewer instead — h
 scrolling. They are there for every platform, so nothing depends on the gesture. The iOS
 app and mobile browsers hand it to the embed and dragging works there.
 
+It is specific to plugin embeds, not to the app's scrolling in general: **Amplenote's own
+built-in PDF preview drag-scrolls perfectly well in the same Android app**, on the same
+attachment. Open that attachment with this plugin instead and the gesture stops working.
+So this is a gap in what the Android client hands to a third-party embed — reportable,
+rather than a property of the device.
+
 **In both apps and in iOS Safari, a deep link opens the right note and the viewer lands on
 the right highlight — you scroll down to it yourself.** This is the most widely affected of
 the three; only a desktop browser and an Android browser scroll the note for you.

@@ -551,6 +551,27 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       predict. What changes is what you tell a user: this is one client's behaviour and
       could change, not a structural cost of being a plugin.
 
+      **NARROWED (2026-08-15) — it is not the app's scrolling, it is what the app hands
+      to an EMBED.** Amplenote's own built-in PDF preview drag-scrolls normally in the
+      Android app, on the same attachment in the same note. Open that attachment through
+      this plugin instead and the gesture stops working. So the Android client is not
+      claiming the vertical axis everywhere — a first-party viewer keeps it, a
+      third-party embed does not.
+
+      That kills the tidy explanation this entry reached for (an outer native scroll
+      container claiming its own axis, which would have taken the built-in viewer too),
+      and it kills "Android devices cannot do this". What remains is Android WebView's
+      touch handling for a cross-origin iframe inside a scrollable page, or a deliberate
+      choice in the client — from outside those look identical. Either way it is a
+      plugin-platform gap rather than a device limit, which makes it worth REPORTING
+      rather than only documenting.
+
+      What does NOT distinguish the two: the built-in viewer almost certainly renders in
+      the note's own document rather than in an iframe, so its success says nothing about
+      whether the boundary or the client is responsible. The test that would is another
+      plugin's embed on the same Android app — if every embed loses the gesture, it is
+      generic to embeds rather than anything about this one.
+
       **The reasoning lesson, which is why this correction is kept rather than edited
       away.** Three explanations were written down and published here, each fitting every
       observation available when it was written, each wrong:
