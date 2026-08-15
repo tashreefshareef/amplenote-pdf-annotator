@@ -134,23 +134,27 @@ Everything the plugin does works everywhere — selecting, highlighting, notes, 
 copy, send to note and export. Three behaviours vary, and they vary by **host**, not by
 device:
 
-| | Desktop Chrome | Chrome (Android) | iOS Safari | iOS app | Android app |
+| | Desktop Chrome | Android browsers | iOS browsers | iOS app | Android app |
 |---|---|---|---|---|---|
 | Drag to scroll the viewer | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Download the annotated PDF | ✅ | ✅ | ❌ | ✅ | ❌ |
 | Deep link scrolls the note to the highlight | ✅ | ✅ | ❌ | ❌ | ❌ |
 
-**There is no single rule here, and looking for one produced three wrong answers.** It is
-not "mobile" — iOS drags and downloads fine. It is not the sandbox — the embed is the same
-cross-origin iframe in every column, running the same build, and the left two pass
-everything. It is not even "the apps": the iOS *app* downloads where iOS *Safari* won't,
-so a host can be more permissive than the browser engine underneath it.
+Android browsers tested: Chrome and Edge. iOS browsers tested: Safari, Chrome and Edge —
+identical results, because **on iOS they are all the same engine**. Apple requires every
+iOS browser to use WebKit, so "Chrome on iOS" is Safari's engine in a different shell. The
+browser columns are decided by engine rather than by brand: Blink does all three, WebKit
+does the gesture only.
 
-What's left is per-host capability, measured rather than derived. Two plausible mechanisms,
-offered as reasons and not as verified causes: Safari restricts a `download` attribute
-originating in a cross-origin frame, which the iOS app evidently handles itself; and the
-note-scroll needs the host to move a document the embed cannot reach, which only the two
-left-hand columns do.
+**The apps are not just stricter versions of their browsers**, which is what makes this
+worth a grid instead of a sentence. The iOS app downloads where every iOS browser refuses —
+a native shell can act on a download its own web engine won't. The Android app goes the
+other way, and is the only host that fails all three.
+
+Two mechanisms, offered as likely reasons rather than verified causes: WebKit restricts a
+`download` attribute originating in a cross-origin frame, which the iOS app handles itself;
+and the note-scroll needs the host to move a document the embed cannot reach, which only
+the two left-hand columns do.
 
 Nothing here is reachable from inside the frame whichever way a host decides, so the viewer
 ships its ▲/▼ scroll controls everywhere rather than detecting a device — the one host that

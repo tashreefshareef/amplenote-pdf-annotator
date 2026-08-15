@@ -499,22 +499,28 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       safe to install is what costs an embed the gesture: a trade, not an oversight.
       Running the same build in other hosts killed that, in two rounds. Measured:
 
-      | | Desktop Chrome | Chrome (Android) | iOS Safari | iOS app | Android app |
+      | | Desktop Chrome | Android browsers | iOS browsers | iOS app | Android app |
       |---|---|---|---|---|---|
       | Drag to scroll the embed | yes | yes | yes | yes | **no** |
       | Download (`download` attribute) | yes | yes | **no** | yes | **no** |
       | Host scrolls its note to the embed | yes | yes | **no** | **no** | **no** |
 
-      The sandbox cannot be the cause or the left two columns would fail too — it is the
-      same cross-origin iframe running the same build in every one. Nor is it "mobile",
-      nor "the apps": **the iOS app downloads where iOS Safari will not**, so a host can
-      be more permissive than the engine underneath it. Treat capability as per-host and
-      measure it; there is no rule here to derive.
+      Android browsers tested: Chrome, Edge. iOS browsers tested: Safari, Chrome, Edge —
+      identical, **because on iOS they are one engine**. Apple requires every iOS browser
+      to use WebKit, so testing "Chrome on iOS" tests Safari with different chrome around
+      it. **Browser capability here is decided by engine, not by brand**: Blink does all
+      three, WebKit does the gesture only. Budget one test per ENGINE and one per app, not
+      one per browser name — and never treat an iOS browser as a second data point.
 
-      Two plausible mechanisms, offered as reasons rather than verified causes: Safari
+      The apps are not simply stricter than their browsers, which is the part no rule
+      predicts: **the iOS app downloads where every iOS browser refuses**, a native shell
+      acting on something its own engine will not, while the Android app is the only host
+      that fails all three.
+
+      Two plausible mechanisms, offered as reasons rather than verified causes: WebKit
       restricts a `download` attribute originating in a cross-origin frame, which the iOS
-      app evidently handles itself; and the note-scroll needs the host to move a document
-      the embed cannot reach.
+      app handles itself; and the note-scroll needs the host to move a document the embed
+      cannot reach.
 
       Every practical conclusion above still stands, because none of this is reachable
       from inside the frame whichever way a host decides: enumerate your scrollable
@@ -528,16 +534,26 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       away.** Three explanations were written down and published here, each fitting every
       observation available when it was written, each wrong:
 
-      1. *The sandbox* — from one host. Killed by a mobile browser.
+      1. *The sandbox* — from one host. Killed by an Android browser.
       2. *The apps* — from two. Killed by iOS, which drags and downloads fine.
       3. *The Android app* — from three. Killed by Safari, which fails two of the three
          while the iOS app built on it passes one of those.
+      4. *No rule at all, measure per host* — from four. Too pessimistic: adding Chrome
+         and Edge on both platforms showed the browser columns ARE predictable, by
+         engine.
 
       A cause that is never varied is not a cause that has been tested, and no number of
-      counter-examples licenses the next generalisation. Each round cost minutes; each
-      wrong version sat in a public README until the next test. The fix in the end was
-      not a better theory but abandoning the search for one: publish the grid, mark the
-      cells you measured, and let a reader see the shape rather than your summary of it.
+      counter-examples licenses the next generalisation — including the generalisation
+      that there is no pattern. Each round cost minutes of testing; each wrong version
+      sat in a public README until the next one.
+
+      What actually resolved it was varying the right axis. Four rounds varied *which
+      host*, which kept producing host-shaped answers. Testing two brands on each
+      platform varied *engine versus shell* instead, and that separated a rule that had
+      been there all along (browsers follow the engine) from the genuine exception that
+      no rule covers (a native shell can be more capable than the engine it embeds).
+      When results look arbitrary, suspect the axis being varied before concluding the
+      system is arbitrary.
     - **An embed cannot scroll the mobile app's note to itself. Accepted limitation,
       after a genuinely thorough attempt to beat it - see the correction at the end of
       this entry before reusing anything below.**
