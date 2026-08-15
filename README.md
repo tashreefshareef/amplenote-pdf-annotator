@@ -139,7 +139,14 @@ Amplenote *apps*, not of phones: in a mobile browser, downloading and deep-link 
 both behave exactly as they do on desktop. Only dragging to scroll fails everywhere,
 because that one is the embed boundary itself rather than the app's handling of it.
 
-<img src="docs/screenshots/07-mobile-fit-to-screen-default.jpg" alt="The viewer fitted to a phone screen" width="280">
+One thing worth knowing before the limitations, because it is the first thing a phone
+needs: a narrow screen gets an extra toolbar button beside ⋮. **Fit to this screen** sizes
+the box to that particular phone, and becomes **Restore height** to put it back. It's a
+one-time action stored with the note, not a live fit, so it stays exactly as you left it.
+
+| Default height — **Fit to this screen** | After fitting — **Restore height** |
+|---|---|
+| <img src="docs/screenshots/07-mobile-fit-to-screen-default.jpg" alt="Mobile toolbar in its default state, with the Fit to this screen expand icon next to the three-dots menu" width="260"> | <img src="docs/screenshots/08-mobile-restore-height-fitted.jpg" alt="Mobile toolbar after fitting: the same button now shows Restore height, and the page renders noticeably taller" width="260"> |
 
 **Downloading the annotated PDF needs a browser.** The Download menu item builds the
 annotated file correctly on every platform, but a `download` attribute needs the host app
