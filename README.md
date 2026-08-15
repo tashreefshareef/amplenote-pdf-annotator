@@ -6,8 +6,10 @@ note to any highlight, save everything as **native PDF annotations** inside the 
 and export highlights back into Amplenote notes with deep-links that jump to the exact
 page and position.
 
-Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty_plugins).
-Feature-complete and in polish; not yet submitted.
+Built for the Amplenote [plugin bounty program](https://www.amplenote.com/bounty_plugins)
+and published as
+**[a plugin you can install](https://public.amplenote.com/ZEJ7qV/pdf-annotator)**. The
+bounty claim itself hasn't been submitted yet.
 
 ![The viewer open on a PDF inside a note, with the highlight toolbar above a live selection](docs/screenshots/01-toolbar-live-highlight.png)
 
