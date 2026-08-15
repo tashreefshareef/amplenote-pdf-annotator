@@ -572,6 +572,12 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       plugin's embed on the same Android app — if every embed loses the gesture, it is
       generic to embeds rather than anything about this one.
 
+      Amplenote documents the built-in viewer as a supported mobile surface — "Clicking a
+      PDF will open it inline in either desktop or on mobile"
+      (https://www.amplenote.com/help/inline_open_pdf_youtube_more) — so the comparison is
+      against a first-party feature they consider working on the platform where a plugin
+      embed loses the gesture. That is the version of this to put in a report.
+
       **The reasoning lesson, which is why this correction is kept rather than edited
       away.** Three explanations were written down and published here, each fitting every
       observation available when it was written, each wrong:
@@ -801,7 +807,10 @@ PDFLIB OK
 
 - `app.openSidebarEmbed()` opens the **Peek Viewer, which requires a Pro subscription**.
   On a Personal plan it renders an upgrade prompt instead of the embed. Do not build the
-  primary UI on it.
+  primary UI on it. Found by hitting it; Amplenote's own help page states it too —
+  "Peek Viewer access is available to all trial users, and users on a Pro plan or above"
+  (https://www.amplenote.com/help/inline_open_pdf_youtube_more). Worth citing rather than
+  presenting as a discovery: a reader can check a plan gate without a Pro account.
 - **Inline embeds work on Personal.** Insert into a note body:
   `<object data="plugin://PLUGIN_NOTE_UUID" data-aspect-ratio="1.5" />`
   This can be written straight into a note with `insertNoteContent`, and it renders.
