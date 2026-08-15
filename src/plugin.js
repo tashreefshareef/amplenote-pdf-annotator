@@ -10,7 +10,6 @@
  * into Amplenote - paste the build output.
  */
 import { annotatePdf } from "./actions/annotate-pdf.js";
-import { dumpMarkdown } from "./actions/dump-markdown.js";
 import { insertViewer } from "./actions/insert-viewer.js";
 import { linkTarget } from "./actions/link-target.js";
 import { handleEmbedCallSerialized } from "./embed-call.js";
@@ -25,14 +24,6 @@ const plugin = {
       // `app.context.pluginUUID` identifies this plugin's own note, which is what
       // `plugin://` markup must point at.
       return annotatePdf(app, noteUUID, app.context.pluginUUID);
-    },
-
-    // TEMPORARY, on the debug/dump-markdown branch only - never merge to main. Restored
-    // to diagnose why "Remove viewer" leaves the PDF chip visible in the note while
-    // getNoteAttachments reports none. Writes to a NEW note; never touches the one it
-    // reads. See src/actions/dump-markdown.js.
-    "Debug: dump note markdown": async function (app, noteUUID) {
-      return dumpMarkdown(app, noteUUID);
     },
   },
 
