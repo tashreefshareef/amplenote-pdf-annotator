@@ -178,24 +178,6 @@ export function viewerMain() {
     els.status.className = isError ? "pdfa-status pdfa-error" : "pdfa-status";
   }
 
-  /**
-   * The status bar carrying one inline action.
-   *
-   * Built as DOM rather than a markup string on purpose: this file is serialized with
-   * `.toString()` and injected into the page, so any literal closing script tag in its
-   * source would end the block early - there is a test enforcing that it contains none.
-   * `status()` sets the text first, so appending after it leaves the label in front of
-   * the button.
-   */
-  function statusWithAction(message, label, onAct) {
-    status(message);
-    var btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "pdfa-btn pdfa-status-action";
-    btn.textContent = label;
-    btn.addEventListener("click", onAct);
-    els.status.appendChild(btn);
-  }
 
   /**
    * Talk to the plugin.
@@ -3478,57 +3460,26 @@ export function viewerMain() {
     // telling someone their download failed while it sits in their downloads folder is
     // worse than saying nothing. As a conditional it is true either way and only speaks
     // up for the person it is actually about.
+    // Not revoked immediately - some browsers start the download asynchronously, and an
+    // immediate revoke can race that start.
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+
+    // Naming the host that DOES work, rather than offering an action, because there is no
+    // action left to offer. Opening the blob in a new tab was built and tried on a device:
+    // window.open is called with the blob URL and iOS does nothing with it, silently. See
+    // docs/api-notes.md - a button that appears to be a way out and is not is worse than
+    // the plain sentence it replaced.
+    //
+    // The advice needs no user-agent check, because the two platforms fail on opposite
+    // sides: on iOS the app saves the file and its browsers do not; on Android a browser
+    // saves it and the app does not. One sentence is correct on both.
     var touch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-    if (!touch) {
-      status("");
-      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-      return Promise.resolve();
-    }
-
-    // The offer, not a third automatic attempt. Opening a tab unasked would be noise on
-    // every host where the download already worked, and this way the tap is a fresh user
-    // gesture - which is the thing popup rules actually key on.
-    statusWithAction(
-      "If no file appeared, this host blocked it. ",
-      "Open in a new tab",
-      function () {
-        openBlobInNewTab(url);
-      }
+    status(
+      touch
+        ? "If no file appeared, this host blocked it - on iPhone or iPad use the Amplenote app, on Android use a browser."
+        : ""
     );
-    // Outlives the 4s a download needs, because the button above is only worth offering
-    // while the URL behind it still resolves.
-    setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
     return Promise.resolve();
-  }
-
-  /**
-   * Last route to the file on a host that ignores a `download` attribute.
-   *
-   * WebKit refuses `download` on an anchor inside a cross-origin iframe, and Web Share
-   * has to be delegated to that iframe by the host - neither is reachable from in here.
-   * What WebKit will still do is DISPLAY a PDF, and its own viewer carries a share
-   * button, so getting the bytes on screen hands the save back to the user by a route
-   * the engine allows.
-   *
-   * Both routes are tried: a sandboxed frame can be refused `window.open` while an
-   * anchor carrying the same user gesture is allowed, and the reverse also happens.
-   * Neither reports failure, so the status stays conditional rather than claiming a win.
-   */
-  function openBlobInNewTab(url) {
-    var win = null;
-    try {
-      win = window.open(url, "_blank");
-    } catch {
-      // Refused outright by the sandbox - fall through to the anchor.
-    }
-    if (win) return;
-    var link = document.createElement("a");
-    link.href = url;
-    link.target = "_blank";
-    link.rel = "noopener";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
   }
 
   /**

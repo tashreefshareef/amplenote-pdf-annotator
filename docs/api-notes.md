@@ -522,6 +522,27 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       app handles itself; and the note-scroll needs the host to move a document the embed
       cannot reach.
 
+      **DEAD END, tried on a device (2026-08-15) — do not rebuild this.** The obvious
+      escape from the iOS download block is to stop trying to save the file and just
+      DISPLAY it: WebKit renders PDFs, and its own viewer has a share button, so the user
+      could save it from there. Built it as a button in the status bar (an offer rather
+      than an automatic attempt, so the tap supplies a fresh user gesture), trying
+      `window.open(blobUrl, "_blank")` and then an `<a target="_blank">` carrying the
+      same gesture. **Neither does anything on iOS, silently.** Verified in the harness
+      that the handler runs and `window.open` is called with the blob URL and no error,
+      so the failure is the engine, not the call. Reverted: a button that looks like a
+      way out and is not is worse than the sentence it replaced.
+
+      The other two routes were already dead before this: `attachNoteMedia` rejects PDFs
+      (see its own section below), and Web Share must be delegated to the iframe by the
+      host via `allow="web-share"`, which a plugin cannot set on a frame it does not
+      create. **There is no route to a file on iOS from inside an Amplenote embed.** The
+      fix is one attribute on Amplenote's plugin iframe, not anything a plugin can do.
+
+      What the embed does instead is name the host that works, which needs no user-agent
+      check because the platforms fail on opposite sides: on iOS the app saves the file
+      and its browsers do not; on Android a browser saves it and the app does not.
+
       Every practical conclusion above still stands, because none of this is reachable
       from inside the frame whichever way a host decides: enumerate your scrollable
       regions, budget for on-screen controls, make them hold-to-repeat. Ship the controls
