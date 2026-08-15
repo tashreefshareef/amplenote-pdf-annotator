@@ -131,13 +131,14 @@ embed can't do.
 ## Known limitations in the mobile app
 
 Everything else works on a phone — selecting, highlighting, notes, the panel, export and
-deep links. The three below don't, and all of them are the same wall: an embed is a
-sandboxed cross-origin iframe, so the host application decides what it may do.
+deep links. The three below don't, and all three are the same wall: the host application
+decides what an embed may do, and the Amplenote apps decide differently from a browser.
 
-**Which host matters more than which device.** Two of these three are limits of the
-Amplenote *apps*, not of phones: in a mobile browser, downloading and deep-link scrolling
-both behave exactly as they do on desktop. Only dragging to scroll fails everywhere,
-because that one is the embed boundary itself rather than the app's handling of it.
+**These are limits of the apps, not of phones.** Open the same note in a mobile browser
+and all three behave exactly as they do on desktop: the file downloads, a deep link
+scrolls the note to the highlight, and dragging scrolls the viewer. The sandbox is not
+what costs them — the embed is the same cross-origin iframe in both places. What differs
+is what each host does with it.
 
 One thing worth knowing before the limitations, because it is the first thing a phone
 needs: a narrow screen gets an extra toolbar button beside ⋮. **Fit to this screen** sizes
@@ -158,10 +159,11 @@ tablet browser downloads normally, and telling that user their download failed w
 sits in their downloads folder would be worse than saying nothing. Copy, Send to note and
 Export all work fine on mobile — it's specifically the file that can't leave.
 
-**Dragging doesn't scroll the viewer.** The host note claims the vertical drag inside the
-embed; `overscroll-behavior`, a non-passive `touchmove` calling `preventDefault()`, and
-focus were each tried against it on a real device and none of them moved it. Use the ▲/▼
-controls on the right edge of the viewer instead — hold one to keep scrolling.
+**In the app, dragging doesn't scroll the viewer.** The note claims the vertical drag
+inside the embed; `overscroll-behavior`, a non-passive `touchmove` calling
+`preventDefault()`, and focus were each tried against it on a real device and none of them
+moved it. Use the ▲/▼ controls on the right edge of the viewer instead — hold one to keep
+scrolling. A mobile browser hands the gesture to the embed and the drag works there.
 
 **In the app, a deep link opens the right note and the viewer lands on the right
 highlight — you scroll down to it yourself.** In a mobile browser it scrolls the note for
@@ -177,11 +179,13 @@ reproduced the same failure, which rules out a code regression — the mechanism
 doesn't reliably work on the mobile client. See docs/api-notes.md finding 13 and
 docs/bugs-found.md for the full account.
 
-All three are recorded in [`docs/api-notes.md`](docs/api-notes.md) with
-what was tried, so they aren't re-litigated as bugs. Worth knowing why a first-party
-viewer can do these things and a plugin can't: it renders in the note's own document,
-with no boundary to arbitrate. The sandbox that makes third-party plugins safe to install
-is the same thing that costs them the gesture, the file, and the auto-scroll.
+All three are recorded in [`docs/api-notes.md`](docs/api-notes.md) with what was tried, so
+they aren't re-litigated as bugs. The tempting explanation — that the sandbox making
+third-party plugins safe to install is what costs them the gesture, the file and the
+auto-scroll — turns out to be wrong, and the mobile browser is what disproves it: same
+plugin, same cross-origin iframe, all three working. The boundary is real, but a browser
+arbitrates it in the embed's favour and the apps don't. That makes these three a matter of
+what the native clients delegate, and nothing a plugin can reach from inside.
 
 ## Development
 

@@ -494,12 +494,25 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       them hold-to-repeat: if a tap is a screenful, a tap per screenful *is* the reading
       experience.
 
-      Worth knowing why a first-party viewer (Obsidian's, say) can drag-scroll and a
-      plugin cannot: that viewer renders in the note's own document, with no boundary to
-      arbitrate. The sandbox that makes third-party plugins safe to install is the same
-      thing that costs them the gesture. It is a trade, not an oversight — but it does
-      cap how native an embed can feel on mobile, and that is worth saying out loud to
-      anyone scoping an embed-heavy plugin.
+      **CORRECTION (2026-08-15) — the sandbox is not the cause.** This entry used to
+      conclude that the boundary making third-party plugins safe to install is what costs
+      them the gesture: a trade, not an oversight. Testing the same note in a **mobile
+      browser** disproves it. Same plugin, same cross-origin iframe, and the drag scrolls
+      the embed normally there — as do the download and the deep-link scroll, the other
+      two entries below. All three fail only in the Amplenote **apps**.
+
+      So the arbitration is the native clients', not the iframe's. A browser hands the
+      vertical gesture to the embed; the apps keep it. That is still not reachable from
+      inside the frame, so every practical conclusion above stands — enumerate your
+      scrollable regions, budget for on-screen controls, make them hold-to-repeat. What
+      changes is what you tell a user and what you expect of the platform: this is an
+      app behaviour that could change, not a structural cost of being a plugin.
+
+      Worth keeping as a reasoning lesson too. The sandbox explanation fitted every
+      observation available at the time and was still wrong, because every observation
+      had come from one host. A cause that is never varied is not a cause that has been
+      tested — running the same build in a second host was what falsified it, and it
+      cost minutes.
     - **An embed cannot scroll the mobile app's note to itself. Accepted limitation,
       after a genuinely thorough attempt to beat it - see the correction at the end of
       this entry before reusing anything below.**
