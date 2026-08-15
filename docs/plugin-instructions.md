@@ -91,9 +91,13 @@ in the toolbar. Takes effect the next time you open the viewer.
 (The ⋮ menu these last two live in — Collapse, Download, Export, Highlight colors,
 Remove viewer — for reference: `screenshots/06-viewer-menu-bonus.png`.)
 
-**Remove viewer** (⋮ menu) takes the viewer out of the note — and deletes every highlight
-and note you made on that PDF along with it, not just the box showing it. Confirmed with a
+**Remove viewer** (⋮ menu) takes the viewer out of the note, and deletes the highlights
+and notes held inside it for that PDF — not just the box showing them. Confirmed with a
 prompt first, since there's no undo after.
+
+It leaves everything you already put into the note itself alone: blocks from **Copy**,
+**Send to note** and **Export** are ordinary note content and stay put, and so does the
+"*PDF name* - Highlights" note. Export first if you want to keep a record.
 
 The PDF file stays attached and still opens. You can't put a viewer back on it, though:
 **Annotate PDF** will say there are no PDF attachments on the note. Attach the file again

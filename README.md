@@ -126,9 +126,14 @@ of your own writing rather than splitting it in half.
 Worth knowing before you install rather than discovering after: the plugin does add
 visible content to your note, and it isn't a bug.
 
-**⋮ → Remove viewer** takes out the viewer's line *and* that PDF's entry in this section —
-which means every mark and note you made on it. Other PDFs on the same note keep theirs.
-It asks before doing it, because there is no undo afterwards.
+**⋮ → Remove viewer** does exactly two things: it takes out the viewer's line, and it
+deletes that PDF's entry in this section — the marks and notes held *inside the viewer*.
+Other PDFs on the same note keep theirs. It asks first, because there is no undo.
+
+**What it does not touch:** anything already written into note text. Blocks put there by
+Copy, Send to note or Export are ordinary note content and stay exactly where they are, as
+does the "\<PDF name\> - Highlights" note. So exporting before removing is how you keep a
+record of the marks.
 
 The PDF file itself stays attached and still opens. What you can't do is put a viewer back
 on it: **Annotate PDF** will report no PDF attachments on the note. Attaching the file
