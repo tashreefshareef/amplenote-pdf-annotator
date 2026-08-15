@@ -128,17 +128,25 @@ keeps one line per line of the original instead of breaking apart at every fract
 Recovering the notation itself would need OCR against the rendered page, which a sandboxed
 embed can't do.
 
-## Known limitations in the mobile app
+## Known limitations in the mobile apps
 
-Everything else works on a phone — selecting, highlighting, notes, the panel, export and
-deep links. The three below don't, and all three are the same wall: the host application
-decides what an embed may do, and the Amplenote apps decide differently from a browser.
+Everything the plugin does works everywhere — selecting, highlighting, notes, the panel,
+copy, send to note and export. Three behaviours vary, and they vary by **host**, not by
+device:
 
-**These are limits of the apps, not of phones.** Open the same note in a mobile browser
-and all three behave exactly as they do on desktop: the file downloads, a deep link
-scrolls the note to the highlight, and dragging scrolls the viewer. The sandbox is not
-what costs them — the embed is the same cross-origin iframe in both places. What differs
-is what each host does with it.
+| | Desktop browser | Mobile browser | iOS app | Android app |
+|---|---|---|---|---|
+| Drag to scroll the viewer | ✅ | ✅ | ✅ | ❌ |
+| Download the annotated PDF | ✅ | ✅ | ✅ | ❌ |
+| Deep link scrolls the note to the highlight | ✅ | ✅ | ❌ | ❌ |
+
+Only one of the three is common to both apps. The other two are specific to the Android
+app, and work fine on iOS.
+
+It is not the sandbox. The embed is the same cross-origin iframe in every column, running
+the same build — so the boundary cannot be what costs these, or the browser columns would
+fail too. Each host decides what it hands through, and they decide differently. None of it
+is reachable from inside the frame, whichever way a host decides.
 
 One thing worth knowing before the limitations, because it is the first thing a phone
 needs: a narrow screen gets an extra toolbar button beside ⋮. **Fit to this screen** sizes
@@ -149,9 +157,10 @@ one-time action stored with the note, not a live fit, so it stays exactly as you
 |---|---|
 | <img src="docs/screenshots/07-mobile-fit-to-screen-default.jpg" alt="Mobile toolbar in its default state, with the Fit to this screen expand icon next to the three-dots menu" width="260"> | <img src="docs/screenshots/08-mobile-restore-height-fitted.jpg" alt="Mobile toolbar after fitting: the same button now shows Restore height, and the page renders noticeably taller" width="260"> |
 
-**Downloading the annotated PDF needs a browser.** The Download menu item builds the
-annotated file correctly on every platform, but a `download` attribute needs the host app
-to act on it and the mobile app doesn't; the Web Share API, which is how a phone would
+**On Android, downloading the annotated PDF needs a browser.** The Download menu item
+builds the annotated file correctly on every platform, but a `download` attribute needs
+the host app to act on it and the Android app doesn't; the Web Share API, which is how a
+phone would
 normally save a file, isn't delegated to the embed either. Rather than appear to succeed
 and produce nothing, the viewer says the PDF is ready and where to save it if no file
 appeared — conditionally, because a touch device is not proof of failure: Amplenote in a
@@ -159,15 +168,16 @@ tablet browser downloads normally, and telling that user their download failed w
 sits in their downloads folder would be worse than saying nothing. Copy, Send to note and
 Export all work fine on mobile — it's specifically the file that can't leave.
 
-**In the app, dragging doesn't scroll the viewer.** The note claims the vertical drag
+**On Android, dragging doesn't scroll the viewer.** The note claims the vertical drag
 inside the embed; `overscroll-behavior`, a non-passive `touchmove` calling
 `preventDefault()`, and focus were each tried against it on a real device and none of them
 moved it. Use the ▲/▼ controls on the right edge of the viewer instead — hold one to keep
-scrolling. A mobile browser hands the gesture to the embed and the drag works there.
+scrolling. They are there for every platform, so nothing depends on the gesture. The iOS
+app and mobile browsers hand it to the embed and dragging works there.
 
-**In the app, a deep link opens the right note and the viewer lands on the right
-highlight — you scroll down to it yourself.** In a mobile browser it scrolls the note for
-you, exactly as desktop does; it is the app that doesn't.
+**In both apps, a deep link opens the right note and the viewer lands on the right
+highlight — you scroll down to it yourself.** This is the only one of the three that both
+apps share; mobile browsers scroll the note for you exactly as desktop does.
 Nothing inside the embed can move the mobile app's note, and
 after a genuinely thorough attempt at a fix from outside the iframe — navigating with a
 `…/notes/UUID#Section_name` fragment aimed at the heading above the embed, the platform's
@@ -180,12 +190,11 @@ doesn't reliably work on the mobile client. See docs/api-notes.md finding 13 and
 docs/bugs-found.md for the full account.
 
 All three are recorded in [`docs/api-notes.md`](docs/api-notes.md) with what was tried, so
-they aren't re-litigated as bugs. The tempting explanation — that the sandbox making
-third-party plugins safe to install is what costs them the gesture, the file and the
-auto-scroll — turns out to be wrong, and the mobile browser is what disproves it: same
-plugin, same cross-origin iframe, all three working. The boundary is real, but a browser
-arbitrates it in the embed's favour and the apps don't. That makes these three a matter of
-what the native clients delegate, and nothing a plugin can reach from inside.
+they aren't re-litigated as bugs. The attribution took three passes to get right, which is
+worth knowing if you read that file: the first explanation was the sandbox, and it fitted
+every observation because every observation had come from one host. Adding a mobile
+browser killed it. Adding iOS narrowed what was left to a single shared limitation and two
+Android ones. Each round only cost minutes of testing.
 
 ## Development
 

@@ -494,25 +494,37 @@ several of these cost real debugging time (or a live, reported bug) on this one.
       them hold-to-repeat: if a tap is a screenful, a tap per screenful *is* the reading
       experience.
 
-      **CORRECTION (2026-08-15) — the sandbox is not the cause.** This entry used to
-      conclude that the boundary making third-party plugins safe to install is what costs
-      them the gesture: a trade, not an oversight. Testing the same note in a **mobile
-      browser** disproves it. Same plugin, same cross-origin iframe, and the drag scrolls
-      the embed normally there — as do the download and the deep-link scroll, the other
-      two entries below. All three fail only in the Amplenote **apps**.
+      **CORRECTION (2026-08-15) — it is the ANDROID app, not the sandbox and not
+      mobile.** This entry used to conclude that the boundary making third-party plugins
+      safe to install is what costs an embed the gesture: a trade, not an oversight.
+      Running the same build in other hosts killed that, in two rounds. Measured:
 
-      So the arbitration is the native clients', not the iframe's. A browser hands the
-      vertical gesture to the embed; the apps keep it. That is still not reachable from
-      inside the frame, so every practical conclusion above stands — enumerate your
-      scrollable regions, budget for on-screen controls, make them hold-to-repeat. What
-      changes is what you tell a user and what you expect of the platform: this is an
-      app behaviour that could change, not a structural cost of being a plugin.
+      | | Desktop browser | Mobile browser | iOS app | Android app |
+      |---|---|---|---|---|
+      | Drag to scroll the embed | yes | yes | yes | **no** |
+      | Download (`download` attribute) | yes | yes | yes | **no** |
+      | Host scrolls its note to the embed | yes | yes | **no** | **no** |
 
-      Worth keeping as a reasoning lesson too. The sandbox explanation fitted every
-      observation available at the time and was still wrong, because every observation
-      had come from one host. A cause that is never varied is not a cause that has been
-      tested — running the same build in a second host was what falsified it, and it
-      cost minutes.
+      The sandbox cannot be the cause or the browser columns would fail too — it is the
+      same cross-origin iframe in every one. The gesture and the download are specific to
+      the **Android** app. Only the note-scroll is shared by both apps, and that one has
+      its own entry below.
+
+      Every practical conclusion above still stands, because none of this is reachable
+      from inside the frame whichever way a host decides: enumerate your scrollable
+      regions, budget for on-screen controls, make them hold-to-repeat. Ship the controls
+      on every platform rather than gating them on a device sniff — the same build meets
+      all four columns, and the one that needs them is not the one a device test would
+      predict. What changes is what you tell a user: this is one client's behaviour and
+      could change, not a structural cost of being a plugin.
+
+      **The reasoning lesson, which is why this correction is kept rather than edited
+      away.** The sandbox explanation fitted every observation available at the time and
+      was still wrong, because every observation had come from one host. Then "it is the
+      apps" fitted the second round and was also wrong, for the same reason at a smaller
+      scale. A cause that is never varied is not a cause that has been tested, and one
+      counter-example does not license the next generalisation — vary it again. Both
+      rounds cost minutes, against a wrong claim sitting in a public README.
     - **An embed cannot scroll the mobile app's note to itself. Accepted limitation,
       after a genuinely thorough attempt to beat it - see the correction at the end of
       this entry before reusing anything below.**
