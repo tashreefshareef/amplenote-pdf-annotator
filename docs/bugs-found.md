@@ -1453,6 +1453,15 @@ path *was* reported live ("every highlight the user had exported vanished", abov
 because the near-miss is the point: the earlier bug was fixed where it bit without asking
 whether anything else made the same assumption.
 
+**The fix is live-verified** (2026-08-16), which matters because everything above it was
+argued from a mock: export, rename the destination note by hand, export again — the
+renamed note is updated in place and no second note appears. That confirms the whole uuid
+path against the real app, not just the parts a mock can model: `createNote`'s uuid is
+still resolvable by `findNote({ uuid })` afterwards, the pointer survives a real round
+trip through the fenced JSON in Amplenote's own editor, and the section-scoped write lands
+in the note the pointer names. The name-collision and PDF-rename cases remain
+mock-verified only.
+
 **Symptom (latent):** re-running "Export all" replaced the entire destination note, so
 anything the user had written in it was gone — silently, with a success message either
 way. And because the destination was located with a vault-wide `findNote({ name })` over
