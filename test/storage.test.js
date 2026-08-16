@@ -8,7 +8,13 @@
  * during Phase 1 development, so these tests exercise the same code path Amplenote
  * actually runs.
  */
-import { loadHighlights, saveHighlights, deleteHighlights } from "../src/storage.js";
+import {
+  loadHighlights,
+  saveHighlights,
+  deleteHighlights,
+  loadExportNoteUUID,
+  saveExportNoteUUID,
+} from "../src/storage.js";
 import { createHighlight } from "../src/highlights.js";
 import { STORAGE_SECTION_HEADING } from "../src/constants.js";
 import { createMockApp } from "./helpers.js";
@@ -269,6 +275,79 @@ describe("deleteHighlights", () => {
     await deleteHighlights(app, NOTE, ATT_A);
 
     expect(await loadHighlights(app, NOTE, ATT_B)).toEqual([hB]);
+  });
+});
+
+describe("the export-note pointer", () => {
+  // Scenario: THE point of storing a uuid - it is what the destination note is, when its
+  // name (and the PDF's) can both change under us.
+  test("round-trips a destination note uuid per attachment", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    await saveExportNoteUUID(app, NOTE, ATT_A, "export-a");
+    await saveExportNoteUUID(app, NOTE, ATT_B, "export-b");
+
+    expect(await loadExportNoteUUID(app, NOTE, ATT_A)).toBe("export-a");
+    expect(await loadExportNoteUUID(app, NOTE, ATT_B)).toBe("export-b");
+  });
+
+  // Scenario: nothing recorded - a note that has never been exported from, and every note
+  // written before pointers existed. Null is what sends the caller to the name lookup.
+  test("reads null when this attachment has no recorded destination", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    expect(await loadExportNoteUUID(app, NOTE, ATT_A)).toBeNull();
+
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+    expect(await loadExportNoteUUID(app, NOTE, ATT_A)).toBeNull();
+  });
+
+  // Scenario: the pointer shares one payload with the highlights, so the two writers have
+  // to leave each other alone - in both directions.
+  test("survives a highlight save, and does not disturb the highlights", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    const h = sampleHighlight();
+    await saveExportNoteUUID(app, NOTE, ATT_A, "export-a");
+    await saveHighlights(app, NOTE, ATT_A, [h]);
+
+    expect(await loadExportNoteUUID(app, NOTE, ATT_A)).toBe("export-a");
+    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([h]);
+  });
+
+  // Scenario: an unchanged pointer must not rewrite the source note. Re-exporting is a
+  // frequent action and the note write is the expensive, lossy part of it.
+  test("writes nothing when the recorded uuid is already the one being saved", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    await saveExportNoteUUID(app, NOTE, ATT_A, "export-a");
+    const writesBefore = app.replaceNoteContent.mock.calls.length;
+
+    await saveExportNoteUUID(app, NOTE, ATT_A, "export-a");
+
+    expect(app.replaceNoteContent.mock.calls.length).toBe(writesBefore);
+  });
+
+  // Scenario: a detached viewer has no destination note to remember, so removeViewer's
+  // delete takes the pointer with the highlights - and only this attachment's.
+  test("is dropped when the attachment's highlights are deleted", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    await saveExportNoteUUID(app, NOTE, ATT_A, "export-a");
+    await saveExportNoteUUID(app, NOTE, ATT_B, "export-b");
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+
+    await deleteHighlights(app, NOTE, ATT_A);
+
+    expect(await loadExportNoteUUID(app, NOTE, ATT_A)).toBeNull();
+    expect(await loadExportNoteUUID(app, NOTE, ATT_B)).toBe("export-b");
+  });
+
+  // Scenario: an attachment that was exported but never highlighted - deleting still has
+  // to reach the pointer, which the old "is this attachment in the payload?" check alone
+  // would have missed.
+  test("is dropped even when the attachment has no highlights entry", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
+    await saveExportNoteUUID(app, NOTE, ATT_A, "export-a");
+
+    await deleteHighlights(app, NOTE, ATT_A);
+
+    expect(await loadExportNoteUUID(app, NOTE, ATT_A)).toBeNull();
   });
 });
 

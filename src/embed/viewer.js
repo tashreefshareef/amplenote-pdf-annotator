@@ -3069,7 +3069,15 @@ export function viewerMain() {
       status(colorFilter ? "No highlights match those colors." : "No highlights to export yet.", true);
       return;
     }
-    callPlugin({ action: "exportAll", noteName: destinationNoteName(), content: content })
+    // attachmentUUID is what lets the plugin remember WHICH note this PDF exports to,
+    // rather than re-deriving it from the name every run (see storage.js's export-note
+    // pointer). Without it the export still works - it just falls back to the name.
+    callPlugin({
+      action: "exportAll",
+      attachmentUUID: cfg.attachmentUUID,
+      noteName: destinationNoteName(),
+      content: content,
+    })
       .then(function (result) {
         if (!result || result.error) {
           throw new Error((result && result.error) || "Could not export highlights.");

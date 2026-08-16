@@ -12,6 +12,16 @@ import { STORAGE_SECTION_HEADING } from "./constants.js";
 import { createHighlight } from "./highlights.js";
 
 const FENCE_LANG = "json";
+/**
+ * Reserved payload key holding `{ [attachmentUUID]: exportNoteUUID }` - where each PDF's
+ * "Export all" went, so the destination is identified by uuid rather than by a name that
+ * either side can rename (see loadExportNoteUUID for the failures that motivated it).
+ *
+ * A reserved key in the existing payload rather than a second managed section: one
+ * managed region per note is already the design (spec section 7.4), and this key cannot
+ * collide with an attachment uuid.
+ */
+const EXPORT_NOTES_KEY = "__exportNotes";
 // A one-line, visible label above the fence, so the section reads as "plugin-managed
 // data" at a glance instead of an unexplained code block. Plain text, no JSON inside it,
 // so it carries none of the corruption risk described on serialize().
@@ -103,16 +113,25 @@ export async function loadHighlights(app, noteUUID, attachmentUUID) {
 }
 
 /**
- * Persist highlights for one attachment, preserving any other attachments' highlights
- * already stored in the same section (spec section 7.4: keyed by attachment id, one
- * section shared across every PDF on the note).
+ * Read the managed payload, apply one change, write it back.
+ *
+ * Every write to the section goes through here so the section-creation and rescue steps
+ * below exist exactly once - they were duplicated across save and delete, which is one
+ * copy too many for logic whose failure mode is destroying a user's note.
+ *
+ * @param mutate receives the current payload (`{}` when there is no section yet) and
+ *   returns the payload to store, or `null` for "nothing to do" - which writes nothing
+ *   at all, not even the heading, so a no-op delete cannot be what adds a managed
+ *   section to a note that never had one.
  */
-export async function saveHighlights(app, noteUUID, attachmentUUID, highlights) {
+async function mutatePayload(app, noteUUID, mutate) {
   const noteHandle = { uuid: noteUUID };
   const content = await app.getNoteContent(noteHandle);
   const section = extractSection(content, STORAGE_SECTION_HEADING);
   const existing = deserialize(section) || {};
-  const payload = { ...existing, [attachmentUUID]: highlights };
+
+  const payload = mutate(existing);
+  if (payload === null) return;
   const body = serialize(payload);
 
   if (section === null) {
@@ -140,28 +159,80 @@ export async function saveHighlights(app, noteUUID, attachmentUUID, highlights) 
 }
 
 /**
+ * Persist highlights for one attachment, preserving any other attachments' highlights
+ * already stored in the same section (spec section 7.4: keyed by attachment id, one
+ * section shared across every PDF on the note).
+ */
+export async function saveHighlights(app, noteUUID, attachmentUUID, highlights) {
+  await mutatePayload(app, noteUUID, (payload) => ({ ...payload, [attachmentUUID]: highlights }));
+}
+
+/**
  * Drop one attachment's entry entirely, rather than saving it as `[]`. Used when a
  * viewer is explicitly detached (see embed-call.js's `removeViewer` action) - an
  * attachment that no longer exists shouldn't leave even an empty placeholder behind in
  * the managed section forever.
  *
+ * Takes the export-note pointer with it, for the same reason: a detached viewer has no
+ * destination note to remember.
+ *
  * A no-op (not an error) if there's no section yet or this attachment has no entry in
  * it - removal is idempotent, same as saveHighlights.
  */
 export async function deleteHighlights(app, noteUUID, attachmentUUID) {
-  const noteHandle = { uuid: noteUUID };
-  const content = await app.getNoteContent(noteHandle);
-  const section = extractSection(content, STORAGE_SECTION_HEADING);
-  if (section === null) return;
+  await mutatePayload(app, noteUUID, (payload) => {
+    const pointers = payload[EXPORT_NOTES_KEY];
+    const hasPointer = pointers && typeof pointers === "object" && attachmentUUID in pointers;
+    if (!(attachmentUUID in payload) && !hasPointer) return null;
 
-  const existing = deserialize(section) || {};
-  if (!(attachmentUUID in existing)) return;
+    const rest = { ...payload };
+    delete rest[attachmentUUID];
+    if (hasPointer) {
+      const restPointers = { ...pointers };
+      delete restPointers[attachmentUUID];
+      if (Object.keys(restPointers).length) rest[EXPORT_NOTES_KEY] = restPointers;
+      else delete rest[EXPORT_NOTES_KEY];
+    }
+    return rest;
+  });
+}
 
-  const rest = { ...existing };
-  delete rest[attachmentUUID];
+/**
+ * WHICH NOTE this attachment's "Export all" writes to, remembered by uuid.
+ *
+ * The destination used to be identified purely by its NAME, recomputed from the PDF's
+ * filename on every export and looked up with a vault-wide `findNote({ name })`. A name
+ * is not an identity, and three ordinary things broke it, all silently:
+ *
+ *   - the user renames the destination note -> the next export doesn't find it, creates a
+ *     second one, and the renamed note is left holding stale highlights forever
+ *   - the user renames the PDF -> same orphan, from the other direction
+ *   - two PDFs anywhere in the vault share a filename -> both exports resolve to one note
+ *
+ * A recorded uuid survives all three. The name lookup stays as the FALLBACK, which is
+ * also the migration path: a note exported before this existed has no pointer, gets found
+ * by name exactly as it used to be, and is recorded on the way past.
+ *
+ * @returns {Promise<string|null>} the recorded destination note uuid, or null.
+ */
+export async function loadExportNoteUUID(app, noteUUID, attachmentUUID) {
+  const content = await app.getNoteContent({ uuid: noteUUID });
+  const payload = deserialize(extractSection(content, STORAGE_SECTION_HEADING));
+  if (!payload || typeof payload !== "object") return null;
+  const pointers = payload[EXPORT_NOTES_KEY];
+  if (!pointers || typeof pointers !== "object") return null;
+  const recorded = pointers[attachmentUUID];
+  return typeof recorded === "string" && recorded ? recorded : null;
+}
 
-  await app.replaceNoteContent(noteHandle, serialize(rest), {
-    section: { heading: { text: STORAGE_SECTION_HEADING, level: 1 } },
+/** Remember where this attachment's export went. Idempotent - an unchanged pointer
+ * writes nothing, so a re-export doesn't rewrite the source note for no reason. */
+export async function saveExportNoteUUID(app, noteUUID, attachmentUUID, exportNoteUUID) {
+  await mutatePayload(app, noteUUID, (payload) => {
+    const pointers = payload[EXPORT_NOTES_KEY];
+    const current = pointers && typeof pointers === "object" ? pointers : {};
+    if (current[attachmentUUID] === exportNoteUUID) return null;
+    return { ...payload, [EXPORT_NOTES_KEY]: { ...current, [attachmentUUID]: exportNoteUUID } };
   });
 }
 

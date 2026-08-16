@@ -1067,6 +1067,125 @@ describe("exportAll", () => {
     expect(finalContent).toContain("second run content");
   });
 
+  // Scenario: the user renames the destination note. The name lookup can no longer find
+  // it, and before the export-note pointer this created a SECOND note and left the
+  // renamed one holding stale highlights forever.
+  test("finds a renamed destination note by its recorded uuid", async () => {
+    const app = appWithNote();
+    const first = await call(app, {
+      action: "exportAll",
+      attachmentUUID: ATT,
+      noteName: "paper.pdf - Highlights",
+      content: "first run content",
+    });
+
+    app._notes.get(first.noteUUID).name = "Paper — my highlights";
+
+    const second = await call(app, {
+      action: "exportAll",
+      attachmentUUID: ATT,
+      noteName: "paper.pdf - Highlights",
+      content: "second run content",
+    });
+
+    expect(second.noteUUID).toBe(first.noteUUID);
+    expect(app.createNote).toHaveBeenCalledTimes(1);
+    expect(app._notes.get(first.noteUUID).content).toContain("second run content");
+  });
+
+  // Scenario: the user renames the PDF, so the destination name the embed computes
+  // changes. The export must follow the same note rather than starting a fresh one.
+  test("keeps using the same destination note after the PDF is renamed", async () => {
+    const app = appWithNote();
+    const first = await call(app, {
+      action: "exportAll",
+      attachmentUUID: ATT,
+      noteName: "paper.pdf - Highlights",
+      content: "first run content",
+    });
+    const second = await call(app, {
+      action: "exportAll",
+      attachmentUUID: ATT,
+      noteName: "renamed.pdf - Highlights",
+      content: "second run content",
+    });
+
+    expect(second.noteUUID).toBe(first.noteUUID);
+    expect(app.createNote).toHaveBeenCalledTimes(1);
+  });
+
+  // Scenario: the recorded note was deleted. A dangling pointer must not be fatal - fall
+  // back to the name lookup, which is also what a pre-pointer export note is found by.
+  test("falls back to the name when the recorded note no longer exists", async () => {
+    const app = appWithNote();
+    const first = await call(app, {
+      action: "exportAll",
+      attachmentUUID: ATT,
+      noteName: "paper.pdf - Highlights",
+      content: "first run content",
+    });
+    app._notes.delete(first.noteUUID);
+
+    const second = await call(app, {
+      action: "exportAll",
+      attachmentUUID: ATT,
+      noteName: "paper.pdf - Highlights",
+      content: "second run content",
+    });
+
+    // A second create, rather than an error or a write to a note that isn't there. (The
+    // uuids are not compared: the mock reuses a freed id, which the real app would not.)
+    expect(second.ok).toBe(true);
+    expect(app.createNote).toHaveBeenCalledTimes(2);
+    expect(app._notes.get(second.noteUUID).content).toContain("second run content");
+  });
+
+  // Scenario: two PDFs on one note, exported in turn. Each has to remember its OWN
+  // destination - the pointers share a payload with the highlights, and with each other.
+  test("remembers a separate destination per attachment, and leaves highlights intact", async () => {
+    const app = appWithNote();
+    await saveHighlights(app, NOTE, ATT, [createHighlight(draft())]);
+
+    const one = await call(app, {
+      action: "exportAll",
+      attachmentUUID: ATT,
+      noteName: "paper.pdf - Highlights",
+      content: "paper blocks",
+    });
+    const two = await call(app, {
+      action: "exportAll",
+      attachmentUUID: "attach-2",
+      noteName: "other.pdf - Highlights",
+      content: "other blocks",
+    });
+
+    expect(two.noteUUID).not.toBe(one.noteUUID);
+    // The pointer rides in the same managed payload as the highlights; storing it must
+    // not disturb them.
+    expect(await loadHighlights(app, NOTE, ATT)).toHaveLength(1);
+
+    const again = await call(app, {
+      action: "exportAll",
+      attachmentUUID: "attach-2",
+      noteName: "other.pdf - Highlights",
+      content: "other blocks again",
+    });
+    expect(again.noteUUID).toBe(two.noteUUID);
+  });
+
+  // Scenario: an embed rendered before this existed sends no attachmentUUID. It must
+  // still export, by the name path, rather than erroring.
+  test("still exports by name when the embed sends no attachment id", async () => {
+    const app = appWithNote();
+    const result = await call(app, {
+      action: "exportAll",
+      noteName: "paper.pdf - Highlights",
+      content: "exported block",
+    });
+    expect(result.ok).toBe(true);
+    expect(app._notes.get(result.noteUUID).content).toContain("exported block");
+  });
+
   // Scenario: `findNote({ name })` searches the WHOLE VAULT, so a note the user wrote by
   // hand that happens to be called "<pdf> - Highlights" gets matched here. Exporting into
   // it must not be the thing that destroys it.

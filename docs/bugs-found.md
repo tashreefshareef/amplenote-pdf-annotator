@@ -1390,6 +1390,56 @@ sit close together, can be flatly broken in the theme where they do not.
 
 ---
 
+## "Export all" identified its destination note by name, and replaced the whole of it
+
+**Found by review, not from a report** — unlike every other entry in this file, nobody
+had lost a note to this yet. It is here because the same defect in a neighbouring code
+path *was* reported live ("every highlight the user had exported vanished", above), and
+because the near-miss is the point: the earlier bug was fixed where it bit without asking
+whether anything else made the same assumption.
+
+**Symptom (latent):** re-running "Export all" replaced the entire destination note, so
+anything the user had written in it was gone — silently, with a success message either
+way. And because the destination was located with a vault-wide `findNote({ name })` over
+a name computed from the PDF's filename, that whole-note replace could land on a note the
+plugin never created: a hand-written note that happened to be called `<pdf> - Highlights`
+matched, and exporting destroyed it.
+
+**Cause:** two separate things using a name as though it were an identity.
+
+The write was `replaceNoteContent(handle, content)` with no `section` option, on the
+reasoning that "this note IS the export" — true on the day it is created, false the moment
+the user adds a line of their own, which is the normal life of a highlights note.
+
+The lookup keyed on a *derived, mutable* string. Three ordinary actions broke it: renaming
+the destination note, renaming the PDF, or having two same-named PDFs anywhere in the
+vault. The first two orphan the old note and silently start a second; the third makes two
+PDFs share one destination, where whichever exports last wins.
+
+**Fix:** the export writes into its own `# Highlights` section
+(`replaceNoteContent(..., { section })`), so it owns a region of the note rather than the
+note. And the destination is remembered by **uuid**, recorded per attachment in the
+managed data section; the name lookup survives only as a fallback, which doubles as the
+migration path for notes exported before the pointer existed.
+
+**General lesson:** a name is a label, not an identity. Anything a user can rename — a
+file, a note, a branch, a display title — will be renamed, and code that re-derives a
+lookup key from one is correct only until that happens, then fails by acting on the wrong
+object rather than by erroring. Store the immutable id, keep the name lookup as a fallback
+for records written before you knew better.
+
+The second half is narrower but sharper: **whole-object replacement is a claim of
+exclusive ownership.** Writing all of a note/file/record means asserting nothing else may
+live there — an assertion that is usually true when the feature ships and quietly false
+later, because users treat anything that looks like a document as a place to write. Scope
+the write to the region you actually own. The tell that this had gone wrong here was that
+the fix for the *reported* bug already existed a few functions away, in the persistence
+layer, complete with a comment explaining why a section-scoped write was necessary. When a
+bug turns out to be an instance of a general mistake, the fix is not finished until the
+other instances have been looked for.
+
+---
+
 A few entries in the Amplenote-specific notes file are really platform-agnostic
 lessons that happened to be discovered here. Full detail lives there; summarized for
 searchability:

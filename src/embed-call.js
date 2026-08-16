@@ -17,6 +17,8 @@ import {
   insertAboveManagedSection,
   withExportSeparator,
   writeSection,
+  loadExportNoteUUID,
+  saveExportNoteUUID,
 } from "./storage.js";
 import {
   removeEmbedMarkup,
@@ -488,13 +490,29 @@ export async function handleEmbedCall(app, payload) {
 
     case "exportAll": {
       if (!request.noteName) return { error: "Missing destination note name." };
+      const sourceNoteUUID = resolveNoteUUID(app, request);
       try {
-        // A deterministic name is what makes this idempotent: re-running "Export all"
-        // finds the SAME note rather than creating a new one every time, so the
-        // destination reflects exactly the current highlight set instead of a growing
-        // pile of duplicates from previous runs.
-        const existing = await app.findNote({ name: request.noteName });
-        const noteUUID = existing ? existing.uuid : await app.createNote(request.noteName);
+        // WHICH note gets the export, in order of how much the answer can be trusted:
+        //
+        //   1. the uuid recorded for this attachment last time (storage.js), confirmed to
+        //      still exist - survives the user renaming the destination note OR the PDF
+        //   2. a vault-wide lookup by the deterministic name - the pre-pointer path, kept
+        //      because it is what finds a note exported before pointers existed
+        //   3. create it
+        //
+        // Step 2 is the one with teeth: the name is computed from the PDF's filename, so
+        // two same-named PDFs anywhere in the vault resolve to one note. Reaching it at
+        // most once per attachment - and recording the answer below - is what keeps that
+        // collision from being permanent.
+        let noteUUID = null;
+        if (request.attachmentUUID) {
+          const recorded = await loadExportNoteUUID(app, sourceNoteUUID, request.attachmentUUID);
+          if (recorded && (await app.findNote({ uuid: recorded }))) noteUUID = recorded;
+        }
+        if (!noteUUID) {
+          const existing = await app.findNote({ name: request.noteName });
+          noteUUID = existing ? existing.uuid : await app.createNote(request.noteName);
+        }
 
         // INTO A SECTION, not over the whole note. This used to be a bare
         // `replaceNoteContent(handle, content)`, which made the destination note
@@ -506,6 +524,18 @@ export async function handleEmbedCall(app, payload) {
         // A section-scoped write leaves both alone: the user's own content stays, and a
         // pre-existing note gains a section rather than losing everything.
         await writeSection(app, noteUUID, EXPORT_SECTION_HEADING, request.content || "");
+
+        // Recorded only after the export itself lands, and never allowed to fail it: the
+        // highlights are in the destination note either way, and a pointer that didn't
+        // save just means the next run resolves by name again - the behaviour that was
+        // acceptable for the whole life of the feature until now.
+        if (request.attachmentUUID) {
+          try {
+            await saveExportNoteUUID(app, sourceNoteUUID, request.attachmentUUID, noteUUID);
+          } catch {
+            // fall back to the name lookup next time
+          }
+        }
         return { ok: true, noteUUID };
       } catch (err) {
         return { error: `Could not export highlights: ${err.message}` };
