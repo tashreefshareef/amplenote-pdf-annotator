@@ -127,6 +127,7 @@ export async function loadHighlights(app, noteUUID, attachmentUUID) {
 async function mutatePayload(app, noteUUID, mutate) {
   const noteHandle = { uuid: noteUUID };
   const content = await app.getNoteContent(noteHandle);
+  assertOneManagedSection(content);
   const section = extractSection(content, STORAGE_SECTION_HEADING);
   const existing = deserialize(section) || {};
 
@@ -140,17 +141,6 @@ async function mutatePayload(app, noteUUID, mutate) {
     await app.insertNoteContent(noteHandle, `\n\n# ${STORAGE_SECTION_HEADING}\n\n`, {
       atEnd: true,
     });
-  }
-
-  // A note with TWO managed sections cannot be written safely by section at all: reads
-  // take the one that parses and the app's write takes whichever it takes, so the two can
-  // point at different places and the highlights go somewhere no load will look. Collapse
-  // to one section, by whole-note write, before anything else can depend on which is
-  // which. Reported live - see collapseManagedSections.
-  const collapsed = collapseManagedSections(content, body);
-  if (collapsed !== null) {
-    await app.replaceNoteContent(noteHandle, collapsed);
-    return;
   }
 
   // Rescue path, taken only when the section is holding content this plugin did not put
@@ -458,42 +448,35 @@ export function insertAboveManagedSection(noteContent, markdown) {
  * sent is still sitting in the blast radius, waiting for their next highlight.
  */
 /**
- * Collapse a note that has grown MORE THAN ONE managed section back to a single one.
+ * REFUSE TO WRITE to a note carrying more than one managed section, naming the repair.
  *
- * Returns null - the normal case - when the note has zero or one, so the caller keeps
- * using the cheap section-scoped write.
+ * Reported live: a note with two `# PDF Annotator data` headings, the first holding the
+ * JSON and the second empty, where every new highlight appeared to delete the previous
+ * one. Reads take the section that parses (locateSection); the app's own section-scoped
+ * write took the other. With reads and writes aimed at different sections every save
+ * landed somewhere no load would ever look, so the viewer kept being handed the same
+ * stale list - and each save wrote that stale list plus one.
  *
- * WHY THIS IS NEEDED AT ALL. Reported live: a note with two `# PDF Annotator data`
- * headings, the first holding the JSON and the second empty, where every new highlight
- * appeared to delete the previous one. Reads take the section that parses (locateSection);
- * the app's own section-scoped write took the other. With reads and writes pointed at
- * different sections, every save landed somewhere no load would ever look, so the viewer
- * kept being handed the same stale list - and each save wrote that stale list plus one.
+ * WHY THIS THROWS RATHER THAN REPAIRING. Removing a duplicate HEADING needs a whole-note
+ * write: a section-scoped write can empty a section but cannot delete the heading line,
+ * and Amplenote has no positional write (api-notes.md #11). And a whole-note write is
+ * measured to destroy the footnote that REGISTERS a PDF attachment - `getNoteAttachments`
+ * goes from one PDF to none (api-notes.md #17, measured 2026-08-15). On a note that by
+ * definition has a PDF attached, auto-repairing would trade the user's highlights for
+ * their attachment, which is a worse deal than the bug.
  *
- * Aiming the write more cleverly is not the fix, because which section
- * `replaceNoteContent({ section })` picks is the app's decision, not ours. Removing the
- * ambiguity is: one heading, and the question cannot be asked again.
- *
- * Everything that is not this plugin's own intro-and-fence is treated as the user's and
- * lifted out above the surviving section, same as liftStrayContentAboveSection does for a
- * single one. The surviving section goes LAST, which is where the design keeps it
- * (insertAboveManagedSection depends on that).
+ * Deleting the empty heading by hand costs seconds and destroys nothing - it is how the
+ * reported note was fixed - so the honest move is to stop and say so. Refusing also beats
+ * the old silent behaviour outright: a save that cannot be aimed correctly should not be
+ * a save that lands anywhere.
  */
-export function collapseManagedSections(noteContent, serializedBody) {
-  const lines = (noteContent || "").split("\n");
-  const all = locateSections(lines, STORAGE_SECTION_HEADING);
-  if (all.length < 2) return null;
-
-  const inSection = (i) => all.some((at) => i >= at.start && i < at.end);
-  const kept = lines.filter((_, i) => !inSection(i)).join("\n").replace(/\s+$/, "");
-  const strays = all
-    .map((at) => extractStray(lines.slice(at.start + 1, at.end).join("\n").trim()))
-    .filter(Boolean)
-    .join("\n\n");
-
-  const above = [kept, strays].filter(Boolean).join("\n\n");
-  return (
-    `${above ? above + "\n\n" : ""}# ${STORAGE_SECTION_HEADING}\n\n${serializedBody}`
+function assertOneManagedSection(noteContent) {
+  const count = locateSections((noteContent || "").split("\n"), STORAGE_SECTION_HEADING).length;
+  if (count < 2) return;
+  throw new Error(
+    `this note has ${count} "${STORAGE_SECTION_HEADING}" headings, so highlights cannot be ` +
+      `saved reliably. Delete the empty one - keep the heading whose code block holds the ` +
+      `JSON - and try again.`
   );
 }
 

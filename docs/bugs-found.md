@@ -1409,14 +1409,18 @@ highlight into a section nothing would ever read. The highlight that appeared to
 deleted was never deleted — it was written somewhere invisible, and the next load simply
 didn't include it.
 
-**Fix:** two halves, because the two halves fail differently. Reads now prefer the section
-that actually *parses*, so an empty duplicate can never read as "no highlights here" (which
-is the version of this bug that ends in the real payload being overwritten). And a save
-that sees more than one managed section stops writing by section at all: it collapses the
-note to a single section in one whole-note write, lifting out anything that isn't the
-plugin's own payload, and only then resumes normal section writes. Aiming the write more
-cleverly was rejected as a fix — *which* section the app picks is the app's decision, not
-ours; removing the ambiguity means the question can't be asked again.
+**Fix:** reads now prefer the section that actually *parses*, so an empty duplicate can
+never read as "no highlights here" — the version of this bug that ends with the real
+payload overwritten. Writes **refuse**: a save into a note with more than one managed
+section throws, and the message names the repair ("delete the empty one").
+
+Auto-repairing was written first and then deleted, which is the more useful half of the
+story. Collapsing the duplicate requires a whole-note write — a section-scoped write can
+empty a section but cannot remove its heading line, and this platform offers no positional
+write. And a whole-note write was separately measured to destroy the footnote that
+*registers* a PDF attachment, taking the note's attachment with it. The repair would have
+traded the user's highlights for their PDF. Deleting the heading by hand — which is how
+the reported note was actually fixed — costs seconds and destroys nothing.
 
 **General lesson:** **an addressing scheme that isn't guaranteed unique is a bug waiting
 for a duplicate.** Addressing a region of a document by its heading text, a record by its
@@ -1430,9 +1434,10 @@ code — the corruption is in the state, and the code's fault is that it accepte
 
 Two follow-ons worth taking:
 
-- **Don't just handle the duplicate — heal it.** Tolerating malformed state indefinitely
-  means every future read has to keep being clever, and it leaves the user's data one
-  ordinary write away from loss. Repairing it on the next write ends the condition.
+- **When the only repair available is a lossy write, the fix is a good error message.**
+  "Self-healing" is a reflex worth interrogating: healing has a cost, and here that cost
+  was measured and larger than the disease. A refusal that names the one-line manual fix
+  is not a lesser outcome than automation — it is the correct one.
 - **A silent tolerance can be worse than a crash.** The neighbouring failure mode is the
   same shape: a section whose JSON won't parse is treated as empty (so the plugin doesn't
   crash), which means the next save cheerfully overwrites data it failed to read. "Fail

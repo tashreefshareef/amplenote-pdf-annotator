@@ -71,11 +71,20 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    new highlight deletes the previous one", because every load returned the same stale
    payload and every save wrote that stale payload plus one. **Never assume a
    heading-addressed write and your own heading-addressed read resolve to the same
-   section.** Before relying on either, count the matching headings; if there is more than
-   one, collapse them in a single whole-note write and only then resume section-scoped
-   writes. How the duplicate arises is still unknown here - the plugin has exactly one
-   place that inserts the heading, guarded by a "does it already exist?" read, so a
-   racing pair of first-saves is the leading suspect, unconfirmed.
+   section.** Count the matching headings before writing, and if there is more than one,
+   **stop and tell the user which to delete** rather than writing anyway.
+
+   Repairing it in code is the obvious move and is wrong *on this platform*: deleting a
+   duplicate heading needs a whole-note write (a section-scoped write can empty a section
+   but not remove its heading line, and there is no positional write - #11), and a
+   whole-note write destroys a PDF attachment's registering footnote (#17). Auto-repair
+   would trade the user's highlights for their attachment. Deleting the heading by hand
+   costs seconds and destroys nothing. **When the only repair available is a lossy write,
+   the fix is a good error message.**
+
+   How the duplicate arises is still unknown here - the plugin has exactly one place that
+   inserts the heading, guarded by a "does it already exist?" read, so a racing pair of
+   first-saves is the leading suspect, unconfirmed.
 
 5. **Don't trust `app.context.noteUUID` (or any per-call context field) fresh on every
    `onEmbedCall` - capture it once and pass it explicitly instead.** Confirmed live:

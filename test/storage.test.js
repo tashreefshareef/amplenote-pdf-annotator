@@ -387,73 +387,66 @@ describe("a note that grew a second managed section", () => {
     expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([h]);
   });
 
-  // Scenario: THE reported bug. Saving a second highlight into a note with two sections
-  // used to land somewhere no load would look, so the first highlight came back alone on
-  // the next read and the new one looked deleted. The save now heals the note instead.
-  test("a save collapses the note back to ONE section, keeping both highlights", async () => {
+  // Scenario: THE reported bug. A save that cannot be aimed at a known section must not
+  // land anywhere - the old behaviour wrote into whichever section the app picked, which
+  // no load would then read, and the highlight looked deleted.
+  test("refuses to save, naming the repair, rather than writing into the wrong section", async () => {
     const first = sampleHighlight({ id: "hl-first" });
-    const app = createMockApp({
-      notes: [{ uuid: NOTE, name: "N", content: withDuplicate(JSON.stringify({ [ATT_A]: [first] })) }],
-    });
+    const before = withDuplicate(JSON.stringify({ [ATT_A]: [first] }));
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: before }] });
 
-    const second = sampleHighlight({ id: "hl-second", quoteText: "the second one" });
-    await saveHighlights(app, NOTE, ATT_A, [first, second]);
+    await expect(
+      saveHighlights(app, NOTE, ATT_A, [first, sampleHighlight({ id: "hl-second" })])
+    ).rejects.toThrow(/two "PDF Annotator data" headings|headings/i);
 
-    expect(headingCount(app)).toBe(1);
-    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([first, second]);
-    // And it really is in the note, not just readable through a forgiving parser.
-    expect(storedJson(app)[ATT_A]).toHaveLength(2);
+    // Nothing written at all - the note is exactly as it was, stale but intact.
+    expect(app._notes.get(NOTE).content).toBe(before);
+    expect(headingCount(app)).toBe(2);
   });
 
-  // Scenario: the collapse rewrites the whole note, which is the dangerous kind of write.
-  // The user's own content has to come through it untouched.
-  test("keeps the user's own content, and puts the surviving section last", async () => {
+  // Scenario: the message has to be actionable, since deleting the duplicate by hand is
+  // the ONLY safe repair - a whole-note write would take the PDF's attachment
+  // registration with it (api-notes.md #17).
+  test("says which heading to delete", async () => {
     const app = createMockApp({
       notes: [{ uuid: NOTE, name: "N", content: withDuplicate(JSON.stringify({ [ATT_A]: [] })) }],
     });
 
-    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
-
-    const content = app._notes.get(NOTE).content;
-    expect(content).toContain("# My reading");
-    expect(content).toContain("some text");
-    expect(content.indexOf(`# ${STORAGE_SECTION_HEADING}`)).toBeGreaterThan(content.indexOf("some text"));
+    await expect(saveHighlights(app, NOTE, ATT_A, [sampleHighlight()])).rejects.toThrow(
+      /delete the empty one/i
+    );
   });
 
-  // Scenario: anything trapped inside EITHER duplicate that this plugin didn't write is
-  // the user's - most likely an exported block that got appended into the wrong place -
-  // and the collapse must lift it out rather than drop it on the floor.
-  test("lifts stray content out of both sections instead of destroying it", async () => {
-    const base = withDuplicate(JSON.stringify({ [ATT_A]: [] }));
-    const content = base
-      .replace("```\n\n# " + STORAGE_SECTION_HEADING, "```\n\ntrapped above\n\n# " + STORAGE_SECTION_HEADING)
-      .concat("\n\ntrapped below");
-    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content }] });
-
-    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
-
-    const finalContent = app._notes.get(NOTE).content;
-    expect(finalContent).toContain("trapped above");
-    expect(finalContent).toContain("trapped below");
-    expect(headingCount(app)).toBe(1);
+  // Scenario: reading is still allowed and still correct. The refusal is on the WRITE
+  // side only - a user with a duplicated note must still see the highlights they have.
+  test("still loads highlights while the note is in this state", async () => {
+    const h = sampleHighlight();
+    const app = createMockApp({
+      notes: [{ uuid: NOTE, name: "N", content: withDuplicate(JSON.stringify({ [ATT_A]: [h] })) }],
+    });
+    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([h]);
   });
 
-  // Scenario: three of them. Nothing about the fix should assume exactly two.
-  test("collapses more than two", async () => {
+  // Scenario: deleting is a write too, and just as unaimable.
+  test("refuses to delete as well", async () => {
     const app = createMockApp({
       notes: [
         {
           uuid: NOTE,
           name: "N",
-          content: `${withDuplicate(JSON.stringify({ [ATT_A]: [] }))}\n\n# ${STORAGE_SECTION_HEADING}\n`,
+          content: withDuplicate(JSON.stringify({ [ATT_A]: [sampleHighlight()] })),
         },
       ],
     });
+    await expect(deleteHighlights(app, NOTE, ATT_A)).rejects.toThrow(/headings/i);
+  });
 
+  // Scenario: one section is the normal case and must be entirely unaffected by the guard.
+  test("writes normally when there is only one section", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "" }] });
     await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
-
     expect(headingCount(app)).toBe(1);
-    expect(await loadHighlights(app, NOTE, ATT_A)).toHaveLength(1);
+    expect(storedJson(app)[ATT_A]).toHaveLength(1);
   });
 });
 
