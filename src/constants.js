@@ -119,6 +119,23 @@ export const DEFAULT_MARK_STYLE = MARK_STYLES[0].id;
 export const STORAGE_SECTION_HEADING = "PDF Annotator data";
 
 /**
+ * The heading "Export all" writes its blocks under, inside the destination note.
+ *
+ * The section exists so the export is a REGION of that note rather than the whole of it.
+ * Re-running the export used to `replaceNoteContent` the entire destination, which made
+ * the note unusable for anything else: a highlights note is exactly where someone writes
+ * their own synthesis, and the next export silently ate it. Same failure the managed data
+ * section already guards against (see storage.js, and docs/bugs-found.md's "every
+ * exported highlight vanished"), so it gets the same answer.
+ *
+ * FIXED TEXT, deliberately not derived from the PDF's name. A derived heading drifts the
+ * moment the attachment is renamed, and the old section would then be orphaned inside the
+ * note while a second one appeared below it. The PDF's name is already carried by the
+ * note's own name and by every block's link, so nothing is lost by keeping this stable.
+ */
+export const EXPORT_SECTION_HEADING = "Highlights";
+
+/**
  * The link scheme Amplenote uses for an attachment chip in note markdown.
  *
  * Undocumented - the plugin markdown reference omits attachments entirely - but confirmed

@@ -15,7 +15,7 @@
 import { handleEmbedCall, handleEmbedCallSerialized, parseEmbedPayload } from "../src/embed-call.js";
 import { loadHighlights, saveHighlights } from "../src/storage.js";
 import { createHighlight } from "../src/highlights.js";
-import { STORAGE_SECTION_HEADING } from "../src/constants.js";
+import { EXPORT_SECTION_HEADING, STORAGE_SECTION_HEADING } from "../src/constants.js";
 import { createMockApp, mockAttachment } from "./helpers.js";
 
 const NOTE = "note-1";
@@ -1012,6 +1012,7 @@ describe("exportAll", () => {
     expect(app.createNote).toHaveBeenCalledWith("paper.pdf - Highlights");
     const created = app._notes.get(result.noteUUID);
     expect(created.content).toContain("quote one");
+    expect(created.content).toContain(`# ${EXPORT_SECTION_HEADING}`);
   });
 
   // Scenario: THE idempotency requirement - re-running "export all" must find the SAME
@@ -1031,11 +1032,64 @@ describe("exportAll", () => {
 
     expect(second.noteUUID).toBe(first.noteUUID);
     expect(app.createNote).toHaveBeenCalledTimes(1);
-    // The SECOND run's content is what the note holds now - a full replace, not an
+    // The SECOND run's blocks are what the section holds now - a replace, not an
     // ever-growing append, so re-running never duplicates what was exported before.
     const finalContent = app._notes.get(first.noteUUID).content;
-    expect(finalContent).toBe("second run content");
+    expect(finalContent).toContain("second run content");
     expect(finalContent).not.toContain("first run content");
+    // ...and exactly one section, rather than a second one appended per run.
+    expect(finalContent.match(new RegExp(`^# ${EXPORT_SECTION_HEADING}$`, "gm"))).toHaveLength(1);
+  });
+
+  // Scenario: THE reason this writes a section instead of the whole note. A highlights
+  // note is exactly where someone writes their own summary, and the previous whole-note
+  // replace ate it on the next export - silently, with a success message either way.
+  test("keeps the user's own content in the destination note across a re-export", async () => {
+    const app = appWithNote();
+    const first = await call(app, {
+      action: "exportAll",
+      noteName: "paper.pdf - Highlights",
+      content: "first run content",
+    });
+
+    // The user writes their own summary above the exported blocks.
+    const note = app._notes.get(first.noteUUID);
+    note.content = `My reading summary\n\n${note.content}`;
+
+    await call(app, {
+      action: "exportAll",
+      noteName: "paper.pdf - Highlights",
+      content: "second run content",
+    });
+
+    const finalContent = app._notes.get(first.noteUUID).content;
+    expect(finalContent).toContain("My reading summary");
+    expect(finalContent).toContain("second run content");
+  });
+
+  // Scenario: `findNote({ name })` searches the WHOLE VAULT, so a note the user wrote by
+  // hand that happens to be called "<pdf> - Highlights" gets matched here. Exporting into
+  // it must not be the thing that destroys it.
+  test("adds a section to a matching note it did not create, rather than replacing it", async () => {
+    const app = appWithNote();
+    app._notes.set("mine", {
+      uuid: "mine",
+      name: "paper.pdf - Highlights",
+      content: "# My own notes\n\nnothing to do with the plugin",
+      attachments: [],
+    });
+
+    const result = await call(app, {
+      action: "exportAll",
+      noteName: "paper.pdf - Highlights",
+      content: "exported block",
+    });
+
+    expect(result.noteUUID).toBe("mine");
+    expect(app.createNote).not.toHaveBeenCalled();
+    const finalContent = app._notes.get("mine").content;
+    expect(finalContent).toContain("nothing to do with the plugin");
+    expect(finalContent).toContain("exported block");
   });
 
   // Scenario: the color filter is applied by the CALLER (export.js, embed-side) before
@@ -1049,7 +1103,7 @@ describe("exportAll", () => {
       noteName: "paper.pdf - Highlights",
       content: "only-the-green-ones",
     });
-    expect(app._notes.get(result.noteUUID).content).toBe("only-the-green-ones");
+    expect(app._notes.get(result.noteUUID).content).toContain("only-the-green-ones");
   });
 
   // Scenario: a missing destination note name must be refused, not silently create a
@@ -1068,7 +1122,7 @@ describe("exportAll", () => {
     const app = appWithNote();
     const result = await call(app, { action: "exportAll", noteName: "paper.pdf - Highlights", content: "" });
     expect(result.ok).toBe(true);
-    expect(app._notes.get(result.noteUUID).content).toBe("");
+    expect(app._notes.get(result.noteUUID).content).toContain(`# ${EXPORT_SECTION_HEADING}`);
   });
 });
 

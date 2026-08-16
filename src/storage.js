@@ -166,6 +166,38 @@ export async function deleteHighlights(app, noteUUID, attachmentUUID) {
 }
 
 /**
+ * Replace everything under one level-1 heading in a note, creating that heading at the
+ * end if the note doesn't have it yet.
+ *
+ * The generic form of what saveHighlights does to the managed data section, lives here
+ * because the section-locating machinery does (extractSection, and the `{ section: ... }`
+ * shape `replaceNoteContent` wants). Copying either into another module is how the two
+ * would end up disagreeing about where a section starts and stops.
+ *
+ * Written for the "export all" destination note, whose whole point is that the export is
+ * a REGION of the note and not the note itself - see EXPORT_SECTION_HEADING. Deliberately
+ * NOT wired through liftStrayContentAboveSection: that rescue path exists because the
+ * managed data section is a JSON payload where anything else is by definition strays, and
+ * a section of ordinary prose has no equivalent notion of foreign content.
+ *
+ * The blank line before the heading is skipped on an empty note, so a freshly created
+ * destination doesn't open with a leading gap.
+ */
+export async function writeSection(app, noteUUID, headingText, body) {
+  const noteHandle = { uuid: noteUUID };
+  const content = await app.getNoteContent(noteHandle);
+
+  if (extractSection(content, headingText) === null) {
+    const lead = content && content.trim() ? "\n\n" : "";
+    await app.insertNoteContent(noteHandle, `${lead}# ${headingText}\n\n`, { atEnd: true });
+  }
+
+  await app.replaceNoteContent(noteHandle, body, {
+    section: { heading: { text: headingText, level: 1 } },
+  });
+}
+
+/**
  * Locate the managed section's heading line and the line after its last, mirroring the
  * section semantics `replaceNoteContent`'s `section` option relies on. Returns null if
  * the heading isn't in the note at all.

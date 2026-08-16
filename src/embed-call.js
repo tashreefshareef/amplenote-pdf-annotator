@@ -16,6 +16,7 @@ import {
   deleteHighlights,
   insertAboveManagedSection,
   withExportSeparator,
+  writeSection,
 } from "./storage.js";
 import {
   removeEmbedMarkup,
@@ -24,7 +25,7 @@ import {
   normalizeAspectRatio,
 } from "./embed-args.js";
 import { parseToolbarColorIds } from "./colors.js";
-import { COLOR_SETTING_NAME } from "./constants.js";
+import { COLOR_SETTING_NAME, EXPORT_SECTION_HEADING } from "./constants.js";
 import { removeExportBlock, replaceExportBlock } from "./exports-in-note.js";
 import {
   createHighlight,
@@ -489,14 +490,22 @@ export async function handleEmbedCall(app, payload) {
       if (!request.noteName) return { error: "Missing destination note name." };
       try {
         // A deterministic name is what makes this idempotent: re-running "Export all"
-        // finds the SAME note rather than creating a new one every time, and a whole
-        // -note replace (no section - this note IS the export, unlike the highlights
-        // data section which shares a note with the user's own content) means the
-        // destination always reflects exactly the current highlight set, never a
-        // growing pile of duplicates from previous runs.
+        // finds the SAME note rather than creating a new one every time, so the
+        // destination reflects exactly the current highlight set instead of a growing
+        // pile of duplicates from previous runs.
         const existing = await app.findNote({ name: request.noteName });
         const noteUUID = existing ? existing.uuid : await app.createNote(request.noteName);
-        await app.replaceNoteContent({ uuid: noteUUID }, request.content || "");
+
+        // INTO A SECTION, not over the whole note. This used to be a bare
+        // `replaceNoteContent(handle, content)`, which made the destination note
+        // uninhabitable: anything the user wrote there - their own summary, a link, a
+        // task - was gone on the next export, with a success message either way. The
+        // same replace also fired when `findNote` matched a note the plugin never
+        // created (the name lookup is vault-wide, so a hand-written note that happens
+        // to be called "<pdf> - Highlights" matched), destroying a note we do not own.
+        // A section-scoped write leaves both alone: the user's own content stays, and a
+        // pre-existing note gains a section rather than losing everything.
+        await writeSection(app, noteUUID, EXPORT_SECTION_HEADING, request.content || "");
         return { ok: true, noteUUID };
       } catch (err) {
         return { error: `Could not export highlights: ${err.message}` };
