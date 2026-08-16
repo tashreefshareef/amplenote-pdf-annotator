@@ -40,37 +40,6 @@ Install it from
 |---|---|
 | ![Panel listing every highlight and its note, with click-to-jump](docs/screenshots/03-highlights-panel.png) | ![Exported note, each block deep-linking back to its page](docs/screenshots/04-exported-highlights-note.png) |
 
-## Installing into Amplenote
-
-### Recommended: sync from GitHub
-
-Install the [Plugin Builder](https://github.com/alloy-org/plugin-builder) plugin, then
-in this plugin's note add a line pointing at this repo and an H1 heading named exactly
-`Code block` above the code block:
-
-```
-repo: tashreefshareef/amplenote-pdf-annotator/dist/plugin.js
-```
-
-Run **Plugin Builder: Refresh** from the note's ⋯ menu and it pulls the latest build
-straight from GitHub.
-
-**One caveat.** Plugin Builder's own published `build/compiled.js` does not work when
-pasted into its own plugin note against real Amplenote — three separate incompatibilities,
-all of them silent. Paste
-[`tools/plugin-builder-patched.js`](tools/plugin-builder-patched.js) into Plugin Builder's
-note instead; it fixes all three and changes nothing about the sync logic. See
-[what was wrong and why](docs/development.md#plugin-builder-compatibility).
-
-### Fallback: paste by hand
-
-Copy the entire contents of **`dist/plugin-paste.js`** (not `plugin.js` — that one omits
-the final `return plugin` that Plugin Builder adds for you) into the note's code block.
-
-Click **inside** the code block first, press Ctrl+A, and **confirm the selection covers
-only the block** before pasting. Clicking slightly outside it makes Ctrl+A select the
-whole note, and pasting then destroys the metadata table.
-
 ## Choosing your four highlight colors
 
 The toolbar carries four color circles. Which four is up to you.
@@ -254,6 +223,42 @@ npm run build
 [`docs/development.md`](docs/development.md) covers the rest: why there's a build step,
 the standalone viewer harness, the repo layout, the testing approach and the constraints
 the embed places on it, and the Plugin Builder compatibility fixes.
+
+### Getting your own build into Amplenote
+
+To *use* the plugin, install it from
+[its plugin page](https://public.amplenote.com/ZEJ7qV/pdf-annotator) — there is nothing
+here you need. This section is for running a build the directory doesn't have: a fork, a
+local change, or a fix in progress.
+
+**Sync from GitHub.** Install the
+[Plugin Builder](https://github.com/alloy-org/plugin-builder) plugin, then in your
+plugin's note add a line pointing at the repo, plus an H1 heading named exactly
+`Code block` above the code block:
+
+```
+repo: tashreefshareef/amplenote-pdf-annotator/dist/plugin.js
+```
+
+Run **Plugin Builder: Refresh** from the note's ⋯ menu and it pulls that build straight
+from GitHub. This is why `dist/` is committed rather than gitignored, and why the
+contributing steps below ask you to rebuild before committing: `dist/plugin.js` on `main`
+*is* the sync endpoint.
+
+**One caveat.** Plugin Builder's own published `build/compiled.js` does not work when
+pasted into its own plugin note against real Amplenote — three separate incompatibilities,
+all of them silent. Paste
+[`tools/plugin-builder-patched.js`](tools/plugin-builder-patched.js) into Plugin Builder's
+note instead; it fixes all three and changes nothing about the sync logic. See
+[what was wrong and why](docs/development.md#plugin-builder-compatibility).
+
+**Or paste by hand.** Copy the entire contents of **`dist/plugin-paste.js`** (not
+`plugin.js` — that one omits the final `return plugin` that Plugin Builder adds for you)
+into the note's code block.
+
+Click **inside** the code block first, press Ctrl+A, and **confirm the selection covers
+only the block** before pasting. Clicking slightly outside it makes Ctrl+A select the
+whole note, and pasting then destroys the metadata table.
 
 ## Contributing
 
