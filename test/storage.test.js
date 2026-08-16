@@ -351,6 +351,112 @@ describe("the export-note pointer", () => {
   });
 });
 
+describe("a note that grew a second managed section", () => {
+  /**
+   * THE REPORTED SHAPE, from a screenshot of the live note: the data section first, an
+   * empty heading of the same name after it, and nothing under the second.
+   */
+  const withDuplicate = (payloadJson, { emptyFirst = false } = {}) => {
+    const filled = `# ${STORAGE_SECTION_HEADING}\n\n*Managed automatically by the PDF Annotator plugin - safe to ignore, don't edit.*\n\`\`\`json\n${payloadJson}\n\`\`\``;
+    const empty = `# ${STORAGE_SECTION_HEADING}\n`;
+    const order = emptyFirst ? [empty, filled] : [filled, empty];
+    return `# My reading\n\nsome text\n\n${order.join("\n\n")}`;
+  };
+
+  const storedJson = (app) => {
+    const m = app._notes.get(NOTE).content.match(/```json\n([\s\S]*?)\n```/);
+    return m ? JSON.parse(m[1]) : null;
+  };
+
+  const headingCount = (app) =>
+    app._notes.get(NOTE).content.split("\n").filter((l) => l.trim() === `# ${STORAGE_SECTION_HEADING}`)
+      .length;
+
+  // Scenario: the read side. Whichever of the two holds the payload is the one that
+  // counts - the empty duplicate must not read as "this note has no highlights", which is
+  // what would let the next save overwrite the real ones.
+  test.each([
+    ["data section first", false],
+    ["empty duplicate first", true],
+  ])("loads the highlights when the note has two headings (%s)", async (_label, emptyFirst) => {
+    const h = sampleHighlight();
+    const app = createMockApp({
+      notes: [{ uuid: NOTE, name: "N", content: withDuplicate(JSON.stringify({ [ATT_A]: [h] }), { emptyFirst }) }],
+    });
+
+    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([h]);
+  });
+
+  // Scenario: THE reported bug. Saving a second highlight into a note with two sections
+  // used to land somewhere no load would look, so the first highlight came back alone on
+  // the next read and the new one looked deleted. The save now heals the note instead.
+  test("a save collapses the note back to ONE section, keeping both highlights", async () => {
+    const first = sampleHighlight({ id: "hl-first" });
+    const app = createMockApp({
+      notes: [{ uuid: NOTE, name: "N", content: withDuplicate(JSON.stringify({ [ATT_A]: [first] })) }],
+    });
+
+    const second = sampleHighlight({ id: "hl-second", quoteText: "the second one" });
+    await saveHighlights(app, NOTE, ATT_A, [first, second]);
+
+    expect(headingCount(app)).toBe(1);
+    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([first, second]);
+    // And it really is in the note, not just readable through a forgiving parser.
+    expect(storedJson(app)[ATT_A]).toHaveLength(2);
+  });
+
+  // Scenario: the collapse rewrites the whole note, which is the dangerous kind of write.
+  // The user's own content has to come through it untouched.
+  test("keeps the user's own content, and puts the surviving section last", async () => {
+    const app = createMockApp({
+      notes: [{ uuid: NOTE, name: "N", content: withDuplicate(JSON.stringify({ [ATT_A]: [] })) }],
+    });
+
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+
+    const content = app._notes.get(NOTE).content;
+    expect(content).toContain("# My reading");
+    expect(content).toContain("some text");
+    expect(content.indexOf(`# ${STORAGE_SECTION_HEADING}`)).toBeGreaterThan(content.indexOf("some text"));
+  });
+
+  // Scenario: anything trapped inside EITHER duplicate that this plugin didn't write is
+  // the user's - most likely an exported block that got appended into the wrong place -
+  // and the collapse must lift it out rather than drop it on the floor.
+  test("lifts stray content out of both sections instead of destroying it", async () => {
+    const base = withDuplicate(JSON.stringify({ [ATT_A]: [] }));
+    const content = base
+      .replace("```\n\n# " + STORAGE_SECTION_HEADING, "```\n\ntrapped above\n\n# " + STORAGE_SECTION_HEADING)
+      .concat("\n\ntrapped below");
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content }] });
+
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+
+    const finalContent = app._notes.get(NOTE).content;
+    expect(finalContent).toContain("trapped above");
+    expect(finalContent).toContain("trapped below");
+    expect(headingCount(app)).toBe(1);
+  });
+
+  // Scenario: three of them. Nothing about the fix should assume exactly two.
+  test("collapses more than two", async () => {
+    const app = createMockApp({
+      notes: [
+        {
+          uuid: NOTE,
+          name: "N",
+          content: `${withDuplicate(JSON.stringify({ [ATT_A]: [] }))}\n\n# ${STORAGE_SECTION_HEADING}\n`,
+        },
+      ],
+    });
+
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+
+    expect(headingCount(app)).toBe(1);
+    expect(await loadHighlights(app, NOTE, ATT_A)).toHaveLength(1);
+  });
+});
+
 describe("repairing a section that swallowed the user's content", () => {
   // Scenario: THE reported data-loss bug, from the writer's side. "Send to note" used to
   // append exports at the very end of the note - and since the managed section is created

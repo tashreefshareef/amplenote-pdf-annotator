@@ -1390,6 +1390,56 @@ sit close together, can be flatly broken in the theme where they do not.
 
 ---
 
+## Two identical headings, and every new highlight deleted the previous one
+
+**Symptom:** on ONE note, out of many: highlight a passage and it appears; click it and
+pick a different colour and it vanishes; highlight something else and the previous one is
+gone. Every other note with the same plugin, the same PDF viewer and the same actions
+behaved perfectly. The user found it before the code did — that note had **two**
+`# PDF Annotator data` H1 headings at the bottom, the first holding the JSON payload and
+the second empty. Deleting the empty one fixed it outright.
+
+**Cause:** the plugin stores its data under a heading and writes it with
+`replaceNoteContent(handle, body, { section: { heading: { text } } })` — a write addressed
+by heading *text*. Reads used the plugin's own scan, which took the **first** matching
+heading. The app's write did not resolve the duplicate the same way. So reads came from
+one section and writes went to the other, and neither side had any way to notice: every
+load returned the same stale payload, every save wrote that payload plus the newest
+highlight into a section nothing would ever read. The highlight that appeared to be
+deleted was never deleted — it was written somewhere invisible, and the next load simply
+didn't include it.
+
+**Fix:** two halves, because the two halves fail differently. Reads now prefer the section
+that actually *parses*, so an empty duplicate can never read as "no highlights here" (which
+is the version of this bug that ends in the real payload being overwritten). And a save
+that sees more than one managed section stops writing by section at all: it collapses the
+note to a single section in one whole-note write, lifting out anything that isn't the
+plugin's own payload, and only then resumes normal section writes. Aiming the write more
+cleverly was rejected as a fix — *which* section the app picks is the app's decision, not
+ours; removing the ambiguity means the question can't be asked again.
+
+**General lesson:** **an addressing scheme that isn't guaranteed unique is a bug waiting
+for a duplicate.** Addressing a region of a document by its heading text, a record by its
+name, an element by a non-unique selector — each works perfectly until a second match
+exists, and then it doesn't fail loudly. It silently splits the reader and the writer onto
+different objects, which is far worse than an error, because both sides keep succeeding.
+The tell here was that the failure was **note-specific**: identical code, identical
+actions, one note affected. When a bug is scoped to a single instance of the data rather
+than to a code path, look at what is *in* that instance before you keep re-reading the
+code — the corruption is in the state, and the code's fault is that it accepted it.
+
+Two follow-ons worth taking:
+
+- **Don't just handle the duplicate — heal it.** Tolerating malformed state indefinitely
+  means every future read has to keep being clever, and it leaves the user's data one
+  ordinary write away from loss. Repairing it on the next write ends the condition.
+- **A silent tolerance can be worse than a crash.** The neighbouring failure mode is the
+  same shape: a section whose JSON won't parse is treated as empty (so the plugin doesn't
+  crash), which means the next save cheerfully overwrites data it failed to read. "Fail
+  soft" is only safe if the soft path doesn't also destroy something.
+
+---
+
 ## "Export all" identified its destination note by name, and replaced the whole of it
 
 **Found by review, not from a report** — unlike every other entry in this file, nobody

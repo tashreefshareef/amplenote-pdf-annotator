@@ -62,6 +62,21 @@ several of these cost real debugging time (or a live, reported bug) on this one.
    below) treat as verbatim - treat that as a hard requirement for stored data, not a
    formatting nicety.
 
+4b. **`replaceNoteContent`'s `{ section: { heading: { text } } }` addresses a section by
+   its heading TEXT, so it is only as unique as that text - and a note CAN end up with two
+   identical headings.** Reported live, with a screenshot: a note carrying two
+   `# PDF Annotator data` H1s, the first holding the JSON and the second empty. Reads
+   (our own first-match scan) took the first; the app's section-scoped write did not, so
+   every save landed in a section no load would ever look at. On screen this read as "each
+   new highlight deletes the previous one", because every load returned the same stale
+   payload and every save wrote that stale payload plus one. **Never assume a
+   heading-addressed write and your own heading-addressed read resolve to the same
+   section.** Before relying on either, count the matching headings; if there is more than
+   one, collapse them in a single whole-note write and only then resume section-scoped
+   writes. How the duplicate arises is still unknown here - the plugin has exactly one
+   place that inserts the heading, guarded by a "does it already exist?" read, so a
+   racing pair of first-saves is the leading suspect, unconfirmed.
+
 5. **Don't trust `app.context.noteUUID` (or any per-call context field) fresh on every
    `onEmbedCall` - capture it once and pass it explicitly instead.** Confirmed live:
    switching away from a note and back can leave the embed's plugin-side context pointing

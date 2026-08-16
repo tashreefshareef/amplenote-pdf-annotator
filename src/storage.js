@@ -142,6 +142,17 @@ async function mutatePayload(app, noteUUID, mutate) {
     });
   }
 
+  // A note with TWO managed sections cannot be written safely by section at all: reads
+  // take the one that parses and the app's write takes whichever it takes, so the two can
+  // point at different places and the highlights go somewhere no load will look. Collapse
+  // to one section, by whole-note write, before anything else can depend on which is
+  // which. Reported live - see collapseManagedSections.
+  const collapsed = collapseManagedSections(content, body);
+  if (collapsed !== null) {
+    await app.replaceNoteContent(noteHandle, collapsed);
+    return;
+  }
+
   // Rescue path, taken only when the section is holding content this plugin did not put
   // there. The section-scoped write below replaces everything under the heading, so
   // anything trapped in there would be destroyed - which is precisely the reported bug,
@@ -269,26 +280,54 @@ export async function writeSection(app, noteUUID, headingText, body) {
 }
 
 /**
- * Locate the managed section's heading line and the line after its last, mirroring the
- * section semantics `replaceNoteContent`'s `section` option relies on. Returns null if
- * the heading isn't in the note at all.
+ * EVERY level-1 heading with this text, each as { start, end }, mirroring the section
+ * semantics `replaceNoteContent`'s `section` option relies on.
+ *
+ * Plural because a note CAN end up with two of them - confirmed live, from a note whose
+ * highlights kept disappearing (see locateSection and collapseManagedSections).
  */
-function locateSection(lines, headingText) {
+function locateSections(lines, headingText) {
   const headingRe = /^#\s+(.*)$/;
-  const start = lines.findIndex((l) => {
-    const m = l.match(headingRe);
-    return m && m[1].trim() === headingText;
-  });
-  if (start === -1) return null;
-
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^#\s+/.test(lines[i])) {
-      end = i;
-      break;
+  const found = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(headingRe);
+    if (!m || m[1].trim() !== headingText) continue;
+    if (found.length) found[found.length - 1].end = i;
+    found.push({ start: i, end: lines.length });
+  }
+  // Each section ends at the next heading of ANY name, not just a repeat of this one.
+  for (const at of found) {
+    for (let i = at.start + 1; i < at.end; i++) {
+      if (/^#\s+/.test(lines[i])) {
+        at.end = i;
+        break;
+      }
     }
   }
-  return { start, end };
+  return found;
+}
+
+/**
+ * THE managed section - the one holding the payload, when a note has more than one
+ * heading by this name. Returns null if the heading isn't in the note at all.
+ *
+ * A note really can grow a second `# PDF Annotator data` heading: reported live from a
+ * note where every new highlight replaced the previous one. The note held two, the first
+ * carrying the JSON and the second empty. Reads came from the first (this function, first
+ * match) while the app's own section-scoped WRITE went elsewhere, so every save landed in
+ * the empty one and every load returned the same stale payload - which reads on screen as
+ * "the last highlight I made just disappeared".
+ *
+ * Preferring the section that PARSES makes the read side immune to which of the two the
+ * app picks. It is not the whole fix - a write still has to be aimed at one of them, which
+ * is what collapseManagedSections is for - but it is what stops a duplicate heading from
+ * silently emptying a note's highlights on the very next save.
+ */
+function locateSection(lines, headingText) {
+  const all = locateSections(lines, headingText);
+  if (!all.length) return null;
+  const withPayload = all.find((at) => deserialize(lines.slice(at.start + 1, at.end).join("\n").trim()));
+  return withPayload || all[0];
 }
 
 /**
@@ -418,6 +457,46 @@ export function insertAboveManagedSection(noteContent, markdown) {
  * stops new exports being filed in the wrong place, but every export a user had already
  * sent is still sitting in the blast radius, waiting for their next highlight.
  */
+/**
+ * Collapse a note that has grown MORE THAN ONE managed section back to a single one.
+ *
+ * Returns null - the normal case - when the note has zero or one, so the caller keeps
+ * using the cheap section-scoped write.
+ *
+ * WHY THIS IS NEEDED AT ALL. Reported live: a note with two `# PDF Annotator data`
+ * headings, the first holding the JSON and the second empty, where every new highlight
+ * appeared to delete the previous one. Reads take the section that parses (locateSection);
+ * the app's own section-scoped write took the other. With reads and writes pointed at
+ * different sections, every save landed somewhere no load would ever look, so the viewer
+ * kept being handed the same stale list - and each save wrote that stale list plus one.
+ *
+ * Aiming the write more cleverly is not the fix, because which section
+ * `replaceNoteContent({ section })` picks is the app's decision, not ours. Removing the
+ * ambiguity is: one heading, and the question cannot be asked again.
+ *
+ * Everything that is not this plugin's own intro-and-fence is treated as the user's and
+ * lifted out above the surviving section, same as liftStrayContentAboveSection does for a
+ * single one. The surviving section goes LAST, which is where the design keeps it
+ * (insertAboveManagedSection depends on that).
+ */
+export function collapseManagedSections(noteContent, serializedBody) {
+  const lines = (noteContent || "").split("\n");
+  const all = locateSections(lines, STORAGE_SECTION_HEADING);
+  if (all.length < 2) return null;
+
+  const inSection = (i) => all.some((at) => i >= at.start && i < at.end);
+  const kept = lines.filter((_, i) => !inSection(i)).join("\n").replace(/\s+$/, "");
+  const strays = all
+    .map((at) => extractStray(lines.slice(at.start + 1, at.end).join("\n").trim()))
+    .filter(Boolean)
+    .join("\n\n");
+
+  const above = [kept, strays].filter(Boolean).join("\n\n");
+  return (
+    `${above ? above + "\n\n" : ""}# ${STORAGE_SECTION_HEADING}\n\n${serializedBody}`
+  );
+}
+
 export function liftStrayContentAboveSection(noteContent, serializedBody) {
   const lines = (noteContent || "").split("\n");
   const at = locateSection(lines, STORAGE_SECTION_HEADING);
