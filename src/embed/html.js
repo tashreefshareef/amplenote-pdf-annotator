@@ -330,7 +330,7 @@ export function buildEmbedHtml({
   </div>
   <!-- The filename used to have a whole row to itself here. It was removed: Amplenote's
        own attachment chip sits immediately above this embed carrying the SAME filename
-       (that is where insertViewer places the viewer, directly beneath its chip), so the
+       (annotatePdf places the viewer directly beneath its chip), so the
        row was showing the name a second time within about 30px of the first - visible on
        both desktop and phone. It cost a full row of the box on every screen to do it.
        The name is still on the collapsed bar, and now heads the overflow menu, so it is

@@ -422,12 +422,22 @@ several of these cost real debugging time (or a live, reported bug) on this one.
     - **Read, splice, whole-note `replaceNoteContent`.** What #10 enables. Costs a full
       round-trip of the user's entire note through `getNoteContent` -> string surgery ->
       write, so touch exactly one line and leave everything else byte-identical.
-    - **The `insertText` action** - the one genuinely cursor-positioned write. The user
-      types `{Plugin Name}` where they want the content and Amplenote substitutes the
-      action's return string for that expression in place. Easy to miss: it's one of 17
-      action types and reads like a text macro, but it's the only API that writes where
-      the user is pointing. Note the keyword defaults to the plugin's *name*; return a
-      string from `check` to override it.
+    - **The `insertText` action** - cursor-positioned, but it inserts TEXT, not note
+      source. The user types `{Plugin Name}` where they want the content and Amplenote
+      substitutes the action's return string for that expression in place. ⚠️ **CORRECTED
+      2026-08-16, reported live with a screenshot:** the substituted string is not parsed
+      as note content. Returning `<object data="plugin://...">` - the exact string that
+      renders as an embed when written through `insertNoteContent` - put the literal tag
+      text into the note, angle brackets and all. So this is a text macro after all, and
+      **an embed cannot be created through it**. Treat it as usable for plain text only
+      until proven otherwise for a given construct; markdown was not separately tested.
+      Note the keyword defaults to the plugin's *name*; return a string from `check` to
+      override it.
+
+      Which leaves **no safe way to put an embed where the cursor is**: the other route
+      above (read, splice, whole-note write) destroys a PDF attachment's registering
+      footnote (#17), so on any note holding the attachment you are embedding, it costs
+      the attachment.
 
 12. **An embed CANNOT resize itself, so anything that changes its height has to rewrite
     the note.** Amplenote's app-interface doc, verbatim: *"Embeds are fully isolated from

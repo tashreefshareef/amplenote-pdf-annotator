@@ -1390,6 +1390,47 @@ sit close together, can be flatly broken in the theme where they do not.
 
 ---
 
+## The same string rendered as an embed through one API and as literal text through another
+
+**Symptom:** typing `/pdf` offered two menu entries — one under NOTE OPTIONS, one under
+INSERT. The first inserted a working PDF viewer. The second dropped the raw text
+`<object data="plugin://4649cf10-…?att=752a694e-…" data-aspect-ratio="1" />` into the note,
+visible angle brackets and all.
+
+**Cause:** the two entries are two different Amplenote APIs, and the plugin handed them
+the *same* string. The note-menu action writes it with `insertNoteContent`, which parses
+it into an embed. The INSERT entry is the `insertText` action, where Amplenote substitutes
+the action's **return value** for the `{Plugin Name}` expression the user typed — and that
+substitution inserts text, not note source. The code assumed one confirmed rendering path
+generalized to the other; the comment above the return value even said so, calling the tag
+"the only shape confirmed to render", which was true of the API it had actually been
+tested through and of no other.
+
+**Fix:** the action is gone. Its entire purpose was cursor placement, and there is no safe
+way to deliver that: splicing an embed in at the expression's position needs a whole-note
+write, which destroys the footnote that registers the note's PDF attachment — the very
+attachment being embedded. With placement off the table it was a second, worse door to
+what the note-menu option already does. A test now asserts `plugin.insertText` is
+undefined, because it is one line to re-add and looks like an obvious win.
+
+**General lesson:** **"the platform renders this string" is a fact about one API, not about
+the platform.** Two entry points that both accept a string and both put it in the same
+document can still differ on whether that string is *content* or *source* — and the
+difference is invisible until you pass something with markup in it. Plain text round-trips
+identically through both, which is exactly why this kind of assumption survives testing.
+When reusing a payload across a second API, the question to ask is not "is this the right
+string" but "does this API parse, or does it escape" — and the cheapest way to find out is
+to send one character of markup through it and look.
+
+The corollary is about *why* the wrong assumption looked reasonable: the string had been
+verified live, carefully, with a comment recording that verification. What the comment
+didn't record was **which call** the verification went through. A note that says "confirmed
+working" is worth much less than one that says "confirmed working *via X*" — the scope of
+a verification is part of the finding, and dropping it is how a true observation becomes a
+false generalization.
+
+---
+
 ## Two identical headings, and every new highlight deleted the previous one
 
 **Symptom:** on ONE note, out of many: highlight a passage and it appears; click it and

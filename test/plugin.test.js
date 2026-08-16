@@ -44,37 +44,23 @@ describe("plugin object shape", () => {
     expect(typeof plugin.linkTarget).toBe("function");
   });
 
-  // Scenario: the cursor-positioned entry point. Declared as a bare function rather than
-  // a `{ keyword: fn }` map - `insertText(app)` with the keyword defaulting to the plugin
-  // name is the documented form, and Amplenote will not find the action if the shape is
-  // wrong.
-  test("exposes insertText as a plain function", () => {
-    expect(typeof plugin.insertText).toBe("function");
+  // Scenario: there must be NO insertText action. It existed to place a viewer at the
+  // cursor, and was removed after a live report: Amplenote substitutes the returned string
+  // as literal TEXT, so the embed tag arrived in the note as visible `<object ...>` markup
+  // instead of a viewer. Pinned as a test because the action is one line to re-add, reads
+  // like an obvious win, and fails in a way that looks like the plugin is broken.
+  test("declares no insertText action", () => {
+    expect(plugin.insertText).toBeUndefined();
   });
 
   // Scenario: Amplenote awaits actions; a sync action returning a non-promise breaks
   // error propagation.
-  test("note options, onEmbedCall, linkTarget and insertText are async", () => {
+  test("note options, onEmbedCall and linkTarget are async", () => {
     for (const fn of Object.values(plugin.noteOption)) {
       expect(fn.constructor.name).toBe("AsyncFunction");
     }
     expect(plugin.onEmbedCall.constructor.name).toBe("AsyncFunction");
     expect(plugin.linkTarget.constructor.name).toBe("AsyncFunction");
-    expect(plugin.insertText.constructor.name).toBe("AsyncFunction");
-  });
-});
-
-describe("insertText delegation", () => {
-  // Scenario: unlike noteOption, Amplenote hands insertText no note uuid - it has to come
-  // off app.context, and the markup is the RETURN value, not a note write.
-  test("reads the note from app.context and returns the markup", async () => {
-    const app = appFixture();
-    app.context.noteUUID = "note-1";
-
-    const result = await plugin.insertText(app);
-
-    expect(result).toContain(`plugin://${PLUGIN_UUID}?att=att-1`);
-    expect(app.insertNoteContent).not.toHaveBeenCalled();
   });
 });
 

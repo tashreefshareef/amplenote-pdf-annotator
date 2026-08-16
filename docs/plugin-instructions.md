@@ -24,8 +24,9 @@ by typing `/pdf annotator` anywhere in the note and picking **PDF Annotator: Ann
 PDF** from the list that pops up. Pick the attachment if the note has more than one; the
 viewer opens beneath it.
 
-(Prefer to place the viewer somewhere specific in the note instead of at the bottom? Type
-`{PDF Annotator}` at that spot.)
+The viewer opens directly beneath the PDF's own attachment chip. If you want it somewhere
+else, drag the viewer's block in the note — Amplenote gives a plugin no way to write at
+your cursor, so the plugin cannot place it for you.
 
 ### Highlight and annotate
 

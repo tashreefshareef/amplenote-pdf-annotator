@@ -10,7 +10,6 @@
  * into Amplenote - paste the build output.
  */
 import { annotatePdf } from "./actions/annotate-pdf.js";
-import { insertViewer } from "./actions/insert-viewer.js";
 import { linkTarget } from "./actions/link-target.js";
 import { handleEmbedCallSerialized } from "./embed-call.js";
 import { buildEmbedHtml } from "./embed/html.js";
@@ -27,18 +26,22 @@ const plugin = {
     },
   },
 
-  /**
-   * Typing `{PDF Annotator}` in a note drops a viewer at THAT spot, instead of appending
-   * to the bottom like the note-menu option must. Amplenote substitutes this return value
-   * for the expression in place - the only cursor-positioned write the API offers.
+  /*
+   * THERE IS NO `insertText` ACTION, and adding one back will not do what it looks like.
    *
-   * Declared as a bare function, not a `{ keyword: fn }` map: the documented form is
-   * `insertText(app)` with the keyword defaulting to the plugin's name, and the map form
-   * is unverified here.
+   * It existed to place a viewer at the cursor: the user typed `{PDF Annotator}` where
+   * they wanted it and Amplenote substituted this plugin's return string for that
+   * expression. Reported live with a screenshot - the returned `<object data="plugin://">`
+   * tag arrived in the note as LITERAL TEXT, tag and all, where the identical string
+   * written by "Annotate PDF" through `insertNoteContent` renders as a viewer.
+   *
+   * So `insertText` substitutes text, not note source, and an embed cannot be created
+   * through it. Placing one at the expression's position instead would need a whole-note
+   * write, which destroys the footnote registering the note's PDF attachment
+   * (docs/api-notes.md #17) - the very PDF the viewer is for. With cursor placement off
+   * the table the action had no purpose left that "Annotate PDF" does not already serve,
+   * so it is gone rather than kept as a second, worse door to the same room.
    */
-  insertText: async function (app) {
-    return insertViewer(app, app.context.noteUUID, app.context.pluginUUID);
-  },
 
   // Handles a CLICKED `plugin://` link (an exported highlight's deep link) - distinct
   // from renderEmbed, which only ever handles the <object> embed tag. See
