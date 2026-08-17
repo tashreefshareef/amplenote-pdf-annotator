@@ -245,12 +245,13 @@ from GitHub. This is why `dist/` is committed rather than gitignored, and why th
 contributing steps below ask you to rebuild before committing: `dist/plugin.js` on `main`
 *is* the sync endpoint.
 
-**One caveat.** Plugin Builder's own published `build/compiled.js` does not work when
-pasted into its own plugin note against real Amplenote — three separate incompatibilities,
-all of them silent. Paste
+**One caveat.** Pasting Plugin Builder's own published `build/compiled.js` into its own
+plugin note didn't work here — silently, with the Refresh action never appearing. Paste
 [`tools/plugin-builder-patched.js`](tools/plugin-builder-patched.js) into Plugin Builder's
-note instead; it fixes all three and changes nothing about the sync logic. See
-[what was wrong and why](docs/development.md#plugin-builder-compatibility).
+note instead; that's the combination verified against live Amplenote. Two of the three
+reasons originally given for it turned out to be wrong and are retracted in
+[the write-up](docs/development.md#plugin-builder-compatibility) — worth reading before
+relying on any of it.
 
 **Or paste by hand.** Copy the entire contents of **`dist/plugin-paste.js`** (not
 `plugin.js` — that one omits the final `return plugin` that Plugin Builder adds for you)

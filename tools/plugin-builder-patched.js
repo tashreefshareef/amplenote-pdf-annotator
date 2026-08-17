@@ -319,12 +319,18 @@
     async _syncUrlToNote(app, repoUrl, stripConsoleDebug = false) {
       const entryPoint = await this._entryPointFromUrl(app, repoUrl);
       if (entryPoint.url) {
-        // PATCH (not upstream): `app.notes.find(uuid)` returning a Note object with
-        // .content()/.replaceContent()/.insertContent() is not part of the real
-        // Amplenote app interface - verified directly against a live plugin action
-        // today. Real app has getNoteContent/replaceNoteContent/insertNoteContent
-        // taking a { uuid } handle. Every call in this function is rewritten to that
-        // surface; see docs/api-notes.md in tashreefshareef/amplenote-pdf-annotator.
+        // PATCH (not upstream) - AND THE REASON ORIGINALLY GIVEN FOR IT WAS WRONG.
+        // This comment used to claim `app.notes.find(uuid)`, returning a Note with
+        // .content()/.replaceContent()/.insertContent(), "is not part of the real
+        // Amplenote app interface". Checked against Amplenote's own reference on
+        // 2026-08-15: app.notes IS documented ("an alternative - and simpler - way to
+        // interact with specific notes"), app.notes.find is listed, and the Note
+        // interface has note.content, note.replaceContent and note.insertContent.
+        // Upstream was using a real, documented API.
+        //
+        // The rewrite to getNoteContent/replaceNoteContent with a { uuid } handle is
+        // kept only because THIS combination is what was tested against the live app.
+        // It is equivalent, not a fix. Safe to revert with a test note to hand.
         const noteHandle = { uuid: app.context.noteUUID };
         let noteContent = await app.getNoteContent(noteHandle);
         if (!await this._isAbleToSync(app, noteContent)) {
@@ -482,13 +488,19 @@ See plugin instructions for more detail.`);
     }
   };
 
-  // PATCH (not upstream): real Amplenote's noteOption dispatcher expects
-  // noteOption[label] to be directly callable as async function(app, noteUUID).
-  // This build's noteOption entries are { check, run } objects instead - a shape the
-  // production AI plugin (alloy-org/ai-plugin, the bounty T&C's own reference
-  // implementation) never uses for noteOption. Verified empirically: with this
-  // note active as a plugin and a "repo:" line present, no "Plugin Builder: Refresh"
-  // entry appeared in the note options menu at all - not disabled, absent.
+  // PATCH (not upstream) - AND THE REASON ORIGINALLY GIVEN FOR IT WAS WRONG TOO.
+  // This comment used to claim that a { check, run } entry is "silently skipped"
+  // because the dispatcher wants a plain callable. Checked against Amplenote's
+  // actions reference on 2026-08-15: "each action can optionally define a check
+  // function that will be called before displaying the plugin to the user."
+  // { check, run } is a documented, supported shape. The inference came from
+  // alloy-org/ai-plugin not using it, which is not evidence that it fails.
+  //
+  // The observation underneath was real: no "Plugin Builder: Refresh" entry appeared
+  // in the note options menu at all - not disabled, absent. But the cause was more
+  // likely the missing `return plugin` (see docs/development.md), which makes the
+  // whole plugin object undefined and would take every action with it. Rebinding is
+  // kept because it is what was tested, not because check/run is unsupported.
   // Fix: rebind each entry's .run to a plain function bound to `plugin`, since the
   // internal code depends on `this` referring to the plugin object (this._constants,
   // this._githubRepoUrl, etc.), not the { check, run } wrapper. .check is dropped;

@@ -76,33 +76,38 @@ containing `(() => {`, ending in `})();`, with a top-level `var plugin`. The bui
 asserts all three, because breaking them makes Plugin Builder silently fall back to its
 own import-inliner and write a corrupted code block.
 
-**Do not paste `alloy-org/plugin-builder`'s `build/compiled.js` into its own plugin note
-as-is — it will not work.** Verified directly against live Amplenote on 2026-08-06, two
-real bugs, both silent (no error, the "Refresh" action just never appears):
+**Pasting `alloy-org/plugin-builder`'s `build/compiled.js` into its own plugin note did
+not work here** — no error, the "Refresh" action simply never appeared. That symptom was
+real and is what `tools/plugin-builder-patched.js` came out of, on 2026-08-06.
 
-1. The raw file ends in `})();` with no `return plugin;` — Plugin Builder's own sync
-   logic is what's supposed to append that before writing to a target note, but pasting
-   the file manually into Plugin Builder's *own* note skips that step, so its code block
-   evaluates to `undefined` instead of a plugin object.
-2. Its `noteOption` entries are `{ check, run }` objects. Real Amplenote's dispatcher
-   expects `noteOption[label]` to be a plain callable `async function(app, noteUUID)` —
-   confirmed against `alloy-org/ai-plugin` (the production reference the bounty T&C
-   itself cites), which uses only plain functions, never `{ check, run }`, for
-   `noteOption`. An object value is silently skipped.
+**Two of the three explanations written down at the time were wrong, and are retracted
+below.** Checked against Amplenote's own reference on 2026-08-15:
 
-There's also a third, unrelated bug: `_syncUrlToNote`/`_isAbleToSync` call
-`app.notes.find(uuid)` returning a Note object with `.content()` / `.replaceContent()` /
-`.insertContent()` methods. That surface doesn't exist on the real `app` — the verified
-methods are `app.getNoteContent({uuid})`, `app.replaceNoteContent({uuid}, content, opts)`,
-`app.insertNoteContent({uuid}, content, opts)` (see [`api-notes.md`](api-notes.md)).
-Without a fix here, "Refresh" would appear in the menu but throw the moment it's clicked.
+- ~~`noteOption` entries must be plain callables; a `{ check, run }` object is silently
+  skipped.~~ **Wrong.** The actions reference states that "each action can optionally
+  define a `check` function that will be called before displaying the plugin to the
+  user." `check` is a documented, supported shape.
+- ~~`app.notes.find(uuid)` returning a Note with `.content()` / `.replaceContent()` /
+  `.insertContent()` "doesn't exist on the real `app`".~~ **Wrong.** `app.notes` is
+  documented as "an alternative — and simpler — way to interact with specific notes",
+  `app.notes.find` is listed, and the Note interface has `note.content`,
+  `note.replaceContent` and `note.insertContent`. Plugin Builder was using a real API.
 
-A patched build with all three fixes is committed at
-[`tools/plugin-builder-patched.js`](../tools/plugin-builder-patched.js) — paste **that**
-into Plugin Builder's own note instead of the upstream file. It changes nothing about
-Plugin Builder's actual sync logic; every change is a compatibility shim between its
-code and the real Amplenote API, isolated in clearly marked `PATCH (not upstream)`
-comments so a future upstream update is easy to diff against.
+The remaining explanation is the plausible one and has **not** been re-tested in
+isolation: the compiled file ends in `})();` with no `return plugin;`. Plugin Builder's
+own sync logic appends that before writing to a target note, and pasting the file by hand
+into Plugin Builder's *own* note skips that step, so the code block evaluates to
+`undefined` rather than a plugin object. That would produce exactly the observed silence.
+
+**So treat the patched build as: it works, and one of the three reasons for it stands
+up.** The other two patches changed working code to different working code. They are left
+in place because that combination is what was actually tested against the live app, not
+because the originals were broken — reverting them is safe cleanup for someone with a
+test note to hand, not something to do blind before a release.
+
+The wider lesson is in [`api-notes.md`](api-notes.md): a real symptom will happily accept
+a wrong explanation, and three fixes shipped together means none of them was tested. Fix
+one thing, confirm, then fix the next.
 
 ## Layout
 
