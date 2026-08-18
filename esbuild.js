@@ -195,8 +195,10 @@ if (problems.length) {
   process.exit(1);
 }
 
-// Amplenote rejects note content over 100k characters, and Plugin Builder checks the
-// same limit before writing.
+// NOT a limit on what a note can hold - a note takes at least 250k (measured; see
+// api-notes #2). This is the cap on `replaceContent`, which is how Plugin Builder syncs,
+// so it is the ceiling on THIS project's deployment path. Exceeding it would mean giving
+// up sync and pasting dist/plugin-paste.js by hand every release.
 const MAX_NOTE_CHARS = 100_000;
 if (pasteOutput.length > MAX_NOTE_CHARS) {
   console.error(`Build failed: output is ${pasteOutput.length} chars, over Amplenote's ${MAX_NOTE_CHARS} limit.`);

@@ -17,18 +17,37 @@ Everything below is detailed further down in this file or in `docs/bugs-found.md
 is the scannable index specifically for a **different** plugin project, written up after
 several of these cost real debugging time (or a live, reported bug) on this one.
 
-1. **A large, unminified plugin code block can hang the browser just to OPEN the plugin
-   note - well before Amplenote's 100k-character hard cap.** Reported live: opening the
-   plugin definition note (Plugin Builder's sync target, separate from any note embedding
-   the plugin's UI) froze the entire tab for 3-4 minutes, every time, at 92,625 characters
-   (93% of the cap) as one 2000+-line unminified block. Minifying the build (`esbuild`'s
-   `minify: true`) cut it to 52,780 characters and fixed it. **Don't treat "under 100k" as
-   "safe" - treat the cap as "won't outright fail," and minify regardless**, unless you
-   have a specific reason to want the pasted code human-readable (and even then, weigh it
-   against this cost, paid on every open). Verify a minified build still evaluates
-   correctly and preserves whatever contract your sync tooling expects (Plugin Builder's
-   is documented under "dist/plugin.js is the sync target" below) - don't just eyeball a
-   smaller file size.
+1. **An unminified plugin code block can hang the browser just to OPEN the plugin note -
+   and the cost is TOKENIZATION, not size.** Reported live: opening the plugin definition
+   note (Plugin Builder's sync target, separate from any note embedding the plugin's UI)
+   froze the entire tab for 3-4 minutes, every time, at 92,625 characters as one
+   2000+-line unminified block. Minifying the build (`esbuild`'s `minify: true`) cut it
+   sharply - but did not eliminate it, which is the part the original entry got wrong.
+
+   **The original explanation here said "large," and that was wrong.** Measured 2026-08-18
+   with three payloads pasted into scratch notes:
+
+   | Payload | Characters | Lines | Time to open |
+   |---|---|---|---|
+   | Trivial comment lines (`// MARKER nnnnnn ....`) | 250,000 | 5,000 | instant |
+   | This plugin, `minify: false` | 196,198 | 4,251 | ~60 seconds |
+   | This plugin, `minify: true` (what ships) | 95,778 | 161 | ~15 seconds |
+
+   Fewer characters and fewer lines, sixty times slower. Neither character count nor line
+   count predicts it; what costs is syntax-highlighting real JS - nested template literals
+   holding HTML and CSS, regexes, long strings. A big note of simple content is free; a
+   medium note of dense code is not.
+
+   **Note what the third row says: minification did not FIX this, it bought about 45
+   seconds.** Halving the characters cut the hang roughly fourfold, so the cost rises
+   faster than linearly in how much real code is on the page - and the plugin note still
+   costs 15 seconds to open, every time, at the size this plugin ships today. Treat that
+   as the practical ceiling for a plugin of this shape, well below any character cap.
+   **Minify regardless, but do not expect it to buy more than one doubling of headroom.**
+
+   Verify a minified build still evaluates correctly and preserves whatever contract your
+   sync tooling expects (Plugin Builder's is documented under "dist/plugin.js is the sync
+   target" below) - don't just eyeball a smaller file size.
 
 2. **`window.confirm()` / `alert()` / `prompt()` - the browser-native ones, not
    `app.confirm`/`app.alert`/`app.prompt` - are unreliable inside the embed iframe.**
@@ -845,8 +864,15 @@ string. `app.context.noteUUID` is a bare string, so wrap it: `{ uuid: app.contex
 would have thrown at runtime inside the sandbox — with the embed's console as the only
 clue. Use `app.alert` for user messaging. Removed from the mock.
 
-**2. Note content is capped at 100k characters.** Both `insertNoteContent` and
-`replaceNoteContent` throw above it. This is a real constraint on the persistence
+**2. The 100k character cap is on the WRITE METHODS, not on note storage.** Both
+`insertNoteContent` and `replaceNoteContent` throw above it - but a note itself holds far
+more. Verified 2026-08-18: 250,000 characters pasted by hand into a note saved and
+survived a reload intact. Plugin Builder enforces the same 100k limit before syncing
+(`MAX_REPLACE_CONTENT_LENGTH = 1e5` in its own source) and its alert names the two ways
+out: paste the code block manually, or email support to request an increase. The existence
+proof is `Ample Copilot`, a published plugin whose code block is 700,124 characters,
+unminified. **So "under 100k" is a constraint on the API and on Plugin Builder sync, not
+on what Amplenote can store.** This is a real constraint on the persistence
 design (spec §7.4): the annotation JSON shares that budget with the user's own note
 content. Rough math — a highlight with rects plus quote text runs a few hundred bytes
 of JSON, so a heavily annotated long PDF could approach the cap. **Open design question
