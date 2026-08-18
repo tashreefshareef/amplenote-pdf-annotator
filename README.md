@@ -281,6 +281,10 @@ an account of what went wrong along the way in
    lesson stripped of anything Amplenote-specific. Amplenote-platform-only findings
    (API signatures, sandbox quirks) go in `docs/api-notes.md` instead.
 
+Then open a pull request. If you would rather just report something than fix it — a bug,
+a device the viewer misbehaves on, or a correction to `docs/api-notes.md` — an issue is
+just as welcome.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
