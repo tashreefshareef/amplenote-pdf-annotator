@@ -1,6 +1,6 @@
 {
   "name": "amplenote-pdf-annotator",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Amplenote plugin: highlight and annotate PDFs attached to notes, with native PDF annotations and export back into Amplenote.",
   "type": "module",
   "license": "MIT",

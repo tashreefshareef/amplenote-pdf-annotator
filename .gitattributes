@@ -1,2 +1,5 @@
 # Git hooks are run through sh; CRLF breaks the shebang on checkout.
 .githooks/** text eol=lf
+
+# Build output. Collapsed in diffs and excluded from language stats - the source is src/.
+dist/** linguist-generated=true
