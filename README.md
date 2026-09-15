@@ -1,4 +1,7 @@
-# Amplenote PDF Annotator
+# Annotate and Highlight PDFs
+
+*Formerly "PDF Annotator" — renamed in September 2026. Notes created before the rename
+keep their `PDF Annotator data` heading; see [below](#the-data-section-in-your-note).*
 
 An [Amplenote](https://www.amplenote.com) plugin for highlighting and annotating PDFs
 attached to a note. Select text in a PDF, highlight it in one of four colors, attach a
@@ -56,8 +59,8 @@ somewhere to store it:
 | setting | Highlight colors |
 |---|---|
 
-**Or by hand:** the same value is editable as text in Account Settings → Plugins → PDF
-Annotator, since the picker writes exactly what you would have typed:
+**Or by hand:** the same value is editable as text in Account Settings → Plugins → Annotate
+and Highlight PDFs, since the picker writes exactly what you would have typed:
 
 ```
 purple, pink, mint, sky
@@ -80,17 +83,24 @@ Two things worth knowing:
 - **Four is the cap.** Extra names are ignored rather than honoured; a fifth circle wraps
   the toolbar onto a second row on a phone.
 
-## The "PDF Annotator data" section in your note
+## The data section in your note
 
 A plugin gets no database of its own, so every mark and note is written back into the
-note the PDF is attached to, under a **PDF Annotator data** heading the plugin adds
-itself. It holds a block of JSON keyed by attachment, so several PDFs on one note don't
+note the PDF is attached to, under an **Annotate and Highlight PDFs data** heading the
+plugin adds itself. It holds a block of JSON keyed by attachment, so several PDFs on one note don't
 collide, and it is labelled *"safe to ignore, don't edit"* in the note itself.
 
 That label is literal. Editing or deleting the block resets or corrupts every mark and
 note stored in it the next time one is saved. It always sits at the very bottom — "Send
 to note" and every exported block are written just above it — so it stays out of the way
 of your own writing rather than splitting it in half.
+
+A note first annotated before the rename has a **PDF Annotator data** heading instead,
+and keeps it: the plugin reads and writes that heading as before and never adds a second
+one. It isn't renamed for you because Amplenote can only change a heading by rewriting the
+whole note, and doing that loses the PDF attachment's registration
+([`docs/api-notes.md`](docs/api-notes.md) #17). Don't rename it yourself either — the
+line under it updates to the new name on its own the next time you save a highlight.
 
 Worth knowing before you install rather than discovering after: the plugin does add
 visible content to your note, and it isn't a bug.

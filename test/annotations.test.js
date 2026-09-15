@@ -176,7 +176,7 @@ describe("writeHighlightsIntoPdf", () => {
 
     expect(dict.get(PDFLib.PDFName.of("CA")).asNumber()).toBe(1);
     expect(dict.get(PDFLib.PDFName.of("F")).asNumber()).toBe(4);
-    expect(dict.get(PDFLib.PDFName.of("T")).asString()).toBe("PDF Annotator");
+    expect(dict.get(PDFLib.PDFName.of("T")).asString()).toBe("Annotate and Highlight PDFs");
   });
 
   // Scenario: THE trap the spike exists to prevent (finding 2) - a highlight with a

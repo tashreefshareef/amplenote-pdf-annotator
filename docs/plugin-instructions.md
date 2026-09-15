@@ -20,8 +20,8 @@ highlight — and export it all back into Amplenote as linked, colored quotes.
 ### Open a PDF
 
 Attach a PDF to a note, then run **Annotate PDF** — either from the note's **⋯** menu, or
-by typing `/pdf annotator` anywhere in the note and picking **PDF Annotator: Annotate
-PDF** from the list that pops up. Pick the attachment if the note has more than one; the
+by typing `/annotate` anywhere in the note and picking **Annotate and Highlight PDFs:
+Annotate PDF** from the list that pops up. Pick the attachment if the note has more than one; the
 viewer opens beneath it.
 
 The viewer opens directly beneath the PDF's own attachment chip. If you want it somewhere
@@ -56,7 +56,7 @@ your cursor, so the plugin cannot place it for you.
 - **Copy** puts a highlight on your clipboard as a colored Amplenote quote, ready to
   paste anywhere.
 - **Send to note** appends that same quote to the bottom of the current note — below
-  anything you've written, above the "PDF Annotator data" section described below, which
+  anything you've written, above the plugin's data section described below, which
   always stays last.
 - **Export all** (⋮ menu) builds a new "*\<PDF name\>* - Highlights" note containing
   every highlight, optionally filtered to one color.
@@ -67,11 +67,13 @@ Each exported highlight is a colored link back to the PDF, the quoted text, and 
 note if you left one — click the small icon at the end of the link (not the text itself
 — that's how Amplenote links work) to jump back to the exact page and position.
 
-### What's the "PDF Annotator data" section?
+### What's the "Annotate and Highlight PDFs data" section?
 
 Amplenote plugins have no database of their own, so every highlight and note you create
-is written back into the PDF's own note, under a "PDF Annotator data" heading the plugin
-adds automatically. It holds a block of JSON, not meant to be read — that's your
+is written back into the PDF's own note, under an "Annotate and Highlight PDFs data"
+heading the plugin adds automatically. (Notes annotated before the plugin was renamed
+keep their older "PDF Annotator data" heading. It works exactly the same, so leave it
+as it is.) It holds a block of JSON, not meant to be read — that's your
 highlights, keyed by which PDF they belong to so several PDFs on one note don't collide.
 
 It's labeled *"safe to ignore, don't edit"* for a real reason: editing or deleting it

@@ -8,7 +8,7 @@
  * to a note, the section doesn't exist yet, so save() creates it via insertNoteContent
  * before replacing.
  */
-import { STORAGE_SECTION_HEADING } from "./constants.js";
+import { MANAGED_SECTION_HEADINGS, PLUGIN_NAME, STORAGE_SECTION_HEADING } from "./constants.js";
 import { createHighlight } from "./highlights.js";
 
 const FENCE_LANG = "json";
@@ -25,8 +25,12 @@ const EXPORT_NOTES_KEY = "__exportNotes";
 // A one-line, visible label above the fence, so the section reads as "plugin-managed
 // data" at a glance instead of an unexplained code block. Plain text, no JSON inside it,
 // so it carries none of the corruption risk described on serialize().
-const SECTION_INTRO =
-  "*Managed automatically by the PDF Annotator plugin - safe to ignore, don't edit.*";
+const SECTION_INTRO = `*Managed automatically by the ${PLUGIN_NAME} plugin - safe to ignore, don't edit.*`;
+// Intros earlier versions wrote. Recognized so extractStray doesn't mistake one for the
+// user's own content and lift it out of an old note's section; the next save replaces it.
+const LEGACY_SECTION_INTROS = [
+  "*Managed automatically by the PDF Annotator plugin - safe to ignore, don't edit.*",
+];
 
 /**
  * Wrap the payload in a fenced code block so it round-trips through Amplenote's editor
@@ -106,7 +110,7 @@ function sanitizeHighlights(list) {
  */
 export async function loadHighlights(app, noteUUID, attachmentUUID) {
   const content = await app.getNoteContent({ uuid: noteUUID });
-  const section = extractSection(content, STORAGE_SECTION_HEADING);
+  const section = extractSection(content, MANAGED_SECTION_HEADINGS);
   const payload = deserialize(section);
   if (!payload || typeof payload !== "object") return [];
   return sanitizeHighlights(payload[attachmentUUID]);
@@ -128,7 +132,10 @@ async function mutatePayload(app, noteUUID, mutate) {
   const noteHandle = { uuid: noteUUID };
   const content = await app.getNoteContent(noteHandle);
   assertOneManagedSection(content);
-  const section = extractSection(content, STORAGE_SECTION_HEADING);
+  const section = extractSection(content, MANAGED_SECTION_HEADINGS);
+  // Write under whichever heading the note already has: an older note keeps "PDF Annotator
+  // data" for good (see LEGACY_STORAGE_SECTION_HEADINGS on why it is never renamed).
+  const heading = managedHeadingIn(content);
   const existing = deserialize(section) || {};
 
   const payload = mutate(existing);
@@ -155,7 +162,7 @@ async function mutatePayload(app, noteUUID, mutate) {
   }
 
   await app.replaceNoteContent(noteHandle, body, {
-    section: { heading: { text: STORAGE_SECTION_HEADING, level: 1 } },
+    section: { heading: { text: heading, level: 1 } },
   });
 }
 
@@ -218,7 +225,7 @@ export async function deleteHighlights(app, noteUUID, attachmentUUID) {
  */
 export async function loadExportNoteUUID(app, noteUUID, attachmentUUID) {
   const content = await app.getNoteContent({ uuid: noteUUID });
-  const payload = deserialize(extractSection(content, STORAGE_SECTION_HEADING));
+  const payload = deserialize(extractSection(content, MANAGED_SECTION_HEADINGS));
   if (!payload || typeof payload !== "object") return null;
   const pointers = payload[EXPORT_NOTES_KEY];
   if (!pointers || typeof pointers !== "object") return null;
@@ -270,20 +277,22 @@ export async function writeSection(app, noteUUID, headingText, body) {
 }
 
 /**
- * EVERY level-1 heading with this text, each as { start, end }, mirroring the section
- * semantics `replaceNoteContent`'s `section` option relies on.
+ * EVERY level-1 heading with this text, each as { start, end, text }, mirroring the section
+ * semantics `replaceNoteContent`'s `section` option relies on. `headingText` may be a list,
+ * for the managed section's current and legacy names.
  *
  * Plural because a note CAN end up with two of them - confirmed live, from a note whose
  * highlights kept disappearing (see locateSection and collapseManagedSections).
  */
 function locateSections(lines, headingText) {
+  const texts = [].concat(headingText);
   const headingRe = /^#\s+(.*)$/;
   const found = [];
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(headingRe);
-    if (!m || m[1].trim() !== headingText) continue;
+    if (!m || !texts.includes(m[1].trim())) continue;
     if (found.length) found[found.length - 1].end = i;
-    found.push({ start: i, end: lines.length });
+    found.push({ start: i, end: lines.length, text: m[1].trim() });
   }
   // Each section ends at the next heading of ANY name, not just a repeat of this one.
   for (const at of found) {
@@ -301,7 +310,7 @@ function locateSections(lines, headingText) {
  * THE managed section - the one holding the payload, when a note has more than one
  * heading by this name. Returns null if the heading isn't in the note at all.
  *
- * A note really can grow a second `# PDF Annotator data` heading: reported live from a
+ * A note really can grow a second managed heading: reported live from a
  * note where every new highlight replaced the previous one. The note held two, the first
  * carrying the JSON and the second empty. Reads came from the first (this function, first
  * match) while the app's own section-scoped WRITE went elsewhere, so every save landed in
@@ -318,6 +327,18 @@ function locateSection(lines, headingText) {
   if (!all.length) return null;
   const withPayload = all.find((at) => deserialize(lines.slice(at.start + 1, at.end).join("\n").trim()));
   return withPayload || all[0];
+}
+
+/** The heading text this note's managed section carries, or the current one if it has none. */
+function managedHeadingIn(noteContent) {
+  const at = locateSection((noteContent || "").split("\n"), MANAGED_SECTION_HEADINGS);
+  return at ? at.text : STORAGE_SECTION_HEADING;
+}
+
+/** Is this line the managed section's heading, under its current name or a legacy one? */
+export function isManagedHeadingLine(line) {
+  const m = String(line).match(/^#\s+(.*)$/);
+  return !!m && MANAGED_SECTION_HEADINGS.includes(m[1].trim());
 }
 
 /**
@@ -349,7 +370,7 @@ function extractStray(sectionContent) {
   if (fenced) rest = rest.replace(fenced[0], "");
   // The short-lived hidden-comment format, in case an old note is being repaired.
   rest = rest.replace(/<!--\s*PDFA-DATA[\s\S]*?-->/, "");
-  rest = rest.replace(SECTION_INTRO, "");
+  for (const intro of [SECTION_INTRO, ...LEGACY_SECTION_INTROS]) rest = rest.replace(intro, "");
   return rest.trim();
 }
 
@@ -387,7 +408,7 @@ function hasExportedBlock(noteContent, pluginUUID) {
  */
 function alreadySeparated(noteContent) {
   const lines = noteContent.split("\n");
-  let limit = lines.findIndex((line) => line.trim() === `# ${STORAGE_SECTION_HEADING}`);
+  let limit = lines.findIndex(isManagedHeadingLine);
   if (limit === -1) limit = lines.length;
   for (let i = limit - 1; i >= 0; i--) {
     const text = lines[i].trim();
@@ -427,7 +448,7 @@ export function withExportSeparator(noteContent, markdown, pluginUUID) {
  */
 export function insertAboveManagedSection(noteContent, markdown) {
   const lines = (noteContent || "").split("\n");
-  const at = locateSection(lines, STORAGE_SECTION_HEADING);
+  const at = locateSection(lines, MANAGED_SECTION_HEADINGS);
   if (!at) return null;
 
   const before = lines.slice(0, at.start).join("\n").replace(/\s+$/, "");
@@ -471,10 +492,14 @@ export function insertAboveManagedSection(noteContent, markdown) {
  * a save that lands anywhere.
  */
 function assertOneManagedSection(noteContent) {
-  const count = locateSections((noteContent || "").split("\n"), STORAGE_SECTION_HEADING).length;
+  const found = locateSections((noteContent || "").split("\n"), MANAGED_SECTION_HEADINGS);
+  const count = found.length;
   if (count < 2) return;
+  // Name the headings actually in the note: an old note has "PDF Annotator data", and one
+  // holding both an old and a new heading needs both named to be fixable.
+  const names = [...new Set(found.map((at) => `"${at.text}"`))].join(" and ");
   throw new Error(
-    `this note has ${count} "${STORAGE_SECTION_HEADING}" headings, so highlights cannot be ` +
+    `this note has ${count} ${names} headings, so highlights cannot be ` +
       `saved reliably. Delete the empty one - keep the heading whose code block holds the ` +
       `JSON - and try again.`
   );
@@ -482,7 +507,7 @@ function assertOneManagedSection(noteContent) {
 
 export function liftStrayContentAboveSection(noteContent, serializedBody) {
   const lines = (noteContent || "").split("\n");
-  const at = locateSection(lines, STORAGE_SECTION_HEADING);
+  const at = locateSection(lines, MANAGED_SECTION_HEADINGS);
   if (!at) return null;
 
   const stray = extractStray(lines.slice(at.start + 1, at.end).join("\n").trim());

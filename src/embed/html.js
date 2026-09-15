@@ -35,6 +35,7 @@ import {
   DEFAULT_TOOLBAR_COLOR_IDS,
   MARK_STYLES,
   DEFAULT_MARK_STYLE,
+  PLUGIN_NAME,
 } from "../constants.js";
 import { defaultColorIdFor } from "../colors.js";
 // Its own module so the build can minify it - see the header there. Jest imports this
@@ -209,7 +210,7 @@ export function buildEmbedHtml({
 <style>:root{${theme}}${STYLES}</style>
 <div id="pdfa-root"${collapsed ? ' class="pdfa-collapsed-mode"' : ""}>
   <div class="pdfa-collapsed">
-    <span class="pdfa-brand" title="PDF Annotator plugin">PDF Annotator</span>
+    <span class="pdfa-brand" title="${PLUGIN_NAME} plugin">${PLUGIN_NAME}</span>
     <span class="pdfa-collapsed-name">${escapeHtml(attachmentName)}</span>
     <span class="pdfa-spacer"></span>
     <span class="pdfa-collapsed-count" id="pdfa-collapsed-count"></span>

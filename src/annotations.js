@@ -294,7 +294,9 @@ export function createAnnotationWriter() {
       C: pdfDoc.context.obj(rgbTriple),
       // Printable, and what makes the annotation show up in a reader's comment panel.
       F: PDFLib.PDFNumber.of(4),
-      T: PDFLib.PDFString.of("PDF Annotator"),
+      // The plugin's name (constants.js PLUGIN_NAME) - literal, since this function is
+      // serialized into the embed and cannot import.
+      T: PDFLib.PDFString.of("Annotate and Highlight PDFs"),
       M: PDFLib.PDFString.of(new Date().toISOString()),
       CA: PDFLib.PDFNumber.of(FILL_ALPHA),
     });

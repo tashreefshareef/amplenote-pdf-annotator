@@ -263,7 +263,7 @@ describe("buildEmbedHtml", () => {
   test("labels itself so it cannot be confused with Amplenote's built-in PDF preview", () => {
     const out = html();
     expect(out).toContain("pdfa-brand");
-    expect(out).toContain(">PDF Annotator<");
+    expect(out).toContain(">Annotate and Highlight PDFs<");
   });
 
   // Scenario: reported live, with screenshots of the embed sitting under Amplenote's own

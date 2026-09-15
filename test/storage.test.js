@@ -14,9 +14,10 @@ import {
   deleteHighlights,
   loadExportNoteUUID,
   saveExportNoteUUID,
+  insertAboveManagedSection,
 } from "../src/storage.js";
 import { createHighlight } from "../src/highlights.js";
-import { STORAGE_SECTION_HEADING } from "../src/constants.js";
+import { LEGACY_STORAGE_SECTION_HEADINGS, STORAGE_SECTION_HEADING } from "../src/constants.js";
 import { createMockApp } from "./helpers.js";
 
 const NOTE = "note-1";
@@ -516,5 +517,83 @@ describe("repairing a section that swallowed the user's content", () => {
     expect(final).toContain("trailing text");
     expect(final).toContain("# Afterwards");
     expect(final.indexOf(`# ${STORAGE_SECTION_HEADING}`)).toBeLessThan(final.indexOf("# Afterwards"));
+  });
+});
+
+describe("a note saved before the plugin was renamed", () => {
+  /**
+   * The plugin used to be "PDF Annotator", and every note it wrote to carries that
+   * heading. The heading is never renamed in place - that takes a whole-note write, which
+   * destroys the PDF's attachment registration (api-notes.md #17) - so these notes have to
+   * keep working under their old heading indefinitely.
+   */
+  const LEGACY = LEGACY_STORAGE_SECTION_HEADINGS[0];
+  const OLD_INTRO = "*Managed automatically by the PDF Annotator plugin - safe to ignore, don't edit.*";
+  const legacyNote = (payload) =>
+    `# My reading\n\nsome text\n\n# ${LEGACY}\n\n${OLD_INTRO}\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``;
+  const headingLines = (content) => content.split("\n").filter((l) => /^#\s/.test(l));
+
+  // Scenario: an existing user opens a PDF after updating - their highlights must be there.
+  test("loads highlights stored under the old heading", async () => {
+    const h = sampleHighlight();
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: legacyNote({ [ATT_A]: [h] }) }] });
+
+    expect(await loadHighlights(app, NOTE, ATT_A)).toEqual([h]);
+  });
+
+  // Scenario: THE failure this guards against - a save on an old note creating a second,
+  // new-named section. The next load would still read the old one, and every later save
+  // would be refused as a duplicate.
+  test("saves under the old heading without adding the new one", async () => {
+    const first = sampleHighlight({ id: "hl-first" });
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: legacyNote({ [ATT_A]: [first] }) }] });
+
+    await saveHighlights(app, NOTE, ATT_A, [first, sampleHighlight({ id: "hl-second" })]);
+
+    const content = app._notes.get(NOTE).content;
+    expect(headingLines(content)).toEqual(["# My reading", `# ${LEGACY}`]);
+    expect((await loadHighlights(app, NOTE, ATT_A)).map((h) => h.id)).toEqual(["hl-first", "hl-second"]);
+  });
+
+  // Scenario: the one part of the old name that CAN change safely - the intro line is
+  // section content, so the normal section-scoped save replaces it. It must be replaced,
+  // not treated as the user's own text and lifted above the section by the rescue path.
+  test("updates the intro line to the new name, without lifting the old one out", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: legacyNote({}) }] });
+
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+
+    const content = app._notes.get(NOTE).content;
+    expect(content).not.toContain("PDF Annotator plugin");
+    expect(content).toContain("Managed automatically by the Annotate and Highlight PDFs plugin");
+  });
+
+  // Scenario: a brand-new note gets only the new heading.
+  test("creates the new heading on a note that has neither", async () => {
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: "# Title\nhello" }] });
+
+    await saveHighlights(app, NOTE, ATT_A, [sampleHighlight()]);
+
+    const content = app._notes.get(NOTE).content;
+    expect(content).toContain(`# ${STORAGE_SECTION_HEADING}`);
+    expect(content).not.toContain(`# ${LEGACY}`);
+  });
+
+  // Scenario: a note holding one of each (a user retyped the heading, or pasted between
+  // notes) is the duplicate case under two names - still refused, with both named.
+  test("refuses to save when the note has an old and a new heading", async () => {
+    const before = `${legacyNote({ [ATT_A]: [] })}\n\n# ${STORAGE_SECTION_HEADING}\n`;
+    const app = createMockApp({ notes: [{ uuid: NOTE, name: "N", content: before }] });
+
+    await expect(saveHighlights(app, NOTE, ATT_A, [sampleHighlight()])).rejects.toThrow(
+      /"PDF Annotator data" and "Annotate and Highlight PDFs data" headings/
+    );
+    expect(app._notes.get(NOTE).content).toBe(before);
+  });
+
+  // Scenario: "Send to note" on an old note must land above the old section, keeping it last.
+  test("inserts sent content above the old heading", () => {
+    const out = insertAboveManagedSection(legacyNote({}), "> sent quote");
+    expect(out.indexOf("> sent quote")).toBeLessThan(out.indexOf(`# ${LEGACY}`));
   });
 });

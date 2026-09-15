@@ -157,7 +157,7 @@ const version = JSON.parse(readFileSync("package.json", "utf8")).version;
  * into the code block by hand when sync isn't set up.
  */
 const body = `(() => {
-  // Amplenote PDF Annotator - v${version}
+  // Annotate and Highlight PDFs (Amplenote plugin) - v${version}
   // GENERATED FILE - do not edit. Edit src/ and run \`npm run build\`.
 ${bundled}
   var plugin = __pluginModule.default;`;

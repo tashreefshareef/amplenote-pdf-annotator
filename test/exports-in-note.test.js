@@ -16,7 +16,7 @@ import {
   removeExportBlock,
   replaceExportBlock,
 } from "../src/exports-in-note.js";
-import { STORAGE_SECTION_HEADING } from "../src/constants.js";
+import { LEGACY_STORAGE_SECTION_HEADINGS, STORAGE_SECTION_HEADING } from "../src/constants.js";
 
 const PLUG = "plug-1";
 const ATT = "att-1";
@@ -176,6 +176,18 @@ describe("removeExportBlock", () => {
     // The managed section itself is untouched - it is not this function's business.
     expect(out).toContain(`# ${STORAGE_SECTION_HEADING}`);
     expect(out).toContain("```json");
+  });
+
+  // Scenario: a note saved before the rename still has the OLD managed heading, and the
+  // separator logic has to recognize it as the section's start just the same.
+  test("takes the separator above an old-named managed section too", () => {
+    const content = ["# Notes", "before", "", "---", "", block("hl-a"), "",
+      `# ${LEGACY_STORAGE_SECTION_HEADINGS[0]}`, "", "```json", "{}", "```"].join("\n");
+
+    const out = removeExportBlock(content, PLUG, ATT, "hl-a");
+
+    expect(out).not.toContain("---");
+    expect(out).toContain(`# ${LEGACY_STORAGE_SECTION_HEADINGS[0]}`);
   });
 
   // Scenario: the same rule must NOT eat a horizontal rule the user wrote themselves

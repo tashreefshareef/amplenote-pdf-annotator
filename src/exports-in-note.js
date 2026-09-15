@@ -29,7 +29,7 @@
  * so it ends at the first line that is neither a blockquote line nor blank-inside-the-
  * quote. Plain functions over strings apart from one constant, so it stays unit-testable.
  */
-import { STORAGE_SECTION_HEADING } from "./constants.js";
+import { isManagedHeadingLine } from "./storage.js";
 
 /** A blockquote line, i.e. part of the block's body rather than the note around it. */
 function isQuoteLine(line) {
@@ -139,7 +139,7 @@ export function removeExportBlock(noteContent, pluginUUID, attachmentUUID, highl
  * their note - with their own text after it - out of scope.
  */
 function dropTrailingSeparator(lines) {
-  let limit = lines.findIndex((line) => line.trim() === `# ${STORAGE_SECTION_HEADING}`);
+  let limit = lines.findIndex(isManagedHeadingLine);
   if (limit === -1) limit = lines.length;
 
   for (let i = limit - 1; i >= 0; i--) {

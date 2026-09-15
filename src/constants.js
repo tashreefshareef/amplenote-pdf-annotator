@@ -115,8 +115,32 @@ export const MARK_STYLES = [
 /** What a mark with no recorded shape is. See MARK_STYLES on why it cannot change. */
 export const DEFAULT_MARK_STYLE = MARK_STYLES[0].id;
 
-/** Marker for the managed note section that stores annotation JSON (spec section 7.4). */
-export const STORAGE_SECTION_HEADING = "PDF Annotator data";
+/** The plugin's display name - the collapsed bar, the managed section's intro line, and
+ * the author field on annotations written into a downloaded PDF. The plugin note's own
+ * name row is what Amplenote lists and prefixes action names with; keep the two equal. */
+export const PLUGIN_NAME = "Annotate and Highlight PDFs";
+
+/** Marker for the managed note section that stores annotation JSON (spec section 7.4).
+ * Only ever CREATED under this text; see LEGACY_STORAGE_SECTION_HEADINGS for older notes. */
+export const STORAGE_SECTION_HEADING = `${PLUGIN_NAME} data`;
+
+/**
+ * Managed-section headings written by earlier versions, still read and written in place.
+ *
+ * The plugin was renamed from "PDF Annotator" (2026-09, a trademark request from
+ * Amplenote). Existing notes keep their old heading FOREVER, deliberately: changing a
+ * heading line needs a whole-note write - a section-scoped write replaces only what is
+ * under the heading - and a whole-note write destroys the footnote that registers the PDF
+ * attachment (api-notes.md #17). Every note carrying this section has a PDF on it, so
+ * migrating the heading would trade the user's attachment for a cosmetic rename.
+ *
+ * The intro line under the heading IS section-scoped content, so it picks up the new name
+ * on that note's next save.
+ */
+export const LEGACY_STORAGE_SECTION_HEADINGS = ["PDF Annotator data"];
+
+/** Every heading text a managed section may carry, current first. */
+export const MANAGED_SECTION_HEADINGS = [STORAGE_SECTION_HEADING, ...LEGACY_STORAGE_SECTION_HEADINGS];
 
 /**
  * The heading "Export all" writes its blocks under, inside the destination note.
